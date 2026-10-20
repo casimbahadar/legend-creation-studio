@@ -5,6 +5,7 @@ import { crc32 } from './crc32';
 import { FE8_US_CRC32 } from './fe8';
 import { readRom } from './gba-rom';
 import { readClasses } from './fe8-classes';
+import { checkClassNames } from './fe8-names';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
@@ -52,5 +53,9 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
       }
     }
     expect(drawn).toBeGreaterThan(50);
+  });
+
+  it('matches every class name in the hand-written list', () => {
+    expect(checkClassNames(readClasses(rom, findTextTable(rom)!))).toEqual([]);
   });
 });
