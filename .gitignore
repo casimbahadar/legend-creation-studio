@@ -1,0 +1,21 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# ROMs, patches and save files: never commit these (any letter case)
+*.[gG][bB][aA]
+*.[sS][fF][cC]
+*.[sS][mM][cC]
+*.[nN][dD][sS]
+*.[sS][aA][vV]
+*.[sS][sS][0-9]
+*.[uU][pP][sS]
+*.[bB][pP][sS]
+*.[iI][pP][sS]
+
+# Local-only folder for your own ROMs and test files
+rom-local/
+
+# Logs and editor clutter
+*.log
+.DS_Store
