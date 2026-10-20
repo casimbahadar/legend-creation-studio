@@ -105,3 +105,40 @@ h1 {
 .bad {
   color: var(--bad);
 }
+
+.panel {
+  margin-top: 1.5rem;
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin: 0 0 0.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 16rem;
+}
+
+.field input {
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  /* 16px stops iPhone Safari zooming in on focus */
+  font-size: 16px;
+}
+
+.text-out {
+  margin: 1rem 0 0;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+}
