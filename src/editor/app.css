@@ -165,4 +165,44 @@ h2 {
   width: 100%;
   height: auto;
   image-rendering: pixelated;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.unit-controls {
+  margin: 0 0 0.75rem;
+}
+
+.field select {
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+}
+
+.segmented {
+  display: inline-flex;
+  margin-top: 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.segmented button {
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
 }
