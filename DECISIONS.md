@@ -18,3 +18,6 @@ Settled decisions for Legend Creation Studio. Do not contradict these; raise a c
 14. Name: Legend Creation Studio; Fire Emblem named only in the description. Keeps the trademark out of the product name.
 15. First release 0.1 "Your First Chapter": one chapter on a Sacred Stones map, played in the tool, exported as an FE8 UPS patch and a web game. The smallest release that proves the whole pipeline end to end.
 16. Licence GPL-3.0; repo public from the start. Keeps the tool and its derivatives open.
+17. Project file: one plain JSON file that names things like "iron-sword" instead of slot numbers, points to maps and art in the player's ROM, and will store rule changes as differences from vanilla FE8. Keeps projects readable, shareable and free of ROM data (decisions 9 and 11).
+18. Names come from a hand-written list in the repo that maps each name to its FE8 id; stats and in-game names are always read from the player's ROM. Names stay stable and readable, and the repo holds no ROM data.
+19. Maps are named by chapter-table entry ("fe8-us/chapter-entry-5") for now; friendly names come once chapter names are read from the ROM, and the old form stays accepted. Works today without new reverse engineering.
