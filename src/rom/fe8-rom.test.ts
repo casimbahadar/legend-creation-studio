@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { crc32 } from './crc32';
 import { FE8_US_CRC32 } from './fe8';
 import { readRom } from './gba-rom';
+import { readClasses } from './fe8-classes';
+import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
 
@@ -33,5 +35,22 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
       const image = renderMap(map);
       expect(image.rgba.length).toBe(map.width * 16 * map.height * 16 * 4);
     }
+  });
+
+  it('reads class names and draws class map sprites', () => {
+    const classes = readClasses(rom, findTextTable(rom)!);
+    expect(classes.map((c) => c.name)).toContain('Lord');
+    const palettes = readTeamPalettes(rom);
+    let drawn = 0;
+    for (const c of classes) {
+      try {
+        const sprite = readMapSprite(rom, c.mapSprite);
+        renderMapSprite(sprite, palettes.enemy, 2);
+        drawn++;
+      } catch {
+        // some class slots may have no usable sprite; the page skips those too
+      }
+    }
+    expect(drawn).toBeGreaterThan(50);
   });
 });
