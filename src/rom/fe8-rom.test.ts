@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { crc32 } from './crc32';
 import { FE8_US_CRC32 } from './fe8';
 import { readRom } from './gba-rom';
-import { decompressLz77 } from './lz77';
+import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
 
 const romPath = process.env.LCS_FE8_ROM;
@@ -25,12 +25,13 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(all).toContain('Eirika');
   });
 
-  it('decompresses the first chapter map layer', () => {
-    // FE8 US addresses from Endless Chronicle: chapter table 0x8B0894, map asset table 0x8B363C.
-    const mainMap = rom.u8(0x8b0894 + 4);
-    const layer = decompressLz77(bytes, rom.offsetOf(rom.u32(0x8b363c + mainMap * 4)));
-    const w = layer[0]!;
-    const h = layer[1]!;
-    expect(layer.length).toBe(2 + w * h * 2);
+  it('reads and draws the chapter maps', () => {
+    const maps = readAllChapterMaps(rom);
+    expect(maps.length).toBeGreaterThan(10);
+    for (const map of maps) {
+      expect(map.cells.length).toBe(map.width * map.height);
+      const image = renderMap(map);
+      expect(image.rgba.length).toBe(map.width * 16 * map.height * 16 * 4);
+    }
   });
 });
