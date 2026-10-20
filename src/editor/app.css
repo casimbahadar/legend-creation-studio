@@ -142,3 +142,27 @@ h2 {
   overflow-wrap: anywhere;
   font-size: 0.95rem;
 }
+
+.stepper {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.stepper .button {
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+}
+
+.stepper .button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.map {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}

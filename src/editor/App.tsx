@@ -1,13 +1,14 @@
-import { useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { crc32, formatCrc32 } from '../rom/crc32';
 import { FE8_US_CRC32 } from '../rom/fe8';
+import { readAllChapterMaps, renderMap, type ChapterMap } from '../rom/fe8-maps';
 import { readRom, type GbaRom } from '../rom/gba-rom';
 import { decodeText, findTextTable, type TextTable } from '../rom/text';
 
 type RomCheck =
   | { state: 'idle' }
   | { state: 'checking' }
-  | { state: 'clean'; rom: GbaRom; text: TextTable | null }
+  | { state: 'clean'; rom: GbaRom; text: TextTable | null; maps: ChapterMap[] }
   | { state: 'other'; crc: string }
   | { state: 'error' };
 
@@ -27,7 +28,7 @@ export function App() {
       const crc = crc32(bytes);
       if (crc === FE8_US_CRC32) {
         const rom = readRom(bytes);
-        setCheck({ state: 'clean', rom, text: findTextTable(rom) });
+        setCheck({ state: 'clean', rom, text: findTextTable(rom), maps: readAllChapterMaps(rom) });
       } else {
         setCheck({ state: 'other', crc: formatCrc32(crc) });
       }
@@ -82,9 +83,53 @@ export function App() {
         </section>
       )}
 
+      {check.state === 'clean' && <MapCheck maps={check.maps} />}
+
       <footer className="footer">
         Non-commercial fan tool. Not affiliated with Nintendo or Intelligent Systems.
       </footer>
     </main>
+  );
+}
+
+function MapCheck({ maps }: { maps: ChapterMap[] }) {
+  const [index, setIndex] = useState(0);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const map = maps[index];
+
+  useEffect(() => {
+    const c = canvas.current;
+    if (!c || !map) return;
+    const image = renderMap(map);
+    c.width = image.width;
+    c.height = image.height;
+    c.getContext('2d')?.putImageData(new ImageData(image.rgba, image.width, image.height), 0, 0);
+  }, [map]);
+
+  if (!map) {
+    return (
+      <section className="panel">
+        <h2>ROM map check</h2>
+        <p className="bad">Couldn't find any chapter maps in this ROM.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel">
+      <h2>ROM map check</h2>
+      <p>
+        Map {index + 1} of {maps.length} (chapter entry {map.chapter}), {map.width} × {map.height} tiles
+      </p>
+      <div className="stepper">
+        <button type="button" className="button" disabled={index === 0} onClick={() => setIndex(index - 1)}>
+          Previous
+        </button>
+        <button type="button" className="button" disabled={index === maps.length - 1} onClick={() => setIndex(index + 1)}>
+          Next
+        </button>
+      </div>
+      <canvas ref={canvas} className="map" aria-label={`Map ${index + 1}`} />
+    </section>
   );
 }
