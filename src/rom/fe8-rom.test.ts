@@ -58,4 +58,10 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
   it('matches every class name in the hand-written list', () => {
     expect(checkClassNames(readClasses(rom, findTextTable(rom)!))).toEqual([]);
   });
+
+  it('reads class movement', () => {
+    const lord = readClasses(rom, findTextTable(rom)!).find((c) => c.id === 2)!;
+    expect(lord.mov).toBe(5);
+    expect(lord.moveCosts?.length).toBe(0x41);
+  });
 });

@@ -9,6 +9,11 @@ const CLASS_TABLE = 0x807110;
 const CLASS_STRIDE = 0x54;
 /** EC reads class ids 1 to 0x65. */
 const LAST_CLASS_ID = 0x65;
+/** Offsets inside a class record, as EC reads them. */
+const BASE_MOV = 0x12;
+const MOVE_COST_POINTER = 0x38;
+/** One move cost per terrain id. */
+const TERRAIN_COUNT = 0x41;
 
 export interface RomClass {
   /** Class id as the ROM numbers it. */
@@ -16,6 +21,10 @@ export interface RomClass {
   readonly name: string;
   /** Index into the map sprite table. */
   readonly mapSprite: number;
+  /** Base movement. */
+  readonly mov: number;
+  /** Move cost per terrain id (255 = impassable), or null if the ROM has no table for this class. */
+  readonly moveCosts: Uint8Array | null;
 }
 
 export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
@@ -24,7 +33,9 @@ export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
     const a = CLASS_TABLE + id * CLASS_STRIDE;
     // Like EC, keep printable characters only: some names end in control codes such as 0x1F.
     const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
-    out.push({ id, name, mapSprite: rom.u8(a + 6) });
+    const costs = rom.u32(a + MOVE_COST_POINTER);
+    const moveCosts = rom.isPointer(costs) && rom.offsetOf(costs) + TERRAIN_COUNT <= rom.size ? rom.bytes.slice(rom.offsetOf(costs), rom.offsetOf(costs) + TERRAIN_COUNT) : null;
+    out.push({ id, name, mapSprite: rom.u8(a + 6), mov: rom.u8(a + BASE_MOV), moveCosts });
   }
   return out;
 }

@@ -116,7 +116,7 @@ export interface NameMismatch {
 }
 
 /** Entries whose expected game name differs from what the ROM shows. */
-export function checkClassNames(romClasses: readonly RomClass[], list: readonly ClassName[] = FE8_CLASS_NAMES): NameMismatch[] {
+export function checkClassNames(romClasses: readonly Pick<RomClass, 'id' | 'name'>[], list: readonly ClassName[] = FE8_CLASS_NAMES): NameMismatch[] {
   const byId = new Map(romClasses.map((c) => [c.id, c.name]));
   return list.filter((e) => byId.get(e.id) !== e.gameName).map((entry) => ({ entry, romName: byId.get(entry.id) ?? null }));
 }
