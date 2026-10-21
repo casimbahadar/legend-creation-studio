@@ -740,9 +740,11 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   <div className={`window-side team-${u.team}`}>
                     <strong>{unitLabel(u)}</strong>
                     <span>
-                      Lv {u.level} · HP {u.hp}/{u.stats.hp}
+                      Lv {u.level} · HP {u.hp}/{u.stats.hp} · {w ? w.entry.gameName : 'No weapon'}
                     </span>
-                    <span>{w ? w.entry.gameName : 'No weapon'}</span>
+                    <span>
+                      Str {u.stats.str} · Skl {u.stats.skl} · Spd {u.stats.spd} · Lck {u.stats.lck} · Def {u.stats.def} · Res {u.stats.res}
+                    </span>
                   </div>
                 );
               })()}

@@ -380,13 +380,18 @@ h3 {
 }
 
 /* FE's info window, above the map: the unit under the cursor, the forecast, or HP during a battle.
-   Its height is fixed so the map doesn't jump as it changes. */
+   Its height is fixed so the map doesn't jump as it changes. One unit spans both columns. */
 .play-window {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-auto-flow: dense;
   gap: 6px;
   min-height: 4.6rem;
   margin-bottom: 6px;
+}
+
+.play-window > .window-side:only-child {
+  grid-column: 1 / -1;
 }
 
 .window-side {
