@@ -230,3 +230,16 @@ details.note {
 details.note summary {
   cursor: pointer;
 }
+
+.play-status {
+  margin: 0.75rem 0;
+}
+
+.play-status p {
+  margin: 0 0 0.5rem;
+}
+
+.segmented button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

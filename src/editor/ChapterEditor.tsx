@@ -13,9 +13,11 @@ import {
   type Team,
 } from '../core/project';
 import { readClasses } from '../rom/fe8-classes';
-import { idleFrame, readMapSprite, readTeamPalettes, renderMapSprite, spriteOrigin } from '../rom/fe8-map-sprites';
+import { idleFrame, readMapSprite, readTeamPalettes, renderMapSprite, spriteOrigin, type TeamColour } from '../rom/fe8-map-sprites';
 import { readChapterMap, renderMap, type ChapterMap } from '../rom/fe8-maps';
 import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } from '../rom/fe8-names';
+import { IMPASSABLE, moveRange } from '../core/movement';
+import { areFoes, endTurn, moveUnit, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import type { Image } from '../rom/gba-graphics';
 import type { GbaRom } from '../rom/gba-rom';
 import type { TextTable } from '../rom/text';
@@ -23,10 +25,16 @@ import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
 
-/** A listed class with its standing frames in each team's colours. */
+/** Range overlay colours, as in FE: blue for your units, red for enemies, green for allies. */
+const RANGE_COLOURS: Record<Team, string> = { player: 'rgba(64, 128, 255, 0.5)', enemy: 'rgba(255, 64, 64, 0.45)', ally: 'rgba(64, 200, 96, 0.45)' };
+
+/** A listed class with its standing frames in each team's colours, plus grey for units that have moved. */
 export interface ClassArt {
   readonly entry: ClassName;
-  readonly frames: Record<Team, HTMLCanvasElement[]>;
+  readonly frames: Record<TeamColour, HTMLCanvasElement[]>;
+  /** Base movement and move cost per terrain id from the ROM. */
+  readonly mov: number;
+  readonly moveCosts: Uint8Array | null;
   readonly width: number;
   readonly height: number;
 }
@@ -57,8 +65,15 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     if (!c) continue;
     try {
       const sprite = readMapSprite(rom, c.mapSprite);
-      const framesFor = (team: Team) => [0, 1, 2].map((f) => toCanvas(renderMapSprite(sprite, palettes[team], f)));
-      art.push({ entry, width: sprite.width, height: sprite.height, frames: { player: framesFor('player'), enemy: framesFor('enemy'), ally: framesFor('ally') } });
+      const framesFor = (colour: TeamColour) => [0, 1, 2].map((f) => toCanvas(renderMapSprite(sprite, palettes[colour], f)));
+      art.push({
+        entry,
+        width: sprite.width,
+        height: sprite.height,
+        frames: { player: framesFor('player'), enemy: framesFor('enemy'), ally: framesFor('ally'), moved: framesFor('moved') },
+        mov: c.mov,
+        moveCosts: c.moveCosts,
+      });
     } catch {
       // class without a usable map sprite
     }
@@ -139,12 +154,35 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     setAutosaveOk(writeAutosave(store, { project, savedJson }));
   }, [store, project, savedJson]);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [play, setPlay] = useState<PlayState | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
 
   const chapter = project.chapters[0]!;
   const mapIndex = findMap(data, chapter.map);
   const map = data.maps[mapIndex];
   const artByName = useMemo(() => new Map(data.art.map((a) => [a.entry.name, a])), [data.art]);
   const mapImage = useMemo(() => (map ? toCanvas(renderMap(map)) : null), [map]);
+  const selectedUnit = play && selected ? play.units.find((u) => u.id === selected) : undefined;
+
+  /** Where a unit could move this turn, from its class's ROM movement. */
+  function rangeOf(u: PlayUnit, state: PlayState): Map<number, number> {
+    const art = artByName.get(u.class);
+    if (!map || !art) return new Map();
+    const costs = art.moveCosts;
+    return moveRange(map, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), art.mov, u.at, (x, y) => {
+      const o = unitAt(state, x, y);
+      if (!o || o.id === u.id) return null;
+      return areFoes(o.team, u.team) ? 'foe' : 'friend';
+    });
+  }
+  const canMove = !!selectedUnit && selectedUnit.team === 'player' && !selectedUnit.moved;
+  // A unit of yours that has already moved shows no range, as in FE.
+  const showRange = !!selectedUnit && (selectedUnit.team !== 'player' || canMove);
+  const range = useMemo(
+    () => (play && selectedUnit && showRange ? rangeOf(selectedUnit, play) : null),
+    // rangeOf only reads map and artByName besides its arguments.
+    [play, selectedUnit, showRange, map, artByName],
+  );
 
   useEffect(() => {
     const c = canvas.current;
@@ -154,21 +192,33 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     c.height = mapImage.height;
     g.imageSmoothingEnabled = false;
     let raf = 0;
+    const units: readonly { class: string; team: Team; at: readonly [number, number]; moved?: boolean }[] = play ? play.units : chapter.units;
     const draw = (now: number) => {
       g.drawImage(mapImage, 0, 0);
+      if (range && selectedUnit) {
+        g.fillStyle = RANGE_COLOURS[selectedUnit.team];
+        const w = c.width / 16;
+        for (const k of range.keys()) g.fillRect((k % w) * 16, Math.floor(k / w) * 16, 16, 16);
+      }
       const frame = idleFrame(now);
       // Top rows first, so taller sprites lower down overlap the ones behind them.
-      for (const u of [...chapter.units].sort((a, b) => a.at[1] - b.at[1])) {
+      for (const u of [...units].sort((a, b) => a.at[1] - b.at[1])) {
         const art = artByName.get(u.class);
         if (!art) continue;
         const [sx, sy] = spriteOrigin(art, u.at[0], u.at[1]);
-        g.drawImage(art.frames[u.team][frame]!, sx, sy);
+        // Units that have moved are grey and stand still, as in FE.
+        g.drawImage(u.moved ? art.frames.moved[0]! : art.frames[u.team][frame]!, sx, sy);
       }
-      if (chapter.units.length) raf = requestAnimationFrame(draw);
+      if (selectedUnit) {
+        g.strokeStyle = '#fff';
+        g.lineWidth = 2;
+        g.strokeRect(selectedUnit.at[0] * 16 + 1, selectedUnit.at[1] * 16 + 1, 14, 14);
+      }
+      if (units.length) raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, chapter.units, artByName]);
+  }, [mapImage, chapter.units, artByName, play, range, selectedUnit]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -186,6 +236,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const rect = c.getBoundingClientRect();
     const x = Math.floor(((event.clientX - rect.left) / rect.width) * (c.width / 16));
     const y = Math.floor(((event.clientY - rect.top) / rect.height) * (c.height / 16));
+    if (play) return onPlayTap(play, x, y);
     const art = data.art[artIndex];
     if (!map || !art || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
     const here = chapter.units.find((u) => u.at[0] === x && u.at[1] === y);
@@ -195,6 +246,25 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       const cls = art.entry.name;
       updateChapter({ units: [...chapter.units, { id: nextUnitId(chapter.units, cls), class: cls, team, level: 1, at: [x, y] }] });
     }
+  }
+
+  function onPlayTap(state: PlayState, x: number, y: number) {
+    if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
+    const here = unitAt(state, x, y);
+    if (canMove && selectedUnit && range?.has(y * map.width + x)) {
+      // Tapping the unit's own square makes it wait where it is.
+      setPlay(moveUnit(state, selectedUnit.id, [x, y]));
+      setSelected(null);
+    } else if (here && here.id !== selected) {
+      setSelected(here.id);
+    } else {
+      setSelected(null);
+    }
+  }
+
+  function setMode(playing: boolean) {
+    setPlay(playing ? startPlay(chapter) : null);
+    setSelected(null);
   }
 
   function onSave() {
@@ -220,6 +290,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       return;
     }
     if (unsaved && !window.confirm(`Opening ${file.name} replaces changes you haven't saved to a file. Open it anyway?`)) return;
+    setMode(false);
     setProject(opened);
     setSavedJson(projectToJson(opened));
     setStatus({ ok: true, text: `Opened "${opened.name}".` });
@@ -270,15 +341,26 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
             Map {mapIndex + 1} of {data.maps.length} (chapter entry {map.chapter}), {map.width} × {map.height} tiles
           </p>
           <div className="stepper">
-            <button type="button" className="button" disabled={mapIndex <= 0} onClick={() => goTo(mapIndex - 1)}>
+            <button type="button" className="button" disabled={mapIndex <= 0 || !!play} onClick={() => goTo(mapIndex - 1)}>
               Previous map
             </button>
-            <button type="button" className="button" disabled={mapIndex >= data.maps.length - 1} onClick={() => goTo(mapIndex + 1)}>
+            <button type="button" className="button" disabled={mapIndex >= data.maps.length - 1 || !!play} onClick={() => goTo(mapIndex + 1)}>
               Next map
             </button>
           </div>
 
-          {data.art.length > 0 && (
+          <div className="segmented" role="group" aria-label="Mode">
+            <button type="button" aria-pressed={!play} onClick={() => setMode(false)}>
+              Edit
+            </button>
+            <button type="button" aria-pressed={!!play} disabled={!chapter.units.length} onClick={() => setMode(true)}>
+              Test play
+            </button>
+          </div>
+
+          {play && <PlayStatus play={play} selected={selectedUnit} canMove={canMove} label={(u) => artByName.get(u.class)?.entry.label ?? u.class} onEndTurn={() => { setPlay(endTurn(play)); setSelected(null); }} />}
+
+          {!play && data.art.length > 0 && (
             <div className="unit-controls">
               <label className="field">
                 Class
@@ -331,5 +413,41 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         <p className="note">Name list check: all {FE8_CLASS_NAMES.length} class names match your ROM.</p>
       )}
     </section>
+  );
+}
+
+function PlayStatus({
+  play,
+  selected,
+  canMove,
+  label,
+  onEndTurn,
+}: {
+  play: PlayState;
+  selected: PlayUnit | undefined;
+  canMove: boolean;
+  label: (u: PlayUnit) => string;
+  onEndTurn: () => void;
+}) {
+  const yours = play.units.filter((u) => u.team === 'player');
+  const allMoved = yours.length > 0 && yours.every((u) => u.moved);
+  let hint: string;
+  if (selected && canMove) hint = `Tap a blue square to move your ${label(selected)}, or tap it again to wait where it is.`;
+  else if (selected && selected.team === 'player') hint = `Your ${label(selected)} has already moved this turn.`;
+  else if (selected) hint = `This ${TEAM_LABELS[selected.team].toLowerCase()} ${label(selected)} can reach the highlighted squares.`;
+  else if (allMoved) hint = 'All your units have moved. Tap End turn.';
+  else hint = 'Tap one of your units to move it. Tap an enemy to see how far it can move.';
+  return (
+    <div className="play-status">
+      <p>
+        <strong>Turn {play.turn}.</strong> {hint}
+      </p>
+      <div className="stepper">
+        <button type="button" className="button" onClick={onEndTurn}>
+          End turn
+        </button>
+      </div>
+      <p className="note">Test play doesn't change your chapter. Enemies don't move yet.</p>
+    </div>
   );
 }
