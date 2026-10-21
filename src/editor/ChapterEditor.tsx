@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent
 import {
   checkProject,
   mapEntry,
+  MAX_ITEMS,
   mapRef,
   newProject,
   projectToJson,
@@ -16,7 +17,9 @@ import { readClasses } from '../rom/fe8-classes';
 import { idleFrame, readMapSprite, readTeamPalettes, renderMapSprite, spriteOrigin, type TeamColour } from '../rom/fe8-map-sprites';
 import { readChapterMap, renderMap, type ChapterMap } from '../rom/fe8-maps';
 import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } from '../rom/fe8-names';
-import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
+import { checkItemNames, FE8_ITEM_NAMES, type ItemMismatch, type ItemName } from '../rom/fe8-item-names';
+import { findItemTable, isStaff, isWeapon, readItems, WEAPON_TYPES, type RomItem } from '../rom/fe8-items';
+import { attackRange, IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, endTurn, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
@@ -39,12 +42,9 @@ import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
 
-/** Range square colours from Endless Chronicle: blue for your units, red for enemies, green for allies. */
-const RANGE_COLOURS: Record<Team, { fill: string; edge: string }> = {
-  player: { fill: 'rgba(48, 110, 255, 0.45)', edge: 'rgba(170, 200, 255, 0.8)' },
-  enemy: { fill: 'rgba(255, 60, 48, 0.42)', edge: 'rgba(255, 170, 160, 0.75)' },
-  ally: { fill: 'rgba(60, 220, 90, 0.42)', edge: 'rgba(170, 255, 180, 0.75)' },
-};
+/** Range square colours from Endless Chronicle: blue where a unit can move, red where it can attack, as in FE. */
+const MOVE_COLOURS = { fill: 'rgba(48, 110, 255, 0.45)', edge: 'rgba(170, 200, 255, 0.8)' };
+const ATTACK_COLOURS = { fill: 'rgba(255, 60, 48, 0.42)', edge: 'rgba(255, 170, 160, 0.75)' };
 
 /**
  * One range square, as Endless Chronicle draws them: inset by a pixel with a lighter edge, so the map
@@ -125,8 +125,16 @@ export interface ClassArt {
   /** Base movement and move cost per terrain id from the ROM. */
   readonly mov: number;
   readonly moveCosts: Uint8Array | null;
+  /** Starting rank per weapon type (sword, lance, axe, bow, staff, anima, light, dark); 0 = can't use. */
+  readonly weaponRanks: Uint8Array;
   readonly width: number;
   readonly height: number;
+}
+
+/** A listed item with its stats from the ROM. */
+export interface EditorItem {
+  readonly entry: ItemName;
+  readonly rom: RomItem;
 }
 
 export interface EditorRom {
@@ -134,6 +142,8 @@ export interface EditorRom {
   readonly maps: ChapterMap[];
   readonly art: ClassArt[];
   readonly mismatches: NameMismatch[];
+  readonly items: EditorItem[];
+  readonly itemMismatches: ItemMismatch[];
 }
 
 function toCanvas(image: Image): HTMLCanvasElement {
@@ -163,12 +173,21 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
         frames: { player: framesFor('player'), enemy: framesFor('enemy'), ally: framesFor('ally'), moved: framesFor('moved') },
         mov: c.mov,
         moveCosts: c.moveCosts,
+        weaponRanks: c.weaponRanks,
       });
     } catch {
       // class without a usable map sprite
     }
   }
-  return { rom, maps, art, mismatches: checkClassNames(romClasses) };
+  const table = findItemTable(rom);
+  const romItems = table === null ? [] : readItems(rom, text, table);
+  const romItemById = new Map(romItems.map((i) => [i.id, i]));
+  const items: EditorItem[] = [];
+  for (const entry of FE8_ITEM_NAMES) {
+    const it = romItemById.get(entry.id);
+    if (it) items.push({ entry, rom: it });
+  }
+  return { rom, maps, art, mismatches: checkClassNames(romClasses), items, itemMismatches: checkItemNames(romItems) };
 }
 
 const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;
@@ -190,9 +209,44 @@ function nextUnitId(units: ProjectUnit[], cls: string): string {
   return `${cls}-${n}`;
 }
 
+/** Can this class use this item? Weapons and staves need a rank in their type; other items anyone can carry. */
+function usable(art: ClassArt, item: EditorItem): boolean {
+  if (!isWeapon(item.rom) && !isStaff(item.rom)) return true;
+  return item.rom.type < WEAPON_TYPES.length && (art.weaponRanks[item.rom.type] ?? 0) > 0;
+}
+
+/** Starting weapon for a newly placed unit: an iron-tier weapon of the first type its class can use. */
+const DEFAULT_WEAPONS = ['iron-sword', 'iron-lance', 'iron-axe', 'iron-bow', 'fire', 'lightning', 'flux', 'heal'];
+function defaultItems(art: ClassArt, items: EditorItem[]): string[] {
+  for (const name of DEFAULT_WEAPONS) {
+    const item = items.find((i) => i.entry.name === name);
+    if (item && (isWeapon(item.rom) || isStaff(item.rom)) && usable(art, item)) return [name];
+  }
+  return [];
+}
+
+/** Weapon ranges [min, max] a unit can attack with: weapons it carries and its class can use, not staves. */
+function weaponRanges(art: ClassArt | undefined, itemNames: readonly string[], items: EditorItem[]): [number, number][] {
+  if (!art) return [];
+  return itemNames
+    .map((n) => items.find((i) => i.entry.name === n))
+    .filter((i): i is EditorItem => !!i && isWeapon(i.rom) && !isStaff(i.rom) && usable(art, i))
+    .map((i) => [i.rom.minRange, i.rom.maxRange]);
+}
+
+/** One-line stats for an item, e.g. "Mt 5 · Hit 90 · Rng 1 · 46 uses". */
+function itemStats(i: RomItem): string {
+  const rng = i.minRange === i.maxRange ? `${i.minRange}` : `${i.minRange}-${i.maxRange}`;
+  if (isWeapon(i) && !isStaff(i)) return `Mt ${i.might} · Hit ${i.hit} · Rng ${rng} · ${i.uses} uses`;
+  return `${i.uses} uses`;
+}
+
 /** Checks a parsed project file against this ROM: the file itself, its class names, its maps and unit positions. */
 function loadProject(data: EditorRom, parsed: unknown): { project: Project | null; problems: Problem[] } {
-  const { project, problems } = checkProject(parsed, { classes: new Set(data.art.map((a) => a.entry.name)) });
+  const { project, problems } = checkProject(parsed, {
+    classes: new Set(data.art.map((a) => a.entry.name)),
+    items: new Set(data.items.map((i) => i.entry.name)),
+  });
   if (project) {
     project.chapters.forEach((c, ci) => {
       const m = data.maps[findMap(data, c.map)];
@@ -245,6 +299,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   }, [store, project, savedJson]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [view, setView] = useState<PlayView | null>(null);
+  /** The placed unit whose panel is open in Edit mode. */
+  const [editing, setEditing] = useState<string | null>(null);
   const play = view?.state ?? null;
 
   const chapter = project.chapters[0]!;
@@ -268,8 +324,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const canMove = unitCanMove(selectedUnit);
   // A unit of yours that has already moved shows no range, as in FE.
   const showRange = !!selectedUnit && (selectedUnit.team !== 'player' || canMove);
-  const range = useMemo(
-    () => (play && selectedUnit && showRange ? searchOf(selectedUnit, play).stops : null),
+  const range = useMemo(() => {
+    if (!play || !selectedUnit || !showRange || !map) return null;
+    const stops = searchOf(selectedUnit, play).stops;
+    const attack = attackRange(stops, map.width, map.height, weaponRanges(artByName.get(selectedUnit.class), selectedUnit.items, data.items));
+    return { stops, attack };
+  },
     // searchOf only reads map and artByName besides its arguments.
     [play, selectedUnit, showRange, map, artByName],
   );
@@ -311,9 +371,10 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const units: readonly { class: string; team: Team; at: readonly [number, number]; moved?: boolean }[] = play ? play.units : chapter.units;
     const draw = (now: number) => {
       g.drawImage(mapImage, 0, 0);
-      if (range && selectedUnit) {
+      if (range) {
         const w = c.width / 16;
-        for (const k of range.keys()) drawRangeSquare(g, k % w, Math.floor(k / w), RANGE_COLOURS[selectedUnit.team]);
+        for (const k of range.stops.keys()) drawRangeSquare(g, k % w, Math.floor(k / w), MOVE_COLOURS);
+        for (const k of range.attack) drawRangeSquare(g, k % w, Math.floor(k / w), ATTACK_COLOURS);
       }
       if (arrow) drawArrow(g, arrow, c.width / 16);
       const frame = idleFrame(now);
@@ -336,11 +397,13 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       }
       if (walkDone) setView((v) => v && finishWalk(v));
       if (view) drawCursor(g, view.cursor[0], view.cursor[1], now);
+      const edited = !view && editing ? chapter.units.find((u) => u.id === editing) : undefined;
+      if (edited) drawCursor(g, edited.at[0], edited.at[1], now);
       if (units.length) raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow, walk]);
+  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow, walk, editing]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -350,6 +413,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const next = data.maps[i];
     if (!next) return;
     if (chapter.units.length && !window.confirm('Changing the map removes the units you placed. Change it anyway?')) return;
+    setEditing(null);
     updateChapter({ map: mapRef(next.chapter), units: [] });
   }
 
@@ -364,14 +428,29 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     if (!map || !art || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
     const here = chapter.units.find((u) => u.at[0] === x && u.at[1] === y);
     if (here) {
-      updateChapter({ units: chapter.units.filter((u) => u !== here) });
+      setEditing(here.id === editing ? null : here.id);
+    } else if (editing) {
+      // With a unit's panel open, a tap on an empty square only closes it, so a stray tap never places a unit.
+      setEditing(null);
     } else {
       const cls = art.entry.name;
-      updateChapter({ units: [...chapter.units, { id: nextUnitId(chapter.units, cls), class: cls, team, level: 1, at: [x, y] }] });
+      const unit: ProjectUnit = { id: nextUnitId(chapter.units, cls), class: cls, team, level: 1, at: [x, y] };
+      const items = defaultItems(art, data.items);
+      updateChapter({ units: [...chapter.units, items.length ? { ...unit, items } : unit] });
+    }
+  }
+
+  function updateUnit(id: string, change: Partial<ProjectUnit> | null) {
+    if (!change) {
+      setEditing(null);
+      updateChapter({ units: chapter.units.filter((u) => u.id !== id) });
+    } else {
+      updateChapter({ units: chapter.units.map((u) => (u.id === id ? { ...u, ...change } : u)) });
     }
   }
 
   function setMode(playing: boolean) {
+    setEditing(null);
     setView(playing ? startView(startPlay(chapter)) : null);
   }
 
@@ -495,11 +574,25 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   </button>
                 ))}
               </div>
-              <p className="note">Tap the map to place a unit. Tap it again to remove it.</p>
+              <p className="note">Tap an empty square to place a unit. Tap a unit to change its items or remove it.</p>
             </div>
           )}
 
           <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+          {!view &&
+            editing &&
+            (() => {
+              const unit = chapter.units.find((u) => u.id === editing);
+              return unit ? (
+                <UnitPanel
+                  unit={unit}
+                  art={artByName.get(unit.class)}
+                  items={data.items}
+                  onChange={(change) => updateUnit(unit.id, change)}
+                  onClose={() => setEditing(null)}
+                />
+              ) : null;
+            })()}
           {view && rules && (
             <GbaControls
               onDirection={(dx, dy) => setView((v) => v && moveCursor(v, dx, dy, rules))}
@@ -535,6 +628,23 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       ) : (
         <p className="note">Name list check: all {FE8_CLASS_NAMES.length} class names match your ROM.</p>
       )}
+      {data.itemMismatches.length ? (
+        <details className="note bad">
+          <summary>
+            Item list check: {data.itemMismatches.length} of {FE8_ITEM_NAMES.length} item names don't match your ROM. Tap to see them.
+          </summary>
+          <ul className="problems">
+            {data.itemMismatches.map((m) => (
+              <li key={m.entry.name}>
+                {m.entry.name} (item 0x{m.entry.id.toString(16).toUpperCase()}): expected "{m.entry.gameName}", ROM shows{' '}
+                {m.romName === null ? 'nothing' : `"${m.romName}"`}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : (
+        <p className="note">Item list check: all {FE8_ITEM_NAMES.length} item names match your ROM.</p>
+      )}
     </section>
   );
 }
@@ -555,9 +665,9 @@ function PlayStatus({
   const yours = play.units.filter((u) => u.team === 'player');
   const allMoved = yours.length > 0 && yours.every((u) => u.moved);
   let hint: string;
-  if (selected && canMove) hint = `Move the cursor to a blue square and press A to move your ${label(selected)} there. Press A on the unit itself to wait, or B to cancel.`;
+  if (selected && canMove) hint = `Move the cursor to a blue square and press A to move your ${label(selected)} there. Red squares are in reach of its weapons. Press A on the unit itself to wait, or B to cancel.`;
   else if (selected && selected.team === 'player') hint = `Your ${label(selected)} has already moved this turn. Press B to go back.`;
-  else if (selected) hint = `This ${TEAM_LABELS[selected.team].toLowerCase()} ${label(selected)} can reach the highlighted squares. Press A or B to close.`;
+  else if (selected) hint = `This ${TEAM_LABELS[selected.team].toLowerCase()} ${label(selected)} can move to the blue squares and attack the red ones. Press A or B to close.`;
   else if (allMoved) hint = 'All your units have moved. Tap End turn.';
   else hint = 'Move the cursor onto one of your units and press A. Press A on an enemy to see how far it can move.';
   return (
@@ -622,6 +732,82 @@ function GbaControls({ onDirection, onA, onB }: { onDirection: (dx: number, dy: 
       <div className="ab">
         <button type="button" className="ab-b" aria-label="B" {...press(onB)}>B</button>
         <button type="button" className="ab-a" aria-label="A" {...press(onA)}>A</button>
+      </div>
+    </div>
+  );
+}
+
+/** The panel for a placed unit in Edit mode: its items, and removing it. */
+function UnitPanel({
+  unit,
+  art,
+  items,
+  onChange,
+  onClose,
+}: {
+  unit: ProjectUnit;
+  art: ClassArt | undefined;
+  items: EditorItem[];
+  /** A change to the unit, or null to remove it. */
+  onChange: (change: Partial<ProjectUnit> | null) => void;
+  onClose: () => void;
+}) {
+  const carried = unit.items ?? [];
+  const byName = new Map(items.map((i) => [i.entry.name, i]));
+  const choices = art ? items.filter((i) => usable(art, i)) : [];
+  const setItems = (next: string[]) => onChange({ items: next.length ? next : undefined });
+  const title = `${unit.name ?? art?.entry.label ?? unit.class} (${TEAM_LABELS[unit.team].toLowerCase()})`;
+  return (
+    <div className="unit-panel">
+      <h3>{title}</h3>
+      <p className="note">
+        Items ({carried.length} of {MAX_ITEMS})
+      </p>
+      {carried.length ? (
+        <ul className="inventory">
+          {carried.map((name, i) => {
+            const item = byName.get(name);
+            return (
+              <li key={i}>
+                <span>
+                  <strong>{item?.entry.gameName ?? name}</strong>
+                  {item && <span className="note"> {itemStats(item.rom)}</span>}
+                  {item && art && !usable(art, item) && <span className="bad"> (this class can't use it)</span>}
+                </span>
+                <button type="button" className="icon-button" aria-label={`Remove ${item?.entry.gameName ?? name}`} onClick={() => setItems(carried.filter((_, j) => j !== i))}>
+                  ×
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="note">No items. Without a weapon this unit can't attack.</p>
+      )}
+      <label className="field">
+        Add an item
+        <select
+          value=""
+          disabled={carried.length >= MAX_ITEMS}
+          onChange={(e) => {
+            if (e.target.value) setItems([...carried, e.target.value]);
+          }}
+        >
+          <option value="">{carried.length >= MAX_ITEMS ? 'Inventory full' : 'Choose…'}</option>
+          {choices.map((i) => (
+            <option key={i.entry.name} value={i.entry.name}>
+              {i.entry.gameName} ({itemStats(i.rom)})
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="stepper">
+        <button type="button" className="button" onClick={onClose}>
+          Done
+        </button>
+        <button type="button" className="button button-secondary" onClick={() => onChange(null)}>
+          Remove unit
+        </button>
       </div>
     </div>
   );
