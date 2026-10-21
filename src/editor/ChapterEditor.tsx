@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent
 import {
   checkProject,
   mapEntry,
+  BEHAVIOURS,
+  DEFAULT_BEHAVIOUR,
   MAX_ITEMS,
   mapRef,
   newProject,
   projectToJson,
   TEAMS,
   toName,
+  type Behaviour,
   type Problem,
   type Project,
   type ProjectUnit,
@@ -22,10 +25,11 @@ import { findItemTable, isStaff, isWeapon, readItems, WEAPON_TYPES, type RomItem
 import { attackRange, IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { battleFrame, type BattleFrame } from '../core/battle-anim';
 import { forecast, randomNumbers, resolveBattle, statsAtLevel, type Combatant, type Forecast, type Stats, type Weapon } from '../core/combat';
-import { areFoes, endTurn, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
+import { areFoes, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
   chooseOption,
+  endPlayerTurn,
   finishBattle,
   finishWalk,
   menuOptions,
@@ -34,6 +38,7 @@ import {
   pressB,
   selectedUnit as selectedOf,
   startView,
+  stepAI,
   tapAt,
   visibleRoute,
   walkPosition,
@@ -46,6 +51,15 @@ import type { TextTable } from '../rom/text';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
+const BEHAVIOUR_LABELS: Record<Behaviour, string> = {
+  'attack-in-range': 'Attack in range: waits until a target is within reach',
+  charge: 'Charge: heads for the other side every turn',
+  hold: 'Hold: never moves, attacks anything in reach',
+};
+
+/** How long a phase banner shows, and the pause between computer units' actions. */
+const BANNER_MS = 1000;
+const AI_PAUSE_MS = 250;
 
 /** Range square colours from Endless Chronicle: blue where a unit can move, red where it can attack, as in FE. */
 const MOVE_COLOURS = { fill: 'rgba(48, 110, 255, 0.45)', edge: 'rgba(170, 200, 255, 0.8)' };
@@ -359,11 +373,11 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const selectedUnit = view ? selectedOf(view) : undefined;
 
   /** Where a unit could move this turn and how, from its class's ROM movement. */
-  function searchOf(u: PlayUnit, state: PlayState): MoveSearch {
+  function searchOf(u: PlayUnit, state: PlayState, mov?: number): MoveSearch {
     const art = artByName.get(u.class);
     const costs = art?.moveCosts;
     const grid = map ?? { width: 1, height: 1, terrain: [0] };
-    return searchMoves(grid, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), map && art ? art.mov : 0, u.at, (x, y) => {
+    return searchMoves(grid, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), map && art ? (mov ?? art.mov) : 0, u.at, (x, y) => {
       const o = unitAt(state, x, y);
       if (!o || o.id === u.id) return null;
       return areFoes(o.team, u.team) ? 'foe' : 'friend';
@@ -402,6 +416,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
    * counters with its first usable weapon, if that reaches.
    */
   function forecastOf(a: PlayUnit, d: PlayUnit) {
+    return forecastFrom(a, a.at, d);
+  }
+
+  /** As forecastOf, with the attacker standing on `at` (terrain bonuses from there). */
+  function forecastFrom(unit: PlayUnit, at: readonly [number, number], d: PlayUnit) {
+    const a = { ...unit, at };
     const dist = distance(a, d);
     const attackerWeapon = weaponsOf(artByName.get(a.class), a.items, data.items).find((w) => inReach(w, dist));
     const defenderWeapon = weaponsOf(artByName.get(d.class), d.items, data.items)[0];
@@ -410,12 +430,17 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender };
   }
 
-  function targetsOf(u: PlayUnit, state: PlayState): string[] {
+  /** Foes the unit could attack from square `at`, nearest first. */
+  function targetsAt(u: PlayUnit, at: readonly [number, number], state: PlayState): PlayUnit[] {
     const weapons = weaponsOf(artByName.get(u.class), u.items, data.items);
+    const from = { ...u, at };
     return state.units
-      .filter((o) => areFoes(o.team, u.team) && weapons.some((w) => inReach(w, distance(u, o))))
-      .sort((a, b) => distance(u, a) - distance(u, b))
-      .map((o) => o.id);
+      .filter((o) => o.id !== u.id && areFoes(o.team, u.team) && weapons.some((w) => inReach(w, distance(from, o))))
+      .sort((a, b) => distance(from, a) - distance(from, b));
+  }
+
+  function targetsOf(u: PlayUnit, state: PlayState): string[] {
+    return targetsAt(u, u.at, state).map((o) => o.id);
   }
 
   // searchOf, targetsOf and fight read only map, artByName and the items, so the rules change only when they do.
@@ -427,6 +452,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
             height: map.height,
             searchOf,
             targetsOf,
+            targetsAt,
+            forecastAt: (u, at, target) => forecastFrom(u, at, target).forecast,
             fight: (a, d) => {
               const f = forecastOf(a, d);
               return resolveBattle(f.attacker, f.defender, f.forecast, rng.current);
@@ -526,7 +553,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         const img = walking ? art.frames[u.team][[0, 1, 2, 1][Math.floor(now / 110) % 4]!]! : u.moved ? art.frames.moved[0]! : art.frames[u.team][frame]!;
         g.drawImage(img, Math.round(sx), Math.round(sy));
       }
-      if (walkDone) setView((v) => v && finishWalk(v));
+      if (walkDone && rules) setView((v) => v && finishWalk(v, rules));
       if (bf) {
         const key = `${bf.index}:${bf.landed ? battle!.strikes.indexOf(bf.landed) : -1}`;
         if (key !== hudKey.current) {
@@ -542,7 +569,15 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow, walk, editing, battle]);
+  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow, walk, editing, battle, rules]);
+
+  // The computer's phases: a pause on each phase banner, then one unit at a time.
+  const aiTurn = !!view && (view.phase !== 'player' || !!view.banner) && !view.walking && !view.battle;
+  useEffect(() => {
+    if (!aiTurn || !rules) return;
+    const t = window.setTimeout(() => setView((v) => v && stepAI(v, rules)), view?.banner ? BANNER_MS : AI_PAUSE_MS);
+    return () => window.clearTimeout(t);
+  }, [aiTurn, view, rules]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -690,9 +725,9 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
               play={play}
               selected={selectedUnit}
               canMove={canMove}
-              phase={view?.battle ? 'battle' : view?.walking ? 'walk' : (view?.action?.kind ?? null)}
+              phase={view && view.phase !== 'player' ? view.phase : view?.battle ? 'battle' : view?.walking ? 'walk' : (view?.action?.kind ?? null)}
               label={(u) => artByName.get(u.class)?.entry.label ?? u.class}
-              onEndTurn={() => setView((v) => v && { ...v, state: endTurn(v.state), selected: null })}
+              onEndTurn={() => setView((v) => v && endPlayerTurn(v))}
             />
           )}
 
@@ -775,6 +810,11 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   </div>
                 );
               })()}
+            {view?.banner && (
+              <div className={`phase-banner phase-${view.banner}`} role="status">
+                {view.banner === 'player' ? 'Player Phase' : view.banner === 'enemy' ? 'Enemy Phase' : 'Ally Phase'}
+              </div>
+            )}
             {view && battle && hud && map && <BattlePopup battle={battle} frame={hud} units={view.state.units} width={map.width} height={map.height} />}
           </div>
           {!view &&
@@ -801,7 +841,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
           {view && (
             <p className="note">
               You can also tap a square: that moves the cursor there and presses A. On a computer, use the arrow keys, Z for A and X for B.
-              Test play doesn't change your chapter. Enemies don't move yet.
+              Test play doesn't change your chapter.
             </p>
           )}
           <p className="note">
@@ -865,14 +905,16 @@ function PlayStatus({
   selected: PlayUnit | undefined;
   canMove: boolean;
   /** What the player is in the middle of, if anything. */
-  phase: 'walk' | 'menu' | 'target' | 'battle' | null;
+  phase: 'walk' | 'menu' | 'target' | 'battle' | 'enemy' | 'ally' | null;
   label: (u: PlayUnit) => string;
   onEndTurn: () => void;
 }) {
   const yours = play.units.filter((u) => u.team === 'player');
   const allMoved = yours.length > 0 && yours.every((u) => u.moved);
   let hint: string;
-  if (phase === 'menu') hint = 'Choose Attack or Wait with ▲▼ and A, or tap it. B takes the move back.';
+  if (phase === 'enemy') hint = 'Enemy phase: the enemies are moving.';
+  else if (phase === 'ally') hint = 'Ally phase: the green units are moving.';
+  else if (phase === 'menu') hint = 'Choose Attack or Wait with ▲▼ and A, or tap it. B takes the move back.';
   else if (phase === 'target') hint = 'Choose a target with the arrows or by tapping it, then press A to attack. B goes back.';
   else if (phase === 'battle' || phase === 'walk') hint = '…';
   else if (selected && canMove) hint = `Move the cursor to a blue square and press A to move your ${label(selected)} there. Red squares are in reach of its weapons. Press A on the unit itself to act without moving, or B to cancel.`;
@@ -1077,6 +1119,18 @@ function UnitPanel({
         HP {st.hp} · Str {st.str} · Skl {st.skl} · Spd {st.spd} · Lck {st.lck} · Def {st.def} · Res {st.res} · Con {st.con}
         {art ? ` · Mov ${art.mov}` : ''}
       </p>
+      {unit.team !== 'player' && (
+        <label className="field">
+          Behaviour
+          <select value={unit.ai ?? DEFAULT_BEHAVIOUR} onChange={(e) => onChange({ ai: e.target.value as Behaviour })}>
+            {BEHAVIOURS.map((b) => (
+              <option key={b} value={b}>
+                {BEHAVIOUR_LABELS[b]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <p className="note">
         Items ({carried.length} of {MAX_ITEMS})
       </p>

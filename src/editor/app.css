@@ -454,3 +454,30 @@ h3 {
   min-width: 2ch;
   text-align: center;
 }
+
+/* FE's phase banner across the middle of the map. */
+.phase-banner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.6rem 0;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fff;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: banner-in 0.25s ease-out both;
+}
+
+.phase-player { background: linear-gradient(90deg, transparent, rgba(32, 64, 168, 0.9) 20%, rgba(32, 64, 168, 0.9) 80%, transparent); }
+.phase-enemy { background: linear-gradient(90deg, transparent, rgba(160, 32, 32, 0.9) 20%, rgba(160, 32, 32, 0.9) 80%, transparent); }
+.phase-ally { background: linear-gradient(90deg, transparent, rgba(32, 128, 64, 0.9) 20%, rgba(32, 128, 64, 0.9) 80%, transparent); }
+
+@keyframes banner-in {
+  from { opacity: 0; transform: translate(-12%, -50%); }
+  to { opacity: 1; transform: translate(0, -50%); }
+}
