@@ -114,8 +114,8 @@ export function finishWalk(view: PlayView): PlayView {
   return view.walking ? { ...view, walking: null } : view;
 }
 
-/** EC's walking pace at normal speed. */
-export const WALK_MS_PER_SQUARE = 200;
+/** Walking pace, set in playtesting: between EC's normal (200 ms) and fast (110 ms) speeds. */
+export const WALK_MS_PER_SQUARE = 150;
 
 /** Where a walking unit is drawn after `ms`, in squares (fractional between squares), and whether it has arrived. */
 export function walkPosition(route: readonly number[], width: number, ms: number, msPerSquare = WALK_MS_PER_SQUARE): { x: number; y: number; done: boolean } {

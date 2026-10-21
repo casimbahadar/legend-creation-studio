@@ -118,11 +118,11 @@ describe('play controls', () => {
 describe('walkPosition', () => {
   // Route along a 5-wide map: (0,0) -> (1,0) -> (1,1).
   const route = [0, 1, 6];
-  it('moves one square per 200 ms in a straight line between squares', () => {
+  it('moves one square per 150 ms in a straight line between squares', () => {
     expect(walkPosition(route, 5, 0)).toEqual({ x: 0, y: 0, done: false });
-    expect(walkPosition(route, 5, 100)).toEqual({ x: 0.5, y: 0, done: false });
-    expect(walkPosition(route, 5, 300)).toEqual({ x: 1, y: 0.5, done: false });
-    expect(walkPosition(route, 5, 400)).toEqual({ x: 1, y: 1, done: true });
+    expect(walkPosition(route, 5, 75)).toEqual({ x: 0.5, y: 0, done: false });
+    expect(walkPosition(route, 5, 225)).toEqual({ x: 1, y: 0.5, done: false });
+    expect(walkPosition(route, 5, 300)).toEqual({ x: 1, y: 1, done: true });
     expect(walkPosition(route, 5, 9999)).toEqual({ x: 1, y: 1, done: true });
   });
 });
