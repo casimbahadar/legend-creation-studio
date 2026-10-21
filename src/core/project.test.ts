@@ -61,6 +61,16 @@ describe('project file', () => {
   });
 });
 
+describe('inventories', () => {
+  it('allows up to five items', () => {
+    const p = sample();
+    p.chapters[0]!.units[0]!.items = ['rapier', 'rapier', 'rapier', 'rapier', 'rapier'];
+    expect(checkProject(roundTrip(p)).problems).toEqual([]);
+    p.chapters[0]!.units[0]!.items.push('rapier');
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual(['"eirika" carries 6 items; a unit can carry at most 5.']);
+  });
+});
+
 describe('helpers', () => {
   it('reads and writes map references', () => {
     expect(mapRef(12)).toBe('fe8-us/chapter-entry-12');

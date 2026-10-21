@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { followCursor, moveRange, searchMoves, shortestRoute, type Occupant } from './movement';
+import { attackRange, followCursor, moveRange, searchMoves, shortestRoute, type Occupant } from './movement';
 
 // Terrain: '.' plain (cost 1), 'f' forest (cost 2), '#' wall (255, impassable).
 const COST: Record<number, number> = { 0: 1, 1: 2, 2: 255 };
@@ -79,5 +79,23 @@ describe('routes and the movement arrow', () => {
     expect(shortestRoute(s, 2)).toEqual([0, 1, 2]);
     const foe = searchMoves(grid(['...']), costOf, 2, [0, 0], (x) => (x === 1 ? 'foe' : null));
     expect(shortestRoute(foe, 2)).toBeNull();
+  });
+});
+
+describe('attackRange', () => {
+  // 5x1 strip; the unit can end on squares 1 and 2.
+  const stops = new Map([
+    [1, 0],
+    [2, 1],
+  ]);
+  it('marks squares in weapon range around the stops, but not the stops', () => {
+    expect([...attackRange(stops, 5, 1, [[1, 1]])].sort()).toEqual([0, 3]);
+    // Range 2 only: 3 is two squares from stop 1; 0 and 4 are two from stop 2.
+    expect([...attackRange(stops, 5, 1, [[2, 2]])].sort()).toEqual([0, 3, 4]);
+    expect([...attackRange(stops, 5, 1, [[1, 2]])].sort()).toEqual([0, 3, 4]);
+  });
+
+  it('is empty without weapons', () => {
+    expect(attackRange(stops, 5, 1, []).size).toBe(0);
   });
 });

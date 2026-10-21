@@ -57,6 +57,8 @@ export interface Catalog {
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAP_REF = /^fe8-us\/chapter-entry-(\d+)$/;
 const MAX_LEVEL = 20;
+/** A unit's inventory size in FE. */
+export const MAX_ITEMS = 5;
 
 export function mapRef(chapterEntry: number): string {
   return `fe8-us/chapter-entry-${chapterEntry}`;
@@ -157,6 +159,7 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
         }
         if (u.items !== undefined) {
           if (!Array.isArray(u.items)) problem(`${up}.items`, `${who} has an unreadable item list.`);
+          else if (u.items.length > MAX_ITEMS) problem(`${up}.items`, `${who} carries ${u.items.length} items; a unit can carry at most ${MAX_ITEMS}.`);
           else
             u.items.forEach((item: unknown, ii) => {
               if (typeof item !== 'string' || !NAME.test(item)) problem(`${up}.items[${ii}]`, `${who} has an unreadable item.`);

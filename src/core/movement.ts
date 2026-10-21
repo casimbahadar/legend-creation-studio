@@ -123,3 +123,33 @@ export function followCursor(search: MoveSearch, route: readonly number[], to: n
   }
   return shortestRoute(search, to);
 }
+
+/**
+ * Squares a unit could attack this turn: within any of its weapon ranges (Manhattan distance) of a
+ * square it can end on, not counting those squares themselves. As FE shows it, in red around the blue.
+ */
+export function attackRange(
+  stops: ReadonlyMap<number, number>,
+  width: number,
+  height: number,
+  ranges: readonly (readonly [number, number])[],
+): Set<number> {
+  const out = new Set<number>();
+  const max = Math.max(0, ...ranges.map((r) => r[1]));
+  for (const k of stops.keys()) {
+    const x = k % width;
+    const y = (k - x) / width;
+    for (let dy = -max; dy <= max; dy++) {
+      for (let dx = -max; dx <= max; dx++) {
+        const d = Math.abs(dx) + Math.abs(dy);
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        if (!ranges.some(([lo, hi]) => d >= lo && d <= hi)) continue;
+        const nk = ny * width + nx;
+        if (!stops.has(nk)) out.add(nk);
+      }
+    }
+  }
+  return out;
+}
