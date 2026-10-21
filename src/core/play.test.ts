@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { areFoes, endTurn, moveUnit, startPlay, unitAt } from './play';
+import { applyBattle, areFoes, endTurn, finishAction, moveUnit, startPlay, unitAt } from './play';
+import type { Stats } from './combat';
 import type { ProjectChapter } from './project';
+
+const STATS: Stats = { hp: 18, str: 5, skl: 5, spd: 5, def: 3, res: 1, lck: 2, con: 6 };
+const statsOf = () => STATS;
 
 const chapter: ProjectChapter = {
   id: 'c',
@@ -15,16 +19,22 @@ const chapter: ProjectChapter = {
 
 describe('play session', () => {
   it('starts from the chapter without changing it', () => {
-    const s = startPlay(chapter);
+    const s = startPlay(chapter, statsOf);
+    expect(unitAt(s, 1, 1)).toMatchObject({ id: 'eirika', hp: 18, level: 1, items: ['rapier'], moved: false });
     const moved = moveUnit(s, 'eirika', [2, 1]);
-    expect(unitAt(moved, 2, 1)).toMatchObject({ id: 'eirika', moved: true, items: ['rapier'] });
-    expect(unitAt(moved, 1, 1)).toBeUndefined();
+    expect(unitAt(moved, 2, 1)).toMatchObject({ id: 'eirika', moved: false });
+    expect(unitAt(finishAction(moved, 'eirika'), 2, 1)?.moved).toBe(true);
     expect(chapter.units[0]!.at).toEqual([1, 1]);
-    expect(unitAt(s, 1, 1)?.id).toBe('eirika');
+  });
+
+  it('applies a fight and removes the fallen', () => {
+    const s = applyBattle(startPlay(chapter, statsOf), 'eirika', 'brigand-1', 12, 0);
+    expect(s.units).toHaveLength(1);
+    expect(s.units[0]).toMatchObject({ id: 'eirika', hp: 12, moved: true });
   });
 
   it('readies every unit at the end of the turn', () => {
-    const s = endTurn(moveUnit(startPlay(chapter), 'eirika', [2, 1]));
+    const s = endTurn(finishAction(startPlay(chapter, statsOf), 'eirika'));
     expect(s.turn).toBe(2);
     expect(s.units.every((u) => !u.moved)).toBe(true);
   });

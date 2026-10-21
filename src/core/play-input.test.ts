@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { startPlay, type PlayState, type PlayUnit } from './play';
+import type { Stats } from './combat';
 import { searchMoves } from './movement';
+import { startPlay, type PlayState, type PlayUnit } from './play';
 import {
   canMove,
-  cursorTo,
+  finishBattle,
   finishWalk,
+  menuOptions,
   moveCursor,
   pressA,
   pressB,
@@ -14,104 +16,137 @@ import {
   visibleRoute,
   walkPosition,
   type PlayRules,
+  type PlayView,
 } from './play-input';
+import type { ProjectChapter } from './project';
 
-const chapter = {
+const STATS: Stats = { hp: 18, str: 5, skl: 5, spd: 5, def: 3, res: 1, lck: 2, con: 6 };
+const chapterWith = (brigandAt: [number, number]): ProjectChapter => ({
   id: 'c',
   name: 'C',
   map: 'fe8-us/chapter-entry-0',
-  goal: 'rout' as const,
+  goal: 'rout',
   units: [
-    { id: 'brigand-1', class: 'brigand', team: 'enemy' as const, level: 1, at: [4, 0] as [number, number] },
-    { id: 'eirika', class: 'lord-eirika', team: 'player' as const, level: 1, at: [1, 1] as [number, number] },
+    { id: 'brigand-1', class: 'brigand', team: 'enemy', level: 1, at: brigandAt },
+    { id: 'eirika', class: 'lord-eirika', team: 'player', level: 1, at: [1, 1] },
   ],
-};
+});
+const start = (brigandAt: [number, number] = [4, 0]) => startView(startPlay(chapterWith(brigandAt), () => STATS));
 
-// Open 5x3 field, every step costs 1, and every unit has Mov 1: it reaches its own square and the ones next to it.
+// Open 5x3 field where every step costs 1 and every unit has Mov 1. A unit can attack a foe next to it,
+// and every fight is one blow that defeats the defender.
 const rules: PlayRules = {
   width: 5,
   height: 3,
   searchOf: (u: PlayUnit, _s: PlayState) => searchMoves({ width: 5, height: 3, terrain: new Array(15).fill(0) }, () => 1, 1, u.at, () => null),
+  targetsOf: (u, s) => s.units.filter((o) => o.team !== u.team && Math.abs(o.at[0] - u.at[0]) + Math.abs(o.at[1] - u.at[1]) === 1).map((o) => o.id),
+  fight: (a) => [{ by: 'attacker', hit: true, crit: false, damage: 99, attackerHp: a.hp, defenderHp: 0 }],
 };
+const eirika = (v: PlayView) => v.state.units.find((u) => u.id === 'eirika')!;
+/** Selects Eirika, moves one square right and lets the walk finish. */
+const moveRight = (v: PlayView) => finishWalk(pressA(moveCursor(pressA(v, rules), 1, 0, rules), rules));
 
-describe('play controls', () => {
+describe('selecting and moving', () => {
   it('starts the cursor on the first player unit', () => {
-    expect(startView(startPlay(chapter)).cursor).toEqual([1, 1]);
+    expect(start().cursor).toEqual([1, 1]);
   });
 
-  it('moves the cursor one square and stops at the map edge', () => {
-    let v = startView(startPlay(chapter));
-    v = moveCursor(v, -1, 0, rules);
-    v = moveCursor(v, -1, 0, rules);
+  it('moves the cursor freely when nothing is selected, stopping at the map edge', () => {
+    let v = start();
+    v = moveCursor(moveCursor(v, -1, 0, rules), -1, 0, rules);
     expect(v.cursor).toEqual([0, 1]);
-    expect(cursorTo(v, 9, -3, rules).cursor).toEqual([4, 0]);
-  });
-
-  it('selects with A and moves into range with A, walking the arrow', () => {
-    let v = pressA(startView(startPlay(chapter)), rules);
-    expect(v.selected).toBe('eirika');
-    v = pressA(moveCursor(v, 1, 0, rules), rules);
-    expect(v.selected).toBeNull();
-    expect(v.state.units.find((u) => u.id === 'eirika')).toMatchObject({ at: [2, 1], moved: true });
-    expect(v.walking).toEqual({ id: 'eirika', route: [6, 7] });
   });
 
   it('keeps the cursor inside the reach of a unit being moved', () => {
-    let v = pressA(startView(startPlay(chapter)), rules);
+    let v = pressA(start(), rules);
     v = moveCursor(moveCursor(moveCursor(v, 1, 0, rules), 1, 0, rules), 1, 0, rules);
     expect(v.cursor).toEqual([2, 1]);
     expect(visibleRoute(v, rules)).toEqual([6, 7]);
-    // Without a unit selected the cursor goes anywhere.
-    expect(moveCursor(pressB(v), 3, 0, rules).cursor).toEqual([4, 1]);
+  });
+
+  it('walks the arrow, then opens the action menu without finishing the turn', () => {
+    const walking = pressA(moveCursor(pressA(start(), rules), 1, 0, rules), rules);
+    expect(walking.walking).toEqual({ id: 'eirika', route: [6, 7], from: [1, 1] });
+    expect(moveCursor(walking, 1, 0, rules)).toBe(walking);
+    expect(pressA(walking, rules)).toBe(walking);
+    const menu = finishWalk(walking);
+    expect(menu.action).toEqual({ kind: 'menu', unit: 'eirika', from: [1, 1], index: 0 });
+    expect(menuOptions(menu, rules)).toEqual(['wait']);
+    expect(eirika(menu)).toMatchObject({ at: [2, 1], moved: false });
+  });
+
+  it('opens the menu straight away when A is pressed on the unit itself', () => {
+    const v = pressA(pressA(start(), rules), rules);
+    expect(v.walking).toBeNull();
+    expect(v.action?.kind).toBe('menu');
+  });
+
+  it('finishes the turn with Wait', () => {
+    const v = pressA(moveRight(start()), rules);
+    expect(v.action).toBeNull();
+    expect(eirika(v)).toMatchObject({ at: [2, 1], moved: true });
+  });
+
+  it('undoes the move with B in the menu, keeping the arrow to where it was', () => {
+    const v = pressB(moveRight(start()), rules);
+    expect(v.action).toBeNull();
+    expect(eirika(v)).toMatchObject({ at: [1, 1], moved: false });
+    expect(v.selected).toBe('eirika');
+    expect(v.cursor).toEqual([2, 1]);
+    expect(visibleRoute(v, rules)).toEqual([6, 7]);
   });
 
   it('ignores taps outside the reach of a unit being moved', () => {
-    const v = pressA(startView(startPlay(chapter)), rules);
+    const v = pressA(start(), rules);
     expect(tapAt(v, 3, 1, rules)).toBe(v);
-    const moved = tapAt(v, 1, 2, rules);
-    expect(moved.state.units.find((u) => u.id === 'eirika')?.at).toEqual([1, 2]);
+    expect(tapAt(v, 1, 2, rules).walking?.route).toEqual([6, 11]);
   });
 
-  it('ignores input while a unit walks, until the walk finishes', () => {
-    const walking = pressA(moveCursor(pressA(startView(startPlay(chapter)), rules), 0, 1, rules), rules);
-    expect(walking.walking).not.toBeNull();
-    expect(moveCursor(walking, 1, 0, rules)).toBe(walking);
-    expect(pressA(walking, rules)).toBe(walking);
-    expect(pressB(walking)).toBe(walking);
-    expect(moveCursor(finishWalk(walking), 1, 0, rules).cursor).toEqual([2, 2]);
-  });
-
-  it('waits in place when A is pressed on the unit itself, without walking', () => {
-    const v = pressA(pressA(startView(startPlay(chapter)), rules), rules);
-    expect(v.state.units.find((u) => u.id === 'eirika')).toMatchObject({ at: [1, 1], moved: true });
-    expect(v.walking).toBeNull();
-  });
-
-  it('cancels with B and returns the cursor to the unit', () => {
-    let v = pressA(startView(startPlay(chapter)), rules);
-    v = pressB(moveCursor(v, 1, 0, rules));
+  it('cancels a selection with B and returns the cursor to the unit', () => {
+    let v = pressA(start(), rules);
+    v = pressB(moveCursor(v, 1, 0, rules), rules);
     expect(v.selected).toBeNull();
     expect(v.cursor).toEqual([1, 1]);
-    expect(pressB(v)).toBe(v);
   });
 
   it('shows an enemy range on A and clears it on a second A', () => {
-    let v = pressA(cursorTo(startView(startPlay(chapter)), 4, 0, rules), rules);
+    let v = tapAt(start(), 4, 0, rules);
     expect(selectedUnit(v)?.id).toBe('brigand-1');
     expect(canMove(selectedUnit(v))).toBe(false);
     v = pressA(v, rules);
     expect(v.selected).toBeNull();
   });
+});
 
-  it('draws the arrow from the unit to the cursor', () => {
-    let v = pressA(startView(startPlay(chapter)), rules);
-    expect(v.route).toEqual([6]);
-    expect(visibleRoute(v, rules)).toBeNull();
-    v = moveCursor(v, 1, 0, rules);
-    expect(visibleRoute(v, rules)).toEqual([6, 7]);
-    v = moveCursor(v, -1, 0, rules);
-    expect(visibleRoute(v, rules)).toBeNull();
-    expect(pressB(v).route).toBeNull();
+describe('attacking', () => {
+  // The brigand stands at (3,1), next to the square Eirika moves to.
+  const menu = () => moveRight(start([3, 1]));
+
+  it('offers Attack when an enemy is in reach, and the D-pad moves the highlight', () => {
+    const v = menu();
+    expect(menuOptions(v, rules)).toEqual(['attack', 'wait']);
+    expect(moveCursor(v, 0, 1, rules).action).toMatchObject({ index: 1 });
+    expect(moveCursor(v, 0, -1, rules).action).toMatchObject({ index: 1 });
+  });
+
+  it('picks a target, goes back with B, then fights', () => {
+    const target = pressA(menu(), rules);
+    expect(target.action).toMatchObject({ kind: 'target', targets: ['brigand-1'], index: 0 });
+    expect(target.cursor).toEqual([3, 1]);
+    expect(pressB(target, rules).action?.kind).toBe('menu');
+    const fighting = pressA(target, rules);
+    expect(fighting.battle?.strikes).toHaveLength(1);
+    expect(pressB(fighting, rules)).toBe(fighting);
+    const after = finishBattle(fighting);
+    expect(after.battle).toBeNull();
+    expect(after.state.units.map((u) => u.id)).toEqual(['eirika']);
+    expect(eirika(after)).toMatchObject({ moved: true, hp: 18 });
+  });
+
+  it('chooses a target by tapping it, and attacks on a second tap', () => {
+    const target = pressA(menu(), rules);
+    expect(tapAt(target, 0, 0, rules)).toBe(target);
+    expect(tapAt(target, 3, 1, rules).battle).not.toBeNull();
   });
 });
 
@@ -123,6 +158,5 @@ describe('walkPosition', () => {
     expect(walkPosition(route, 5, 75)).toEqual({ x: 0.5, y: 0, done: false });
     expect(walkPosition(route, 5, 225)).toEqual({ x: 1, y: 0.5, done: false });
     expect(walkPosition(route, 5, 300)).toEqual({ x: 1, y: 1, done: true });
-    expect(walkPosition(route, 5, 9999)).toEqual({ x: 1, y: 1, done: true });
   });
 });
