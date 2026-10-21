@@ -19,6 +19,7 @@ import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } f
 import type { Image } from '../rom/gba-graphics';
 import type { GbaRom } from '../rom/gba-rom';
 import type { TextTable } from '../rom/text';
+import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
 
@@ -84,6 +85,22 @@ function nextUnitId(units: ProjectUnit[], cls: string): string {
   return `${cls}-${n}`;
 }
 
+/** Checks a parsed project file against this ROM: the file itself, its class names, its maps and unit positions. */
+function loadProject(data: EditorRom, parsed: unknown): { project: Project | null; problems: Problem[] } {
+  const { project, problems } = checkProject(parsed, { classes: new Set(data.art.map((a) => a.entry.name)) });
+  if (project) {
+    project.chapters.forEach((c, ci) => {
+      const m = data.maps[findMap(data, c.map)];
+      if (!m) problems.push({ path: `chapters[${ci}].map`, message: `The map for "${c.name}" isn't in your ROM.` });
+      else
+        c.units.forEach((u, ui) => {
+          if (u.at[0] >= m.width || u.at[1] >= m.height) problems.push({ path: `chapters[${ci}].units[${ui}].at`, message: `"${u.id}" is outside the map.` });
+        });
+    });
+  }
+  return { project: project && !problems.length ? project : null, problems };
+}
+
 function saveFile(project: Project) {
   const url = URL.createObjectURL(new Blob([projectToJson(project)], { type: 'application/json' }));
   const a = document.createElement('a');
@@ -96,10 +113,31 @@ function saveFile(project: Project) {
 }
 
 export function ChapterEditor({ data }: { data: EditorRom }) {
-  const [project, setProject] = useState<Project>(() => newProject('My First Chapter', mapRef(data.maps[0]?.chapter ?? 0)));
+  const store = useMemo(() => deviceStore(), []);
+  // Restore the autosaved chapter if it still checks out against this ROM; otherwise start fresh.
+  const [start] = useState(() => {
+    const saved = readAutosave(store);
+    const restored = saved ? loadProject(data, saved.project).project : null;
+    if (restored) return { project: restored, savedJson: saved!.savedJson, freshJson: null, restored: true };
+    const fresh = newProject('My First Chapter', mapRef(data.maps[0]?.chapter ?? 0));
+    return { project: fresh, savedJson: null, freshJson: projectToJson(fresh), restored: false };
+  });
+  const [project, setProject] = useState<Project>(start.project);
+  const [savedJson, setSavedJson] = useState<string | null>(start.savedJson);
+  const [autosaveOk, setAutosaveOk] = useState(true);
   const [artIndex, setArtIndex] = useState(0);
   const [team, setTeam] = useState<Team>('player');
-  const [status, setStatus] = useState<{ ok: boolean; text: string; problems?: Problem[] } | null>(null);
+  const [status, setStatus] = useState<{ ok: boolean; text: string; problems?: Problem[] } | null>(
+    start.restored ? { ok: true, text: `Picked up "${start.project.name}" where you left off.` } : null,
+  );
+  const json = projectToJson(project);
+  // An untouched new chapter has nothing to lose, so it doesn't count as unsaved.
+  const untouched = savedJson === null && json === start.freshJson;
+  const unsaved = !untouched && json !== savedJson;
+
+  useEffect(() => {
+    setAutosaveOk(writeAutosave(store, { project, savedJson }));
+  }, [store, project, savedJson]);
   const canvas = useRef<HTMLCanvasElement>(null);
 
   const chapter = project.chapters[0]!;
@@ -159,6 +197,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     }
   }
 
+  function onSave() {
+    saveFile(project);
+    setSavedJson(projectToJson(project));
+    setStatus(null);
+  }
+
   async function onOpen(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -170,22 +214,14 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       setStatus({ ok: false, text: `Couldn't open ${file.name}: it isn't a project file.` });
       return;
     }
-    const { project: opened, problems } = checkProject(parsed, { classes: new Set(data.art.map((a) => a.entry.name)) });
-    if (opened) {
-      opened.chapters.forEach((c, ci) => {
-        const m = data.maps[findMap(data, c.map)];
-        if (!m) problems.push({ path: `chapters[${ci}].map`, message: `The map for "${c.name}" isn't in your ROM.` });
-        else
-          c.units.forEach((u, ui) => {
-            if (u.at[0] >= m.width || u.at[1] >= m.height) problems.push({ path: `chapters[${ci}].units[${ui}].at`, message: `"${u.id}" is outside the map.` });
-          });
-      });
-    }
+    const { project: opened, problems } = loadProject(data, parsed);
     if (!opened || problems.length) {
       setStatus({ ok: false, text: `Couldn't open ${file.name}:`, problems });
       return;
     }
+    if (unsaved && !window.confirm(`Opening ${file.name} replaces changes you haven't saved to a file. Open it anyway?`)) return;
     setProject(opened);
+    setSavedJson(projectToJson(opened));
     setStatus({ ok: true, text: `Opened "${opened.name}".` });
   }
 
@@ -201,7 +237,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       </label>
 
       <div className="stepper">
-        <button type="button" className="button" disabled={!project.name.trim()} onClick={() => saveFile(project)}>
+        <button type="button" className="button" disabled={!project.name.trim()} onClick={onSave}>
           Save
         </button>
         <label className="button button-secondary">
@@ -209,6 +245,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
           <input type="file" className="visually-hidden" onChange={onOpen} />
         </label>
       </div>
+      <p className="note">
+        {untouched ? 'Nothing to save yet.' : unsaved ? 'Changes not saved to a file yet.' : 'Everything is saved to a file.'}{' '}
+        {autosaveOk
+          ? 'Your chapter is also kept on this device between visits.'
+          : "This browser won't keep your chapter between visits (private browsing?), so tap Save before leaving."}
+      </p>
       {status && (
         <div className={status.ok ? 'good' : 'bad'} role="status">
           <p>{status.text}</p>
