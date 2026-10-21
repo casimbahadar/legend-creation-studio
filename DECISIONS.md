@@ -24,3 +24,5 @@ Settled decisions for Legend Creation Studio. Do not contradict these; raise a c
 20. Unit stats come from the class's base stats in the ROM, raised by its growth rates for each level above 1 using average (not random) growth, so a placed unit is the same every time; per-unit stat edits can come later. Gives level a meaning without new editing screens.
 21. Test play rolls hits the way FE8 does: two random numbers averaged for hit ("true hit"), one for crit. Playtesting should feel like the real ROM.
 22. Battles are shown on the map first, in FE's "animations off" style: a forecast, then units lunge with damage numbers and HP bars. ROM battle animations can come after 0.1.
+23. Enemy and ally behaviour is set per unit, as in FE's own chapters: Charge (head for the other side every turn), Attack in range (act only when a target is within reach; the default) or Hold (never move, attack anything in reach). Lets one chapter mix rushers, ambushers and guards.
+24. Turn order is FE's: player, then enemies, then allies (green units), which use the same behaviours against enemies.
