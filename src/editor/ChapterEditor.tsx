@@ -13,17 +13,22 @@ import {
   type ProjectUnit,
   type Team,
 } from '../core/project';
-import { readClasses } from '../rom/fe8-classes';
+import { readClasses, type ClassStats } from '../rom/fe8-classes';
 import { idleFrame, readMapSprite, readTeamPalettes, renderMapSprite, spriteOrigin, type TeamColour } from '../rom/fe8-map-sprites';
 import { readChapterMap, renderMap, type ChapterMap } from '../rom/fe8-maps';
 import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } from '../rom/fe8-names';
 import { checkItemNames, FE8_ITEM_NAMES, type ItemMismatch, type ItemName } from '../rom/fe8-item-names';
 import { findItemTable, isStaff, isWeapon, readItems, WEAPON_TYPES, type RomItem } from '../rom/fe8-items';
 import { attackRange, IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
+import { battleFrame, type BattleFrame } from '../core/battle-anim';
+import { forecast, randomNumbers, resolveBattle, statsAtLevel, type Combatant, type Forecast, type Stats, type Weapon } from '../core/combat';
 import { areFoes, endTurn, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
+  chooseOption,
+  finishBattle,
   finishWalk,
+  menuOptions,
   moveCursor,
   pressA,
   pressB,
@@ -127,6 +132,11 @@ export interface ClassArt {
   readonly moveCosts: Uint8Array | null;
   /** Starting rank per weapon type (sword, lance, axe, bow, staff, anima, light, dark); 0 = can't use. */
   readonly weaponRanks: Uint8Array;
+  readonly base: ClassStats;
+  readonly growths: ClassStats;
+  readonly terrainAvoid: Uint8Array | null;
+  readonly terrainDef: Uint8Array | null;
+  readonly terrainRes: Uint8Array | null;
   readonly width: number;
   readonly height: number;
 }
@@ -174,6 +184,11 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
         mov: c.mov,
         moveCosts: c.moveCosts,
         weaponRanks: c.weaponRanks,
+        base: c.base,
+        growths: c.growths,
+        terrainAvoid: c.terrainAvoid,
+        terrainDef: c.terrainDef,
+        terrainRes: c.terrainRes,
       });
     } catch {
       // class without a usable map sprite
@@ -232,6 +247,39 @@ function weaponRanges(art: ClassArt | undefined, itemNames: readonly string[], i
     .map((n) => items.find((i) => i.entry.name === n))
     .filter((i): i is EditorItem => !!i && isWeapon(i.rom) && !isStaff(i.rom) && usable(art, i))
     .map((i) => [i.rom.minRange, i.rom.maxRange]);
+}
+
+/** Weapons a unit can fight with, in inventory order: weapons it carries that its class can use, not staves. */
+function weaponsOf(art: ClassArt | undefined, itemNames: readonly string[], items: EditorItem[]): EditorItem[] {
+  if (!art) return [];
+  return itemNames
+    .map((n) => items.find((i) => i.entry.name === n))
+    .filter((i): i is EditorItem => !!i && isWeapon(i.rom) && !isStaff(i.rom) && usable(art, i));
+}
+
+function toWeapon(item: EditorItem): Weapon {
+  const r = item.rom;
+  const kind = r.type < WEAPON_TYPES.length ? WEAPON_TYPES[r.type]! : 'other';
+  return {
+    name: item.entry.gameName,
+    kind,
+    // Anima, light and dark target Res, as do weapons the ROM marks as magic.
+    magic: kind === 'anima' || kind === 'light' || kind === 'dark' || (r.attributes & 2) !== 0,
+    might: r.might,
+    hit: r.hit,
+    crit: r.crit,
+    weight: r.weight,
+    minRange: r.minRange,
+    maxRange: r.maxRange,
+  };
+}
+
+const distance = (a: PlayUnit, b: PlayUnit) => Math.abs(a.at[0] - b.at[0]) + Math.abs(a.at[1] - b.at[1]);
+const inReach = (w: EditorItem, d: number) => d >= w.rom.minRange && d <= w.rom.maxRange;
+
+/** Stats for a class at a level, or a 1 HP stand-in if the class isn't known. */
+function classStats(art: ClassArt | undefined, level: number): Stats {
+  return art ? statsAtLevel(art.base, art.growths, level) : { hp: 1, str: 0, skl: 0, spd: 0, def: 0, res: 0, lck: 0, con: 0 };
 }
 
 /** One-line stats for an item, e.g. "Mt 5 · Hit 90 · Rng 1 · 46 uses". */
@@ -333,8 +381,60 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     // searchOf only reads map and artByName besides its arguments.
     [play, selectedUnit, showRange, map, artByName],
   );
-  // searchOf reads only map and artByName, so the rules change only when they do.
-  const rules = useMemo<PlayRules | null>(() => (map ? { width: map.width, height: map.height, searchOf } : null), [map, artByName]);
+  const unitLabel = (u: { name?: string; class: string }) => u.name ?? artByName.get(u.class)?.entry.label ?? u.class;
+
+  // One stream of random numbers per test play session.
+  const rng = useRef(randomNumbers(Date.now()));
+
+  function combatantOf(u: PlayUnit, weapon: EditorItem | undefined): Combatant {
+    const art = artByName.get(u.class);
+    const t = map ? (map.terrain[u.at[1] * map.width + u.at[0]] ?? 0) : 0;
+    return {
+      stats: u.stats,
+      hp: u.hp,
+      weapon: weapon ? toWeapon(weapon) : null,
+      terrain: { avoid: art?.terrainAvoid?.[t] ?? 0, def: art?.terrainDef?.[t] ?? 0, res: art?.terrainRes?.[t] ?? 0 },
+    };
+  }
+
+  /**
+   * A fight's forecast. The attacker uses the first weapon it can use that reaches; the defender
+   * counters with its first usable weapon, if that reaches.
+   */
+  function forecastOf(a: PlayUnit, d: PlayUnit) {
+    const dist = distance(a, d);
+    const attackerWeapon = weaponsOf(artByName.get(a.class), a.items, data.items).find((w) => inReach(w, dist));
+    const defenderWeapon = weaponsOf(artByName.get(d.class), d.items, data.items)[0];
+    const attacker = combatantOf(a, attackerWeapon);
+    const defender = combatantOf(d, defenderWeapon);
+    return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender };
+  }
+
+  function targetsOf(u: PlayUnit, state: PlayState): string[] {
+    const weapons = weaponsOf(artByName.get(u.class), u.items, data.items);
+    return state.units
+      .filter((o) => areFoes(o.team, u.team) && weapons.some((w) => inReach(w, distance(u, o))))
+      .sort((a, b) => distance(u, a) - distance(u, b))
+      .map((o) => o.id);
+  }
+
+  // searchOf, targetsOf and fight read only map, artByName and the items, so the rules change only when they do.
+  const rules = useMemo<PlayRules | null>(
+    () =>
+      map
+        ? {
+            width: map.width,
+            height: map.height,
+            searchOf,
+            targetsOf,
+            fight: (a, d) => {
+              const f = forecastOf(a, d);
+              return resolveBattle(f.attacker, f.defender, f.forecast, rng.current);
+            },
+          }
+        : null,
+    [map, artByName, data.items],
+  );
   const arrow = view && rules ? visibleRoute(view, rules) : null;
   // When a walk starts, note the time; the draw loop moves the unit along its route from then on.
   const walk = view?.walking ?? null;
@@ -342,6 +442,24 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   useEffect(() => {
     if (walk) walkStart.current = performance.now();
   }, [walk]);
+  // The same for a battle; the HUD (HP bars, damage) updates only when a blow lands, not every frame.
+  const battle = view?.battle ?? null;
+  const battleStart = useRef(0);
+  const battleFrom = useRef({ attackerHp: 0, defenderHp: 0 });
+  const [hud, setHud] = useState<BattleFrame | null>(null);
+  const hudKey = useRef('');
+  useEffect(() => {
+    if (!battle || !play) {
+      setHud(null);
+      hudKey.current = '';
+      return;
+    }
+    battleStart.current = performance.now();
+    battleFrom.current = {
+      attackerHp: play.units.find((u) => u.id === battle.attacker)?.hp ?? 0,
+      defenderHp: play.units.find((u) => u.id === battle.defender)?.hp ?? 0,
+    };
+  }, [battle]); // play is read only when a battle starts
 
   // Arrow keys, Z (A) and X (B) for playing on a computer, like an emulator.
   useEffect(() => {
@@ -351,7 +469,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       const dir = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
       if (dir) setView((v) => v && moveCursor(v, dir[0], dir[1], rules));
       else if (e.key === 'z' || e.key === 'Z' || e.key === 'Enter') setView((v) => v && pressA(v, rules));
-      else if (e.key === 'x' || e.key === 'X' || e.key === 'Escape') setView((v) => v && pressB(v));
+      else if (e.key === 'x' || e.key === 'X' || e.key === 'Escape') setView((v) => v && pressB(v, rules));
       else return;
       e.preventDefault();
     };
@@ -379,8 +497,21 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       if (arrow) drawArrow(g, arrow, c.width / 16);
       const frame = idleFrame(now);
       let walkDone = false;
+      const bf = battle ? battleFrame(battle.strikes, battleFrom.current, now - battleStart.current) : null;
+      const striking = bf && bf.index >= 0 ? battle!.strikes[bf.index]! : null;
       const placed = units.map((u) => {
         const walker = walk && play && play.units.find((p) => p.id === walk.id);
+        if (battle && bf && striking && play) {
+          // The striker lunges a quarter square toward the unit it hits.
+          const strikerId = striking.by === 'attacker' ? battle.attacker : battle.defender;
+          const otherId = striking.by === 'attacker' ? battle.defender : battle.attacker;
+          const other = play.units.find((p) => p.id === otherId);
+          if ((u as PlayUnit).id === strikerId && other) {
+            const dx = Math.sign(other.at[0] - u.at[0]);
+            const dy = Math.sign(other.at[1] - u.at[1]);
+            return { u, x: u.at[0] + dx * bf.lunge * 0.25, y: u.at[1] + dy * bf.lunge * 0.25, walking: false };
+          }
+        }
         if (!walk || walker !== u) return { u, x: u.at[0], y: u.at[1], walking: false };
         const pos = walkPosition(walk.route, c.width / 16, now - walkStart.current);
         walkDone = pos.done;
@@ -396,14 +527,22 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         g.drawImage(img, Math.round(sx), Math.round(sy));
       }
       if (walkDone) setView((v) => v && finishWalk(v));
-      if (view) drawCursor(g, view.cursor[0], view.cursor[1], now);
+      if (bf) {
+        const key = `${bf.index}:${bf.landed ? battle!.strikes.indexOf(bf.landed) : -1}`;
+        if (key !== hudKey.current) {
+          hudKey.current = key;
+          setHud(bf);
+        }
+        if (bf.done) setView((v) => v && finishBattle(v));
+      }
+      if (view && !battle) drawCursor(g, view.cursor[0], view.cursor[1], now);
       const edited = !view && editing ? chapter.units.find((u) => u.id === editing) : undefined;
       if (edited) drawCursor(g, edited.at[0], edited.at[1], now);
       if (units.length) raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow, walk, editing]);
+  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow, walk, editing, battle]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -451,7 +590,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
 
   function setMode(playing: boolean) {
     setEditing(null);
-    setView(playing ? startView(startPlay(chapter)) : null);
+    rng.current = randomNumbers(Date.now());
+    setView(playing ? startView(startPlay(chapter, (u) => classStats(artByName.get(u.class), u.level))) : null);
   }
 
   function onSave() {
@@ -550,6 +690,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
               play={play}
               selected={selectedUnit}
               canMove={canMove}
+              phase={view?.battle ? 'battle' : view?.walking ? 'walk' : (view?.action?.kind ?? null)}
               label={(u) => artByName.get(u.class)?.entry.label ?? u.class}
               onEndTurn={() => setView((v) => v && { ...v, state: endTurn(v.state), selected: null })}
             />
@@ -578,7 +719,62 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
             </div>
           )}
 
-          <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+          {view && (
+            <div className="play-window" aria-live="polite">
+              {(() => {
+                const a = view.action;
+                if (a?.kind === 'target') {
+                  const atk = view.state.units.find((u) => u.id === a.unit);
+                  const def = view.state.units.find((u) => u.id === a.targets[a.index]);
+                  if (!atk || !def) return null;
+                  const f = forecastOf(atk, def);
+                  return <ForecastBox a={atk} d={def} f={f.forecast} aWeapon={f.attackerWeapon?.entry.gameName} dWeapon={f.defenderWeapon?.entry.gameName} label={unitLabel} />;
+                }
+                if (battle && hud) {
+                  return <BattleHud battle={battle} frame={hud} units={view.state.units} maxHp={(id: string) => view.state.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />;
+                }
+                const u = unitAt(view.state, view.cursor[0], view.cursor[1]);
+                if (!u) return null;
+                const w = weaponsOf(artByName.get(u.class), u.items, data.items)[0];
+                return (
+                  <div className={`window-side team-${u.team}`}>
+                    <strong>{unitLabel(u)}</strong>
+                    <span>
+                      Lv {u.level} · HP {u.hp}/{u.stats.hp}
+                    </span>
+                    <span>{w ? w.entry.gameName : 'No weapon'}</span>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          <div className="map-wrap">
+            <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+            {view &&
+              rules &&
+              view.action?.kind === 'menu' &&
+              (() => {
+                const u = view.state.units.find((x) => x.id === view.action!.unit);
+                // The menu opens on the side of the map away from the unit, as in FE.
+                const side = u && u.at[0] >= rules.width / 2 ? 'left' : 'right';
+                return (
+                  <div className={`action-menu ${side}`} role="menu">
+                    {menuOptions(view, rules).map((o, i) => (
+                      <button
+                        key={o}
+                        type="button"
+                        role="menuitem"
+                        aria-current={view.action?.index === i}
+                        onClick={() => setView((v) => v && chooseOption(v, o, rules))}
+                      >
+                        {o === 'attack' ? 'Attack' : 'Wait'}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            {view && battle && hud && map && <BattlePopup battle={battle} frame={hud} units={view.state.units} width={map.width} height={map.height} />}
+          </div>
           {!view &&
             editing &&
             (() => {
@@ -597,8 +793,14 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
             <GbaControls
               onDirection={(dx, dy) => setView((v) => v && moveCursor(v, dx, dy, rules))}
               onA={() => setView((v) => v && pressA(v, rules))}
-              onB={() => setView((v) => v && pressB(v))}
+              onB={() => setView((v) => v && pressB(v, rules))}
             />
+          )}
+          {view && (
+            <p className="note">
+              You can also tap a square: that moves the cursor there and presses A. On a computer, use the arrow keys, Z for A and X for B.
+              Test play doesn't change your chapter. Enemies don't move yet.
+            </p>
           )}
           <p className="note">
             {counts.length
@@ -653,22 +855,28 @@ function PlayStatus({
   play,
   selected,
   canMove,
+  phase,
   label,
   onEndTurn,
 }: {
   play: PlayState;
   selected: PlayUnit | undefined;
   canMove: boolean;
+  /** What the player is in the middle of, if anything. */
+  phase: 'walk' | 'menu' | 'target' | 'battle' | null;
   label: (u: PlayUnit) => string;
   onEndTurn: () => void;
 }) {
   const yours = play.units.filter((u) => u.team === 'player');
   const allMoved = yours.length > 0 && yours.every((u) => u.moved);
   let hint: string;
-  if (selected && canMove) hint = `Move the cursor to a blue square and press A to move your ${label(selected)} there. Red squares are in reach of its weapons. Press A on the unit itself to wait, or B to cancel.`;
-  else if (selected && selected.team === 'player') hint = `Your ${label(selected)} has already moved this turn. Press B to go back.`;
+  if (phase === 'menu') hint = 'Choose Attack or Wait with ▲▼ and A, or tap it. B takes the move back.';
+  else if (phase === 'target') hint = 'Choose a target with the arrows or by tapping it, then press A to attack. B goes back.';
+  else if (phase === 'battle' || phase === 'walk') hint = '…';
+  else if (selected && canMove) hint = `Move the cursor to a blue square and press A to move your ${label(selected)} there. Red squares are in reach of its weapons. Press A on the unit itself to act without moving, or B to cancel.`;
+  else if (selected && selected.team === 'player') hint = `Your ${label(selected)} has already acted this turn. Press B to go back.`;
   else if (selected) hint = `This ${TEAM_LABELS[selected.team].toLowerCase()} ${label(selected)} can move to the blue squares and attack the red ones. Press A or B to close.`;
-  else if (allMoved) hint = 'All your units have moved. Tap End turn.';
+  else if (allMoved) hint = 'All your units have acted. Tap End turn.';
   else hint = 'Move the cursor onto one of your units and press A. Press A on an enemy to see how far it can move.';
   return (
     <div className="play-status">
@@ -676,14 +884,106 @@ function PlayStatus({
         <strong>Turn {play.turn}.</strong> {hint}
       </p>
       <div className="stepper">
-        <button type="button" className="button" onClick={onEndTurn}>
+        <button type="button" className="button" disabled={phase !== null} onClick={onEndTurn}>
           End turn
         </button>
       </div>
-      <p className="note">
-        You can also tap a square: that moves the cursor there and presses A. On a computer, use the arrow keys, Z for A and X for B.
-        Test play doesn't change your chapter. Enemies don't move yet.
-      </p>
+    </div>
+  );
+}
+
+/** FE's battle forecast: each side's weapon, HP, damage (×2 if it strikes twice), hit and crit. */
+function ForecastBox({
+  a,
+  d,
+  f,
+  aWeapon,
+  dWeapon,
+  label,
+}: {
+  a: PlayUnit;
+  d: PlayUnit;
+  f: Forecast;
+  aWeapon?: string;
+  dWeapon?: string;
+  label: (u: PlayUnit) => string;
+}) {
+  const col = (u: PlayUnit, s: Forecast['attacker'], weapon: string | undefined) => (
+    <div className={`window-side team-${u.team}`}>
+      <strong>{label(u)}</strong>
+      <span>
+        {weapon ?? 'No weapon'} · HP {u.hp}
+      </span>
+      <span>{s.canAttack ? `Dmg ${s.damage}${s.doubles ? ' ×2' : ''} · Hit ${s.hit} · Crit ${s.crit}` : "Can't counter"}</span>
+    </div>
+  );
+  return (
+    <>
+      {col(a, f.attacker, aWeapon)}
+      {col(d, f.defender, dWeapon)}
+    </>
+  );
+}
+
+/** HP bars for both units during a battle. */
+function BattleHud({
+  battle,
+  frame,
+  units,
+  maxHp,
+  label,
+}: {
+  battle: NonNullable<PlayView['battle']>;
+  frame: BattleFrame;
+  units: readonly PlayUnit[];
+  maxHp: (id: string) => number;
+  label: (u: PlayUnit) => string;
+}) {
+  const attacker = units.find((u) => u.id === battle.attacker);
+  const defender = units.find((u) => u.id === battle.defender);
+  if (!attacker || !defender) return null;
+  const bar = (u: PlayUnit, hp: number) => (
+    <div className={`window-side team-${u.team}`}>
+      <strong>{label(u)}</strong>
+      <span>HP {hp}</span>
+      <div className="hp-bar">
+        <div style={{ width: `${(100 * hp) / maxHp(u.id)}%` }} />
+      </div>
+    </div>
+  );
+  return (
+    <>
+      {bar(attacker, frame.attackerHp)}
+      {bar(defender, frame.defenderHp)}
+    </>
+  );
+}
+
+/** The result of the last blow, shown over the unit it hit. */
+function BattlePopup({
+  battle,
+  frame,
+  units,
+  width,
+  height,
+}: {
+  battle: NonNullable<PlayView['battle']>;
+  frame: BattleFrame;
+  units: readonly PlayUnit[];
+  width: number;
+  height: number;
+}) {
+  const l = frame.landed;
+  if (!l) return null;
+  const target = units.find((u) => u.id === (l.by === 'attacker' ? battle.defender : battle.attacker));
+  if (!target) return null;
+  return (
+    <div
+      key={battle.strikes.indexOf(l)}
+      className={`popup ${l.hit ? (l.crit ? 'crit' : 'hit') : 'miss'}`}
+      style={{ left: `${((target.at[0] + 0.5) / width) * 100}%`, top: `${(target.at[1] / height) * 100}%` }}
+    >
+      {l.hit ? (l.crit ? `Critical! ${l.damage}` : l.damage) : 'Miss'}
     </div>
   );
 }
@@ -757,9 +1057,24 @@ function UnitPanel({
   const choices = art ? items.filter((i) => usable(art, i)) : [];
   const setItems = (next: string[]) => onChange({ items: next.length ? next : undefined });
   const title = `${unit.name ?? art?.entry.label ?? unit.class} (${TEAM_LABELS[unit.team].toLowerCase()})`;
+  const st = classStats(art, unit.level);
   return (
     <div className="unit-panel">
       <h3>{title}</h3>
+      <div className="level-row">
+        <span>Level</span>
+        <button type="button" className="icon-button" aria-label="Lower level" disabled={unit.level <= 1} onClick={() => onChange({ level: unit.level - 1 })}>
+          −
+        </button>
+        <strong aria-live="polite">{unit.level}</strong>
+        <button type="button" className="icon-button" aria-label="Raise level" disabled={unit.level >= 20} onClick={() => onChange({ level: unit.level + 1 })}>
+          +
+        </button>
+      </div>
+      <p className="note">
+        HP {st.hp} · Str {st.str} · Skl {st.skl} · Spd {st.spd} · Lck {st.lck} · Def {st.def} · Res {st.res} · Con {st.con}
+        {art ? ` · Mov ${art.mov}` : ''}
+      </p>
       <p className="note">
         Items ({carried.length} of {MAX_ITEMS})
       </p>

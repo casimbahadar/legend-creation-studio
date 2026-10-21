@@ -341,3 +341,111 @@ h3 {
   font-size: 1.4rem;
   cursor: pointer;
 }
+
+/* Test play overlays sit on the map. */
+.map-wrap {
+  position: relative;
+}
+
+.action-menu {
+  position: absolute;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  min-width: 7.5rem;
+  border: 2px solid #f0e6c8;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(20, 32, 80, 0.92);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.action-menu.right { right: 8px; }
+.action-menu.left { left: 8px; }
+
+.action-menu button {
+  min-height: 44px;
+  padding: 0 1rem;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.action-menu button[aria-current='true'] {
+  background: rgba(255, 230, 128, 0.3);
+}
+
+/* FE's info window, above the map: the unit under the cursor, the forecast, or HP during a battle.
+   Its height is fixed so the map doesn't jump as it changes. */
+.play-window {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  min-height: 4.6rem;
+  margin-bottom: 6px;
+}
+
+.window-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.team-player { background: rgba(32, 64, 168, 0.92); }
+.team-enemy { background: rgba(160, 32, 32, 0.92); }
+.team-ally { background: rgba(32, 128, 64, 0.92); }
+
+.hp-bar {
+  height: 6px;
+  margin-top: 2px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.hp-bar div {
+  height: 100%;
+  background: #8ef08e;
+  transition: width 0.2s linear;
+}
+
+.popup {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 0 4px;
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: #fff;
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: popup-rise 0.5s ease-out both;
+}
+
+.popup.crit { color: #ffe680; }
+.popup.miss { color: #c8d0e0; }
+
+@keyframes popup-rise {
+  from { margin-top: 6px; opacity: 0; }
+  to { margin-top: 0; opacity: 1; }
+}
+
+.level-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.level-row strong {
+  min-width: 2ch;
+  text-align: center;
+}
