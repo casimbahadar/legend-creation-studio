@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { startPlay, type PlayState, type PlayUnit } from './play';
 import { searchMoves } from './movement';
-import { canMove, cursorTo, moveCursor, pressA, pressB, selectedUnit, startView, visibleRoute, type PlayRules } from './play-input';
+import {
+  canMove,
+  cursorTo,
+  finishWalk,
+  moveCursor,
+  pressA,
+  pressB,
+  selectedUnit,
+  startView,
+  tapAt,
+  visibleRoute,
+  walkPosition,
+  type PlayRules,
+} from './play-input';
 
 const chapter = {
   id: 'c',
@@ -34,19 +47,44 @@ describe('play controls', () => {
     expect(cursorTo(v, 9, -3, rules).cursor).toEqual([4, 0]);
   });
 
-  it('selects with A, moves into range with A, and ignores A out of range', () => {
+  it('selects with A and moves into range with A, walking the arrow', () => {
     let v = pressA(startView(startPlay(chapter)), rules);
     expect(v.selected).toBe('eirika');
-    const outOfRange = pressA(cursorTo(v, 3, 1, rules), rules);
-    expect(outOfRange.selected).toBe('eirika');
     v = pressA(moveCursor(v, 1, 0, rules), rules);
     expect(v.selected).toBeNull();
     expect(v.state.units.find((u) => u.id === 'eirika')).toMatchObject({ at: [2, 1], moved: true });
+    expect(v.walking).toEqual({ id: 'eirika', route: [6, 7] });
   });
 
-  it('waits in place when A is pressed on the unit itself', () => {
+  it('keeps the cursor inside the reach of a unit being moved', () => {
+    let v = pressA(startView(startPlay(chapter)), rules);
+    v = moveCursor(moveCursor(moveCursor(v, 1, 0, rules), 1, 0, rules), 1, 0, rules);
+    expect(v.cursor).toEqual([2, 1]);
+    expect(visibleRoute(v, rules)).toEqual([6, 7]);
+    // Without a unit selected the cursor goes anywhere.
+    expect(moveCursor(pressB(v), 3, 0, rules).cursor).toEqual([4, 1]);
+  });
+
+  it('ignores taps outside the reach of a unit being moved', () => {
+    const v = pressA(startView(startPlay(chapter)), rules);
+    expect(tapAt(v, 3, 1, rules)).toBe(v);
+    const moved = tapAt(v, 1, 2, rules);
+    expect(moved.state.units.find((u) => u.id === 'eirika')?.at).toEqual([1, 2]);
+  });
+
+  it('ignores input while a unit walks, until the walk finishes', () => {
+    const walking = pressA(moveCursor(pressA(startView(startPlay(chapter)), rules), 0, 1, rules), rules);
+    expect(walking.walking).not.toBeNull();
+    expect(moveCursor(walking, 1, 0, rules)).toBe(walking);
+    expect(pressA(walking, rules)).toBe(walking);
+    expect(pressB(walking)).toBe(walking);
+    expect(moveCursor(finishWalk(walking), 1, 0, rules).cursor).toEqual([2, 2]);
+  });
+
+  it('waits in place when A is pressed on the unit itself, without walking', () => {
     const v = pressA(pressA(startView(startPlay(chapter)), rules), rules);
     expect(v.state.units.find((u) => u.id === 'eirika')).toMatchObject({ at: [1, 1], moved: true });
+    expect(v.walking).toBeNull();
   });
 
   it('cancels with B and returns the cursor to the unit', () => {
@@ -65,16 +103,26 @@ describe('play controls', () => {
     expect(v.selected).toBeNull();
   });
 
-  it('draws the arrow from the unit to the cursor, and hides it out of reach', () => {
+  it('draws the arrow from the unit to the cursor', () => {
     let v = pressA(startView(startPlay(chapter)), rules);
     expect(v.route).toEqual([6]);
     expect(visibleRoute(v, rules)).toBeNull();
     v = moveCursor(v, 1, 0, rules);
     expect(visibleRoute(v, rules)).toEqual([6, 7]);
-    v = moveCursor(v, 1, 0, rules);
-    expect(visibleRoute(v, rules)).toBeNull();
     v = moveCursor(v, -1, 0, rules);
-    expect(visibleRoute(v, rules)).toEqual([6, 7]);
+    expect(visibleRoute(v, rules)).toBeNull();
     expect(pressB(v).route).toBeNull();
+  });
+});
+
+describe('walkPosition', () => {
+  // Route along a 5-wide map: (0,0) -> (1,0) -> (1,1).
+  const route = [0, 1, 6];
+  it('moves one square per 200 ms in a straight line between squares', () => {
+    expect(walkPosition(route, 5, 0)).toEqual({ x: 0, y: 0, done: false });
+    expect(walkPosition(route, 5, 100)).toEqual({ x: 0.5, y: 0, done: false });
+    expect(walkPosition(route, 5, 300)).toEqual({ x: 1, y: 0.5, done: false });
+    expect(walkPosition(route, 5, 400)).toEqual({ x: 1, y: 1, done: true });
+    expect(walkPosition(route, 5, 9999)).toEqual({ x: 1, y: 1, done: true });
   });
 });
