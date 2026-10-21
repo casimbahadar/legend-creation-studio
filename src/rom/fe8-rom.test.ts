@@ -6,6 +6,7 @@ import { FE8_US_CRC32 } from './fe8';
 import { readRom } from './gba-rom';
 import { readClasses } from './fe8-classes';
 import { checkClassNames } from './fe8-names';
+import { FE8_US_ITEM_TABLE, findItemTable, readItems } from './fe8-items';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
@@ -63,5 +64,17 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     const lord = readClasses(rom, findTextTable(rom)!).find((c) => c.id === 2)!;
     expect(lord.mov).toBe(5);
     expect(lord.moveCosts?.length).toBe(0x41);
+  });
+
+  it('finds the item table and reads Iron Sword', () => {
+    const table = findItemTable(rom);
+    expect(table).toBe(FE8_US_ITEM_TABLE);
+    const iron = readItems(rom, findTextTable(rom)!, table!).find((i) => i.id === 1)!;
+    expect(iron).toMatchObject({ name: 'Iron Sword', type: 0, uses: 46, might: 5, hit: 90, weight: 5, crit: 0, minRange: 1, maxRange: 1 });
+  });
+
+  it('reads class weapon ranks', () => {
+    const lord = readClasses(rom, findTextTable(rom)!).find((c) => c.id === 2)!;
+    expect(lord.weaponRanks[0]).toBeGreaterThan(0);
   });
 });

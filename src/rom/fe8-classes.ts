@@ -12,6 +12,7 @@ const LAST_CLASS_ID = 0x65;
 /** Offsets inside a class record, as EC reads them. */
 const BASE_MOV = 0x12;
 const MOVE_COST_POINTER = 0x38;
+const WEAPON_RANKS = 0x2c;
 /** One move cost per terrain id. */
 const TERRAIN_COUNT = 0x41;
 
@@ -25,6 +26,8 @@ export interface RomClass {
   readonly mov: number;
   /** Move cost per terrain id (255 = impassable), or null if the ROM has no table for this class. */
   readonly moveCosts: Uint8Array | null;
+  /** Starting weapon rank per weapon type (sword, lance, axe, bow, staff, anima, light, dark); 0 = can't use. */
+  readonly weaponRanks: Uint8Array;
 }
 
 export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
@@ -35,7 +38,7 @@ export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
     const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
     const costs = rom.u32(a + MOVE_COST_POINTER);
     const moveCosts = rom.isPointer(costs) && rom.offsetOf(costs) + TERRAIN_COUNT <= rom.size ? rom.bytes.slice(rom.offsetOf(costs), rom.offsetOf(costs) + TERRAIN_COUNT) : null;
-    out.push({ id, name, mapSprite: rom.u8(a + 6), mov: rom.u8(a + BASE_MOV), moveCosts });
+    out.push({ id, name, mapSprite: rom.u8(a + 6), mov: rom.u8(a + BASE_MOV), moveCosts, weaponRanks: rom.bytes.slice(a + WEAPON_RANKS, a + WEAPON_RANKS + 8) });
   }
   return out;
 }

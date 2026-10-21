@@ -21,11 +21,14 @@ describe('readClasses', () => {
     bytes[CLASS_TABLE + 7 * 0x54 + 0x12] = 8;
     view.setUint32(CLASS_TABLE + 7 * 0x54 + 0x38, ROM_BASE + 0x300, true);
     bytes.set([255, 1, 255], 0x300);
+    // Sword rank E (1), lance rank D (31).
+    bytes.set([1, 31], CLASS_TABLE + 7 * 0x54 + 0x2c);
 
     const paladin = readClasses(readRom(bytes), text).find((c) => c.id === 7);
     expect(paladin).toMatchObject({ id: 7, name: 'Paladin', mapSprite: 0x2a, mov: 8 });
     expect(Array.from(paladin!.moveCosts!.subarray(0, 3))).toEqual([255, 1, 255]);
     expect(paladin!.moveCosts!.length).toBe(0x41);
+    expect(Array.from(paladin!.weaponRanks)).toEqual([1, 31, 0, 0, 0, 0, 0, 0]);
     // A class with no table pointer gets none.
     expect(readClasses(readRom(bytes), text).find((c) => c.id === 8)?.moveCosts).toBeNull();
   });
