@@ -52,8 +52,8 @@ export const FE8_CLASS_NAMES: readonly ClassName[] = [
   { name: 'wyvern-rider-f', id: 0x20, gameName: 'Wyvern Rider', label: 'Wyvern Rider (female)' },
   { name: 'wyvern-lord-m', id: 0x21, gameName: 'Wyvern Lord', label: 'Wyvern Lord (male)' },
   { name: 'wyvern-lord-f', id: 0x22, gameName: 'Wyvern Lord', label: 'Wyvern Lord (female)' },
-  { name: 'wyvern-knight-m', id: 0x23, gameName: 'Wyvern Knight', label: 'Wyvern Knight (male)' },
-  { name: 'wyvern-knight-f', id: 0x24, gameName: 'Wyvern Knight', label: 'Wyvern Knight (female)' },
+  { name: 'wyvern-knight-m', id: 0x23, gameName: 'Wyvern Kn.', label: 'Wyvern Knight (male)' },
+  { name: 'wyvern-knight-f', id: 0x24, gameName: 'Wyvern Kn.', label: 'Wyvern Knight (female)' },
   { name: 'mage-m', id: 0x25, gameName: 'Mage', label: 'Mage (male)' }, // also in EC
   { name: 'mage-f', id: 0x26, gameName: 'Mage', label: 'Mage (female)' }, // also in EC
   { name: 'sage-m', id: 0x27, gameName: 'Sage', label: 'Sage (male)' },
@@ -79,7 +79,7 @@ export const FE8_CLASS_NAMES: readonly ClassName[] = [
   { name: 'monk', id: 0x44, gameName: 'Monk', label: 'Monk' },
   { name: 'priest', id: 0x45, gameName: 'Priest', label: 'Priest' }, // also in EC
   { name: 'bard', id: 0x46, gameName: 'Bard', label: 'Bard' },
-  { name: 'pegasus-knight', id: 0x48, gameName: 'Pegasus Knight', label: 'Pegasus Knight' }, // also in EC
+  { name: 'pegasus-knight', id: 0x48, gameName: 'Pegasus Kn.', label: 'Pegasus Knight' }, // also in EC
   { name: 'falcoknight', id: 0x49, gameName: 'Falcoknight', label: 'Falcoknight' },
   { name: 'cleric', id: 0x4a, gameName: 'Cleric', label: 'Cleric' }, // also in EC
   { name: 'troubadour', id: 0x4b, gameName: 'Troubadour', label: 'Troubadour' },
