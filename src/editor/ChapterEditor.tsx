@@ -16,7 +16,7 @@ import { readClasses } from '../rom/fe8-classes';
 import { idleFrame, readMapSprite, readTeamPalettes, renderMapSprite, spriteOrigin, type TeamColour } from '../rom/fe8-map-sprites';
 import { readChapterMap, renderMap, type ChapterMap } from '../rom/fe8-maps';
 import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } from '../rom/fe8-names';
-import { IMPASSABLE, moveRange } from '../core/movement';
+import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, endTurn, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
@@ -26,6 +26,7 @@ import {
   pressB,
   selectedUnit as selectedOf,
   startView,
+  visibleRoute,
   type PlayRules,
   type PlayView,
 } from '../core/play-input';
@@ -53,6 +54,46 @@ function drawRangeSquare(g: CanvasRenderingContext2D, x: number, y: number, colo
   g.strokeStyle = colours.edge;
   g.lineWidth = 1;
   g.strokeRect(x * 16 + 1.5, y * 16 + 1.5, 13, 13);
+}
+
+/**
+ * The movement arrow: a light line with a dark outline from the unit to the cursor, ending in an
+ * arrowhead, drawn at the GBA's own scale. Colours approximate FE's; they are not taken from the ROM.
+ */
+function drawArrow(g: CanvasRenderingContext2D, route: readonly number[], width: number) {
+  const pts = route.map((k) => [(k % width) * 16 + 8, Math.floor(k / width) * 16 + 8] as const);
+  const [ex, ey] = pts[pts.length - 1]!;
+  const [px, py] = pts[pts.length - 2]!;
+  const dx = Math.sign(ex - px);
+  const dy = Math.sign(ey - py);
+  // The shaft stops short of the last square's centre so the head can sit there.
+  const shaft = [...pts.slice(0, -1), [ex - dx * 2, ey - dy * 2] as const];
+  const line = () => {
+    g.beginPath();
+    shaft.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+  };
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  g.strokeStyle = '#183078';
+  g.lineWidth = 7;
+  line();
+  g.stroke();
+  g.strokeStyle = '#a8dcff';
+  g.lineWidth = 4;
+  line();
+  g.stroke();
+  // Head: tip 6 pixels past the centre, base 2 pixels before it, 12 wide.
+  g.beginPath();
+  g.moveTo(ex + dx * 6, ey + dy * 6);
+  g.lineTo(ex - dx * 2 - dy * 6, ey - dy * 2 + dx * 6);
+  g.lineTo(ex - dx * 2 + dy * 6, ey - dy * 2 - dx * 6);
+  g.closePath();
+  g.fillStyle = '#a8dcff';
+  g.fill();
+  g.strokeStyle = '#183078';
+  g.lineWidth = 1.5;
+  g.lineJoin = 'miter';
+  g.stroke();
 }
 
 /** Endless Chronicle's cursor: four yellow corner brackets that step outward and back every 250 ms. */
@@ -211,12 +252,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const mapImage = useMemo(() => (map ? toCanvas(renderMap(map)) : null), [map]);
   const selectedUnit = view ? selectedOf(view) : undefined;
 
-  /** Where a unit could move this turn, from its class's ROM movement. */
-  function rangeOf(u: PlayUnit, state: PlayState): Map<number, number> {
+  /** Where a unit could move this turn and how, from its class's ROM movement. */
+  function searchOf(u: PlayUnit, state: PlayState): MoveSearch {
     const art = artByName.get(u.class);
-    if (!map || !art) return new Map();
-    const costs = art.moveCosts;
-    return moveRange(map, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), art.mov, u.at, (x, y) => {
+    const costs = art?.moveCosts;
+    const grid = map ?? { width: 1, height: 1, terrain: [0] };
+    return searchMoves(grid, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), map && art ? art.mov : 0, u.at, (x, y) => {
       const o = unitAt(state, x, y);
       if (!o || o.id === u.id) return null;
       return areFoes(o.team, u.team) ? 'foe' : 'friend';
@@ -226,12 +267,13 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   // A unit of yours that has already moved shows no range, as in FE.
   const showRange = !!selectedUnit && (selectedUnit.team !== 'player' || canMove);
   const range = useMemo(
-    () => (play && selectedUnit && showRange ? rangeOf(selectedUnit, play) : null),
-    // rangeOf only reads map and artByName besides its arguments.
+    () => (play && selectedUnit && showRange ? searchOf(selectedUnit, play).stops : null),
+    // searchOf only reads map and artByName besides its arguments.
     [play, selectedUnit, showRange, map, artByName],
   );
-  // rangeOf reads only map and artByName, so the rules change only when they do.
-  const rules = useMemo<PlayRules | null>(() => (map ? { width: map.width, height: map.height, rangeOf } : null), [map, artByName]);
+  // searchOf reads only map and artByName, so the rules change only when they do.
+  const rules = useMemo<PlayRules | null>(() => (map ? { width: map.width, height: map.height, searchOf } : null), [map, artByName]);
+  const arrow = view && rules ? visibleRoute(view, rules) : null;
 
   // Arrow keys, Z (A) and X (B) for playing on a computer, like an emulator.
   useEffect(() => {
@@ -265,6 +307,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         const w = c.width / 16;
         for (const k of range.keys()) drawRangeSquare(g, k % w, Math.floor(k / w), RANGE_COLOURS[selectedUnit.team]);
       }
+      if (arrow) drawArrow(g, arrow, c.width / 16);
       const frame = idleFrame(now);
       // Top rows first, so taller sprites lower down overlap the ones behind them.
       for (const u of [...units].sort((a, b) => a.at[1] - b.at[1])) {
@@ -279,7 +322,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view]);
+  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
