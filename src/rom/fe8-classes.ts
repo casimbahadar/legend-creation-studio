@@ -3,7 +3,7 @@
 // shape for other games and hacks; for the clean FE8 US ROM it uses the fixed address below.
 
 import type { GbaRom } from './gba-rom';
-import { decodeText, type TextTable } from './text';
+import { decodeTextBytes, type TextTable } from './text';
 
 const CLASS_TABLE = 0x807110;
 const CLASS_STRIDE = 0x54;
@@ -22,7 +22,8 @@ export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
   const out: RomClass[] = [];
   for (let id = 1; id <= LAST_CLASS_ID; id++) {
     const a = CLASS_TABLE + id * CLASS_STRIDE;
-    const name = decodeText(rom, text, rom.u16(a)).trim();
+    // Like EC, keep printable characters only: some names end in control codes such as 0x1F.
+    const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
     out.push({ id, name, mapSprite: rom.u8(a + 6) });
   }
   return out;
