@@ -243,3 +243,62 @@ details.note summary {
   opacity: 0.4;
   cursor: default;
 }
+
+.gba-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 1rem 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.gba-controls button {
+  border: 0;
+  background: color-mix(in srgb, var(--text) 18%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gba-controls button:active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 52px);
+  grid-template-rows: repeat(3, 52px);
+}
+
+.dpad button {
+  border-radius: 8px;
+  font-size: 1.1rem;
+}
+
+.dpad-up { grid-area: 1 / 2; }
+.dpad-left { grid-area: 2 / 1; }
+.dpad-right { grid-area: 2 / 3; }
+.dpad-down { grid-area: 3 / 2; }
+
+.ab {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.ab button {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  font-size: 1.25rem;
+}
+
+/* A sits a little higher than B, as on the GBA. */
+.ab-a { transform: translateY(-14px); }
+.ab-b { transform: translateY(14px); }

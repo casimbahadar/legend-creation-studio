@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   checkProject,
   mapEntry,
@@ -17,7 +17,18 @@ import { idleFrame, readMapSprite, readTeamPalettes, renderMapSprite, spriteOrig
 import { readChapterMap, renderMap, type ChapterMap } from '../rom/fe8-maps';
 import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } from '../rom/fe8-names';
 import { IMPASSABLE, moveRange } from '../core/movement';
-import { areFoes, endTurn, moveUnit, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
+import { areFoes, endTurn, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
+import {
+  canMove as unitCanMove,
+  cursorTo,
+  moveCursor,
+  pressA,
+  pressB,
+  selectedUnit as selectedOf,
+  startView,
+  type PlayRules,
+  type PlayView,
+} from '../core/play-input';
 import type { Image } from '../rom/gba-graphics';
 import type { GbaRom } from '../rom/gba-rom';
 import type { TextTable } from '../rom/text';
@@ -190,15 +201,15 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     setAutosaveOk(writeAutosave(store, { project, savedJson }));
   }, [store, project, savedJson]);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [play, setPlay] = useState<PlayState | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<PlayView | null>(null);
+  const play = view?.state ?? null;
 
   const chapter = project.chapters[0]!;
   const mapIndex = findMap(data, chapter.map);
   const map = data.maps[mapIndex];
   const artByName = useMemo(() => new Map(data.art.map((a) => [a.entry.name, a])), [data.art]);
   const mapImage = useMemo(() => (map ? toCanvas(renderMap(map)) : null), [map]);
-  const selectedUnit = play && selected ? play.units.find((u) => u.id === selected) : undefined;
+  const selectedUnit = view ? selectedOf(view) : undefined;
 
   /** Where a unit could move this turn, from its class's ROM movement. */
   function rangeOf(u: PlayUnit, state: PlayState): Map<number, number> {
@@ -211,7 +222,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       return areFoes(o.team, u.team) ? 'foe' : 'friend';
     });
   }
-  const canMove = !!selectedUnit && selectedUnit.team === 'player' && !selectedUnit.moved;
+  const canMove = unitCanMove(selectedUnit);
   // A unit of yours that has already moved shows no range, as in FE.
   const showRange = !!selectedUnit && (selectedUnit.team !== 'player' || canMove);
   const range = useMemo(
@@ -219,6 +230,25 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     // rangeOf only reads map and artByName besides its arguments.
     [play, selectedUnit, showRange, map, artByName],
   );
+  // rangeOf reads only map and artByName, so the rules change only when they do.
+  const rules = useMemo<PlayRules | null>(() => (map ? { width: map.width, height: map.height, rangeOf } : null), [map, artByName]);
+
+  // Arrow keys, Z (A) and X (B) for playing on a computer, like an emulator.
+  useEffect(() => {
+    if (!view || !rules) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.metaKey || e.ctrlKey || e.altKey) return;
+      const dir = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
+      if (dir) setView((v) => v && moveCursor(v, dir[0], dir[1], rules));
+      else if (e.key === 'z' || e.key === 'Z' || e.key === 'Enter') setView((v) => v && pressA(v, rules));
+      else if (e.key === 'x' || e.key === 'X' || e.key === 'Escape') setView((v) => v && pressB(v));
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // Re-bind only when play starts or stops, or the map changes; the handlers read the latest view via setView.
+  }, [view !== null, rules]);
 
   useEffect(() => {
     const c = canvas.current;
@@ -244,12 +274,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         // Units that have moved are grey and stand still, as in FE.
         g.drawImage(u.moved ? art.frames.moved[0]! : art.frames[u.team][frame]!, sx, sy);
       }
-      if (selectedUnit) drawCursor(g, selectedUnit.at[0], selectedUnit.at[1], now);
+      if (view) drawCursor(g, view.cursor[0], view.cursor[1], now);
       if (units.length) raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, chapter.units, artByName, play, range, selectedUnit]);
+  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -267,7 +297,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const rect = c.getBoundingClientRect();
     const x = Math.floor(((event.clientX - rect.left) / rect.width) * (c.width / 16));
     const y = Math.floor(((event.clientY - rect.top) / rect.height) * (c.height / 16));
-    if (play) return onPlayTap(play, x, y);
+    // A tap moves the cursor there and presses A.
+    if (view) return rules && setView(pressA(cursorTo(view, x, y, rules), rules));
     const art = data.art[artIndex];
     if (!map || !art || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
     const here = chapter.units.find((u) => u.at[0] === x && u.at[1] === y);
@@ -279,23 +310,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     }
   }
 
-  function onPlayTap(state: PlayState, x: number, y: number) {
-    if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
-    const here = unitAt(state, x, y);
-    if (canMove && selectedUnit && range?.has(y * map.width + x)) {
-      // Tapping the unit's own square makes it wait where it is.
-      setPlay(moveUnit(state, selectedUnit.id, [x, y]));
-      setSelected(null);
-    } else if (here && here.id !== selected) {
-      setSelected(here.id);
-    } else {
-      setSelected(null);
-    }
-  }
-
   function setMode(playing: boolean) {
-    setPlay(playing ? startPlay(chapter) : null);
-    setSelected(null);
+    setView(playing ? startView(startPlay(chapter)) : null);
   }
 
   function onSave() {
@@ -389,7 +405,15 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
             </button>
           </div>
 
-          {play && <PlayStatus play={play} selected={selectedUnit} canMove={canMove} label={(u) => artByName.get(u.class)?.entry.label ?? u.class} onEndTurn={() => { setPlay(endTurn(play)); setSelected(null); }} />}
+          {play && (
+            <PlayStatus
+              play={play}
+              selected={selectedUnit}
+              canMove={canMove}
+              label={(u) => artByName.get(u.class)?.entry.label ?? u.class}
+              onEndTurn={() => setView((v) => v && { ...v, state: endTurn(v.state), selected: null })}
+            />
+          )}
 
           {!play && data.art.length > 0 && (
             <div className="unit-controls">
@@ -415,6 +439,13 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
           )}
 
           <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+          {view && rules && (
+            <GbaControls
+              onDirection={(dx, dy) => setView((v) => v && moveCursor(v, dx, dy, rules))}
+              onA={() => setView((v) => v && pressA(v, rules))}
+              onB={() => setView((v) => v && pressB(v))}
+            />
+          )}
           <p className="note">
             {counts.length
               ? `${chapter.units.length} ${chapter.units.length === 1 ? 'unit' : 'units'}: ${counts.map(([t, n]) => `${n} ${TEAM_LABELS[t].toLowerCase()}`).join(', ')}`
@@ -463,11 +494,11 @@ function PlayStatus({
   const yours = play.units.filter((u) => u.team === 'player');
   const allMoved = yours.length > 0 && yours.every((u) => u.moved);
   let hint: string;
-  if (selected && canMove) hint = `Tap a blue square to move your ${label(selected)}, or tap it again to wait where it is.`;
-  else if (selected && selected.team === 'player') hint = `Your ${label(selected)} has already moved this turn.`;
-  else if (selected) hint = `This ${TEAM_LABELS[selected.team].toLowerCase()} ${label(selected)} can reach the highlighted squares.`;
+  if (selected && canMove) hint = `Move the cursor to a blue square and press A to move your ${label(selected)} there. Press A on the unit itself to wait, or B to cancel.`;
+  else if (selected && selected.team === 'player') hint = `Your ${label(selected)} has already moved this turn. Press B to go back.`;
+  else if (selected) hint = `This ${TEAM_LABELS[selected.team].toLowerCase()} ${label(selected)} can reach the highlighted squares. Press A or B to close.`;
   else if (allMoved) hint = 'All your units have moved. Tap End turn.';
-  else hint = 'Tap one of your units to move it. Tap an enemy to see how far it can move.';
+  else hint = 'Move the cursor onto one of your units and press A. Press A on an enemy to see how far it can move.';
   return (
     <div className="play-status">
       <p>
@@ -478,7 +509,59 @@ function PlayStatus({
           End turn
         </button>
       </div>
-      <p className="note">Test play doesn't change your chapter. Enemies don't move yet.</p>
+      <p className="note">
+        You can also tap a square: that moves the cursor there and presses A. On a computer, use the arrow keys, Z for A and X for B.
+        Test play doesn't change your chapter. Enemies don't move yet.
+      </p>
+    </div>
+  );
+}
+
+const REPEAT_DELAY = 300;
+const REPEAT_EVERY = 80;
+
+/** On-screen GBA buttons: a D-pad that repeats while held, and A and B. */
+function GbaControls({ onDirection, onA, onB }: { onDirection: (dx: number, dy: number) => void; onA: () => void; onB: () => void }) {
+  const timers = useRef<{ delay?: number; repeat?: number }>({});
+  const stop = () => {
+    clearTimeout(timers.current.delay);
+    clearInterval(timers.current.repeat);
+    timers.current = {};
+  };
+  useEffect(() => stop, []);
+
+  const hold = (dx: number, dy: number) => ({
+    onPointerDown: (e: ReactPointerEvent) => {
+      e.preventDefault();
+      stop();
+      onDirection(dx, dy);
+      timers.current.delay = window.setTimeout(() => {
+        timers.current.repeat = window.setInterval(() => onDirection(dx, dy), REPEAT_EVERY);
+      }, REPEAT_DELAY);
+    },
+    onPointerUp: stop,
+    onPointerLeave: stop,
+    onPointerCancel: stop,
+  });
+  const press = (action: () => void) => ({
+    onPointerDown: (e: ReactPointerEvent) => {
+      e.preventDefault();
+      action();
+    },
+  });
+
+  return (
+    <div className="gba-controls">
+      <div className="dpad" role="group" aria-label="Direction pad">
+        <button type="button" className="dpad-up" aria-label="Up" {...hold(0, -1)}>▲</button>
+        <button type="button" className="dpad-left" aria-label="Left" {...hold(-1, 0)}>◀</button>
+        <button type="button" className="dpad-right" aria-label="Right" {...hold(1, 0)}>▶</button>
+        <button type="button" className="dpad-down" aria-label="Down" {...hold(0, 1)}>▼</button>
+      </div>
+      <div className="ab">
+        <button type="button" className="ab-b" aria-label="B" {...press(onB)}>B</button>
+        <button type="button" className="ab-a" aria-label="A" {...press(onA)}>A</button>
+      </div>
     </div>
   );
 }
