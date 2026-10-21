@@ -1,11 +1,15 @@
 // GBA-style controls for test play: a cursor moved one square at a time, A to act, B to cancel.
 // While a unit is being moved the cursor stays inside its reach; after it moves, FE's action menu
 // (Attack, Wait) opens, B undoes the move, and Attack picks a target. While a unit walks or a battle
-// plays, input waits.
+// plays, input waits. End turn hands over to the enemy phase, then the ally phase (decision 24), each
+// unit acting by its behaviour, one step at a time through stepAI.
 
+import { planAction, type AiRules } from './ai';
 import type { Strike } from './combat';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, finishAction, moveUnit, unitAt, type PlayState, type PlayUnit } from './play';
+import { applyBattle, endTurn, finishAction, moveUnit, readyAll, unitAt, type PlayState, type PlayUnit } from './play';
+
+export type Phase = 'player' | 'enemy' | 'ally';
 
 export type MenuOption = 'attack' | 'wait';
 
@@ -28,18 +32,27 @@ export interface PlayView {
   readonly selected: string | null;
   /** The movement arrow while moving a unit: cell indices from the unit to the cursor. */
   readonly route: readonly number[] | null;
-  /** A unit walking its route to the square it was just moved to, from `from`. Input waits until finishWalk. */
-  readonly walking: { readonly id: string; readonly route: readonly number[]; readonly from: readonly [number, number] } | null;
+  /**
+   * A unit walking its route to the square it was just moved to, from `from`. Input waits until
+   * finishWalk. A computer-controlled unit attacks `then` on arrival, if set.
+   */
+  readonly walking: { readonly id: string; readonly route: readonly number[]; readonly from: readonly [number, number]; readonly then?: string | null } | null;
   readonly action: Action | null;
   /** A fight being shown. Input waits until finishBattle. */
   readonly battle: Battle | null;
+  /** Whose phase it is. Outside the player's, input waits and stepAI moves the units. */
+  readonly phase: Phase;
+  /** Units still to act this computer phase, in order. */
+  readonly queue: readonly string[];
+  /** The phase banner showing, if any. Input waits until stepAI clears it. */
+  readonly banner: Phase | null;
 }
 
-export interface PlayRules {
+export interface PlayRules extends AiRules {
   readonly width: number;
   readonly height: number;
   /** Where the unit can go this turn and how; its stops are the cells it can end on. */
-  searchOf(unit: PlayUnit, state: PlayState): MoveSearch;
+  searchOf(unit: PlayUnit, state: PlayState, mov?: number): MoveSearch;
   /** Ids of enemies the unit could attack from where it stands, nearest first. */
   targetsOf(unit: PlayUnit, state: PlayState): string[];
   /** The blows of a fight between two units where they stand. */
@@ -49,7 +62,7 @@ export interface PlayRules {
 /** The cursor starts on the first player unit, as FE starts it on the lord. */
 export function startView(state: PlayState): PlayView {
   const first = state.units.find((u) => u.team === 'player') ?? state.units[0];
-  return { state, cursor: first ? first.at : [0, 0], selected: null, route: null, walking: null, action: null, battle: null };
+  return { state, cursor: first ? first.at : [0, 0], selected: null, route: null, walking: null, action: null, battle: null, phase: 'player', queue: [], banner: null };
 }
 
 const unitById = (state: PlayState, id: string | null) => (id === null ? undefined : state.units.find((u) => u.id === id));
@@ -63,8 +76,8 @@ export function canMove(unit: PlayUnit | undefined): boolean {
   return !!unit && unit.team === 'player' && !unit.moved;
 }
 
-/** Input is ignored while a unit walks or a battle plays. */
-const busy = (view: PlayView) => !!view.walking || !!view.battle;
+/** Player input is ignored while a unit walks, a battle plays, a banner shows, or the computer has the turn. */
+const busy = (view: PlayView) => !!view.walking || !!view.battle || !!view.banner || view.phase !== 'player';
 
 /** The search for the unit being moved, if one is selected and can still move. */
 function moving(view: PlayView, rules: PlayRules): { unit: PlayUnit; search: MoveSearch } | null {
@@ -205,9 +218,60 @@ export function pressB(view: PlayView, rules: PlayRules): PlayView {
   return sel ? { ...view, cursor: sel.at, selected: null, route: null } : view;
 }
 
-/** The walk is over: the action menu opens for the unit. */
-export function finishWalk(view: PlayView): PlayView {
-  return view.walking ? openMenu({ ...view, walking: null }, view.walking.id, view.walking.from) : view;
+/**
+ * The walk is over. On the player's turn the action menu opens for the unit; a computer-controlled
+ * unit attacks the foe it walked up to, or ends its turn.
+ */
+export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
+  const w = view.walking;
+  if (!w) return view;
+  const done = { ...view, walking: null };
+  if (view.phase === 'player') return openMenu(done, w.id, w.from);
+  const unit = unitById(view.state, w.id);
+  const target = unitById(view.state, w.then ?? null);
+  if (unit && target) return { ...done, cursor: unit.at, battle: { attacker: unit.id, defender: target.id, strikes: rules.fight(unit, target, view.state) } };
+  return { ...done, state: finishAction(view.state, w.id), cursor: unit ? unit.at : view.cursor };
+}
+
+const idsOf = (state: PlayState, team: PlayUnit['team']) => state.units.filter((u) => u.team === team).map((u) => u.id);
+
+/** End turn: every unit is ready again and the enemy phase begins. */
+export function endPlayerTurn(view: PlayView): PlayView {
+  if (busy(view) || view.action) return view;
+  const state = readyAll(view.state);
+  return { ...view, state, selected: null, route: null, phase: 'enemy', queue: idsOf(state, 'enemy'), banner: 'enemy' };
+}
+
+/**
+ * One step of a computer phase: clears the banner, or starts the next unit's action (a walk, an attack
+ * or waiting), or moves on to the next phase. Does nothing while a walk or battle is still playing.
+ */
+export function stepAI(view: PlayView, rules: PlayRules): PlayView {
+  if (view.walking || view.battle) return view;
+  if (view.banner) return { ...view, banner: null };
+  if (view.phase === 'player') return view;
+  const [next, ...rest] = view.queue;
+  if (next === undefined) {
+    if (view.phase === 'enemy') {
+      const state = readyAll(view.state);
+      const allies = idsOf(state, 'ally');
+      return { ...view, state, phase: 'ally', queue: allies, banner: allies.length ? 'ally' : null };
+    }
+    const state = endTurn(view.state);
+    const first = state.units.find((u) => u.team === 'player');
+    return { ...view, state, phase: 'player', queue: [], banner: 'player', cursor: first ? first.at : view.cursor };
+  }
+  const unit = unitById(view.state, next);
+  if (!unit) return { ...view, queue: rest };
+  const plan = planAction(unit, view.state, rules);
+  const start = unit.at[1] * rules.width + unit.at[0];
+  if (plan.to !== start) {
+    const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(view.state, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack } };
+  }
+  const target = unitById(view.state, plan.attack);
+  if (target) return { ...view, queue: rest, cursor: unit.at, battle: { attacker: unit.id, defender: target.id, strikes: rules.fight(unit, target, view.state) } };
+  return { ...view, queue: rest, cursor: unit.at, state: finishAction(view.state, unit.id) };
 }
 
 /** The battle has been shown: apply its result. */

@@ -10,6 +10,11 @@ export const TEAMS: readonly Team[] = ['player', 'enemy', 'ally'];
 
 export type ChapterGoal = 'rout';
 
+/** How an enemy or ally acts on its turn (decision 23). Player units ignore it. */
+export type Behaviour = 'charge' | 'attack-in-range' | 'hold';
+export const BEHAVIOURS: readonly Behaviour[] = ['attack-in-range', 'charge', 'hold'];
+export const DEFAULT_BEHAVIOUR: Behaviour = 'attack-in-range';
+
 export interface ProjectUnit {
   /** Unique within its chapter, e.g. "eirika" or "brigand-2". */
   id: string;
@@ -23,6 +28,8 @@ export interface ProjectUnit {
   at: [number, number];
   /** Item names from the name list, e.g. "iron-sword". */
   items?: string[];
+  /** For enemies and allies; Attack in range when missing. */
+  ai?: Behaviour;
 }
 
 export interface ProjectChapter {
@@ -156,6 +163,9 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
           const key = u.at.join(',');
           if (cells.has(key)) problem(`${up}.at`, `${who} is standing on the same square as another unit.`);
           cells.add(key);
+        }
+        if (u.ai !== undefined && !BEHAVIOURS.includes(u.ai as Behaviour)) {
+          problem(`${up}.ai`, `${who} has a behaviour this tool doesn't know: "${String(u.ai)}".`);
         }
         if (u.items !== undefined) {
           if (!Array.isArray(u.items)) problem(`${up}.items`, `${who} has an unreadable item list.`);

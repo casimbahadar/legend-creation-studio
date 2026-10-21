@@ -71,6 +71,16 @@ describe('inventories', () => {
   });
 });
 
+describe('behaviours', () => {
+  it('accepts the three behaviours and rejects others', () => {
+    const p = sample();
+    p.chapters[0]!.units[1]!.ai = 'charge';
+    expect(checkProject(roundTrip(p)).problems).toEqual([]);
+    (p.chapters[0]!.units[1] as { ai: string }).ai = 'berserk';
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.path)).toEqual(['chapters[0].units[1].ai']);
+  });
+});
+
 describe('helpers', () => {
   it('reads and writes map references', () => {
     expect(mapRef(12)).toBe('fe8-us/chapter-entry-12');

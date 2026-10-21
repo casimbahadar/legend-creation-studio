@@ -4,6 +4,7 @@ import { searchMoves } from './movement';
 import { startPlay, type PlayState, type PlayUnit } from './play';
 import {
   canMove,
+  endPlayerTurn,
   finishBattle,
   finishWalk,
   menuOptions,
@@ -12,6 +13,7 @@ import {
   pressB,
   selectedUnit,
   startView,
+  stepAI,
   tapAt,
   visibleRoute,
   walkPosition,
@@ -35,16 +37,27 @@ const start = (brigandAt: [number, number] = [4, 0]) => startView(startPlay(chap
 
 // Open 5x3 field where every step costs 1 and every unit has Mov 1. A unit can attack a foe next to it,
 // and every fight is one blow that defeats the defender.
+const foesNextTo = (u: PlayUnit, at: readonly [number, number], s: PlayState) =>
+  s.units.filter((o) => (o.team === 'enemy') !== (u.team === 'enemy') && Math.abs(o.at[0] - at[0]) + Math.abs(o.at[1] - at[1]) === 1);
 const rules: PlayRules = {
   width: 5,
   height: 3,
-  searchOf: (u: PlayUnit, _s: PlayState) => searchMoves({ width: 5, height: 3, terrain: new Array(15).fill(0) }, () => 1, 1, u.at, () => null),
-  targetsOf: (u, s) => s.units.filter((o) => o.team !== u.team && Math.abs(o.at[0] - u.at[0]) + Math.abs(o.at[1] - u.at[1]) === 1).map((o) => o.id),
+  searchOf: (u: PlayUnit, s: PlayState, mov = 1) =>
+    searchMoves({ width: 5, height: 3, terrain: new Array(15).fill(0) }, () => 1, mov, u.at, (x, y) => {
+      const o = s.units.find((p) => p.at[0] === x && p.at[1] === y && p.id !== u.id);
+      return !o ? null : (o.team === 'enemy') !== (u.team === 'enemy') ? 'foe' : 'friend';
+    }),
+  targetsOf: (u, s) => foesNextTo(u, u.at, s).map((o) => o.id),
+  targetsAt: foesNextTo,
+  forecastAt: () => ({
+    attacker: { canAttack: true, damage: 99, hit: 100, crit: 0, doubles: false, attackSpeed: 5 },
+    defender: { canAttack: true, damage: 1, hit: 100, crit: 0, doubles: false, attackSpeed: 5 },
+  }),
   fight: (a) => [{ by: 'attacker', hit: true, crit: false, damage: 99, attackerHp: a.hp, defenderHp: 0 }],
 };
 const eirika = (v: PlayView) => v.state.units.find((u) => u.id === 'eirika')!;
 /** Selects Eirika, moves one square right and lets the walk finish. */
-const moveRight = (v: PlayView) => finishWalk(pressA(moveCursor(pressA(v, rules), 1, 0, rules), rules));
+const moveRight = (v: PlayView) => finishWalk(pressA(moveCursor(pressA(v, rules), 1, 0, rules), rules), rules);
 
 describe('selecting and moving', () => {
   it('starts the cursor on the first player unit', () => {
@@ -69,7 +82,7 @@ describe('selecting and moving', () => {
     expect(walking.walking).toEqual({ id: 'eirika', route: [6, 7], from: [1, 1] });
     expect(moveCursor(walking, 1, 0, rules)).toBe(walking);
     expect(pressA(walking, rules)).toBe(walking);
-    const menu = finishWalk(walking);
+    const menu = finishWalk(walking, rules);
     expect(menu.action).toEqual({ kind: 'menu', unit: 'eirika', from: [1, 1], index: 0 });
     expect(menuOptions(menu, rules)).toEqual(['wait']);
     expect(eirika(menu)).toMatchObject({ at: [2, 1], moved: false });
@@ -147,6 +160,44 @@ describe('attacking', () => {
     const target = pressA(menu(), rules);
     expect(tapAt(target, 0, 0, rules)).toBe(target);
     expect(tapAt(target, 3, 1, rules).battle).not.toBeNull();
+  });
+});
+
+describe('enemy and ally phases', () => {
+  it('runs the enemy phase after End turn, then hands back to the player', () => {
+    // The brigand at (3,1) can step to (2,1), next to Eirika at (1,1), and attack.
+    let v = endPlayerTurn(start([3, 1]));
+    expect(v).toMatchObject({ phase: 'enemy', banner: 'enemy', queue: ['brigand-1'] });
+    expect(moveCursor(v, 1, 0, rules)).toBe(v);
+    v = stepAI(v, rules); // banner cleared
+    expect(v.banner).toBeNull();
+    v = stepAI(v, rules); // the brigand walks
+    expect(v.walking).toMatchObject({ id: 'brigand-1', route: [8, 7], then: 'eirika' });
+    expect(stepAI(v, rules)).toBe(v);
+    v = finishWalk(v, rules);
+    expect(v.battle).toMatchObject({ attacker: 'brigand-1', defender: 'eirika' });
+    v = finishBattle(v);
+    expect(v.state.units.map((u) => u.id)).toEqual(['brigand-1']);
+    v = stepAI(v, rules); // no allies: straight on to the player phase
+    expect(v).toMatchObject({ phase: 'ally', banner: null });
+    v = stepAI(v, rules);
+    expect(v).toMatchObject({ phase: 'player', banner: 'player' });
+    expect(v.state.turn).toBe(2);
+    v = stepAI(v, rules);
+    expect(v.banner).toBeNull();
+  });
+
+  it('lets an enemy with nothing in reach wait where it is', () => {
+    let v = stepAI(endPlayerTurn(start([4, 0])), rules);
+    v = stepAI(v, rules);
+    expect(v.walking).toBeNull();
+    expect(v.battle).toBeNull();
+    expect(v.state.units.find((u) => u.id === 'brigand-1')).toMatchObject({ at: [4, 0], moved: true });
+  });
+
+  it("doesn't end the turn in the middle of an action", () => {
+    const menu = moveRight(start());
+    expect(endPlayerTurn(menu)).toBe(menu);
   });
 });
 

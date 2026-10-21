@@ -2,7 +2,7 @@
 // The project is never changed by playing; leaving play discards the session.
 
 import type { Stats } from './combat';
-import type { ProjectChapter, ProjectUnit, Team } from './project';
+import { DEFAULT_BEHAVIOUR, type Behaviour, type ProjectChapter, type ProjectUnit, type Team } from './project';
 
 export interface PlayUnit {
   readonly id: string;
@@ -15,6 +15,8 @@ export interface PlayUnit {
   readonly stats: Stats;
   /** Current HP; the unit falls at 0. */
   readonly hp: number;
+  /** How the unit acts when the computer moves it. */
+  readonly ai: Behaviour;
   /** Has acted this turn. */
   readonly moved: boolean;
 }
@@ -35,7 +37,18 @@ export function startPlay(chapter: ProjectChapter, statsOf: (unit: ProjectUnit) 
     turn: 1,
     units: chapter.units.map((u) => {
       const stats = statsOf(u);
-      return { id: u.id, class: u.class, team: u.team, at: [u.at[0], u.at[1]], items: [...(u.items ?? [])], level: u.level, stats, hp: stats.hp, moved: false };
+      return {
+        id: u.id,
+        class: u.class,
+        team: u.team,
+        at: [u.at[0], u.at[1]],
+        items: [...(u.items ?? [])],
+        level: u.level,
+        stats,
+        hp: stats.hp,
+        ai: u.ai ?? DEFAULT_BEHAVIOUR,
+        moved: false,
+      };
     }),
   };
 }
@@ -62,7 +75,12 @@ export function applyBattle(state: PlayState, attacker: string, defender: string
   return { ...state, units };
 }
 
-/** Ends the player's turn. Enemy and ally phases come later; for now every unit is ready again. */
+/** Every unit ready to act again, as at the start of each phase in FE. */
+export function readyAll(state: PlayState): PlayState {
+  return { ...state, units: state.units.map((u) => (u.moved ? { ...u, moved: false } : u)) };
+}
+
+/** A new turn: the turn number goes up and every unit is ready again. */
 export function endTurn(state: PlayState): PlayState {
-  return { turn: state.turn + 1, units: state.units.map((u) => ({ ...u, moved: false })) };
+  return { ...readyAll(state), turn: state.turn + 1 };
 }
