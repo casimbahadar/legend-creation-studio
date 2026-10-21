@@ -25,8 +25,44 @@ import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
 
-/** Range overlay colours, as in FE: blue for your units, red for enemies, green for allies. */
-const RANGE_COLOURS: Record<Team, string> = { player: 'rgba(64, 128, 255, 0.5)', enemy: 'rgba(255, 64, 64, 0.45)', ally: 'rgba(64, 200, 96, 0.45)' };
+/** Range square colours from Endless Chronicle: blue for your units, red for enemies, green for allies. */
+const RANGE_COLOURS: Record<Team, { fill: string; edge: string }> = {
+  player: { fill: 'rgba(48, 110, 255, 0.45)', edge: 'rgba(170, 200, 255, 0.8)' },
+  enemy: { fill: 'rgba(255, 60, 48, 0.42)', edge: 'rgba(255, 170, 160, 0.75)' },
+  ally: { fill: 'rgba(60, 220, 90, 0.42)', edge: 'rgba(170, 255, 180, 0.75)' },
+};
+
+/**
+ * One range square, as Endless Chronicle draws them: inset by a pixel with a lighter edge, so the map
+ * shows through between squares as grid lines. Drawn at the GBA's own scale (16 pixels per square).
+ */
+function drawRangeSquare(g: CanvasRenderingContext2D, x: number, y: number, colours: { fill: string; edge: string }) {
+  g.fillStyle = colours.fill;
+  g.fillRect(x * 16 + 1, y * 16 + 1, 14, 14);
+  g.strokeStyle = colours.edge;
+  g.lineWidth = 1;
+  g.strokeRect(x * 16 + 1.5, y * 16 + 1.5, 13, 13);
+}
+
+/** Endless Chronicle's cursor: four yellow corner brackets that step outward and back every 250 ms. */
+function drawCursor(g: CanvasRenderingContext2D, x: number, y: number, now: number) {
+  const out = Math.floor(now / 250) % 2;
+  const arm = 5;
+  const thick = 2;
+  g.fillStyle = '#ffe680';
+  for (const [cx, cy, dx, dy] of [
+    [0, 0, 1, 1],
+    [1, 0, -1, 1],
+    [0, 1, 1, -1],
+    [1, 1, -1, -1],
+  ] as const) {
+    // Corner point, pushed outward on the "out" beat.
+    const ox = (x + cx) * 16 - dx * out;
+    const oy = (y + cy) * 16 - dy * out;
+    g.fillRect(dx > 0 ? ox : ox - thick, dy > 0 ? oy : oy - arm, thick, arm);
+    g.fillRect(dx > 0 ? ox : ox - arm, dy > 0 ? oy : oy - thick, arm, thick);
+  }
+}
 
 /** A listed class with its standing frames in each team's colours, plus grey for units that have moved. */
 export interface ClassArt {
@@ -196,9 +232,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const draw = (now: number) => {
       g.drawImage(mapImage, 0, 0);
       if (range && selectedUnit) {
-        g.fillStyle = RANGE_COLOURS[selectedUnit.team];
         const w = c.width / 16;
-        for (const k of range.keys()) g.fillRect((k % w) * 16, Math.floor(k / w) * 16, 16, 16);
+        for (const k of range.keys()) drawRangeSquare(g, k % w, Math.floor(k / w), RANGE_COLOURS[selectedUnit.team]);
       }
       const frame = idleFrame(now);
       // Top rows first, so taller sprites lower down overlap the ones behind them.
@@ -209,11 +244,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         // Units that have moved are grey and stand still, as in FE.
         g.drawImage(u.moved ? art.frames.moved[0]! : art.frames[u.team][frame]!, sx, sy);
       }
-      if (selectedUnit) {
-        g.strokeStyle = '#fff';
-        g.lineWidth = 2;
-        g.strokeRect(selectedUnit.at[0] * 16 + 1, selectedUnit.at[1] * 16 + 1, 14, 14);
-      }
+      if (selectedUnit) drawCursor(g, selectedUnit.at[0], selectedUnit.at[1], now);
       if (units.length) raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
