@@ -82,4 +82,13 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
   it('matches every item name in the hand-written list', () => {
     expect(checkItemNames(readItems(rom, findTextTable(rom)!, findItemTable(rom)!))).toEqual([]);
   });
+
+  it('reads plausible class stats and terrain bonus tables', () => {
+    for (const c of readClasses(rom, findTextTable(rom)!).filter((c) => c.id <= 0x4e)) {
+      expect(c.base.hp).toBeGreaterThanOrEqual(10);
+      expect(c.base.hp).toBeLessThanOrEqual(40);
+      expect(c.terrainAvoid).not.toBeNull();
+      expect(c.terrainDef).not.toBeNull();
+    }
+  });
 });

@@ -13,6 +13,23 @@ const LAST_CLASS_ID = 0x65;
 const BASE_MOV = 0x12;
 const MOVE_COST_POINTER = 0x38;
 const WEAPON_RANKS = 0x2c;
+const BASE_STATS = 0x0b;
+const GROWTHS = 0x1b;
+const TERRAIN_AVOID_POINTER = 0x44;
+const TERRAIN_DEF_POINTER = 0x48;
+const TERRAIN_RES_POINTER = 0x4c;
+
+/** A class's stats in FE8's order. Classes have no base luck, so base luck is 0. */
+export interface ClassStats {
+  readonly hp: number;
+  readonly str: number;
+  readonly skl: number;
+  readonly spd: number;
+  readonly def: number;
+  readonly res: number;
+  readonly lck: number;
+  readonly con: number;
+}
 /** One move cost per terrain id. */
 const TERRAIN_COUNT = 0x41;
 
@@ -28,6 +45,21 @@ export interface RomClass {
   readonly moveCosts: Uint8Array | null;
   /** Starting weapon rank per weapon type (sword, lance, axe, bow, staff, anima, light, dark); 0 = can't use. */
   readonly weaponRanks: Uint8Array;
+  /** Base stats at level 1. */
+  readonly base: ClassStats;
+  /** Growth rates in percent (con has none, so it is 0). */
+  readonly growths: ClassStats;
+  /** Avoid, Def and Res bonus per terrain id, or null if the ROM has no table. */
+  readonly terrainAvoid: Uint8Array | null;
+  readonly terrainDef: Uint8Array | null;
+  readonly terrainRes: Uint8Array | null;
+}
+
+/** The per-terrain table a class record points to at `at`, or null if it doesn't point into the ROM. */
+function terrainTable(rom: GbaRom, at: number): Uint8Array | null {
+  const p = rom.u32(at);
+  if (!rom.isPointer(p) || rom.offsetOf(p) + TERRAIN_COUNT > rom.size) return null;
+  return rom.bytes.slice(rom.offsetOf(p), rom.offsetOf(p) + TERRAIN_COUNT);
 }
 
 export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
@@ -36,9 +68,21 @@ export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
     const a = CLASS_TABLE + id * CLASS_STRIDE;
     // Like EC, keep printable characters only: some names end in control codes such as 0x1F.
     const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
-    const costs = rom.u32(a + MOVE_COST_POINTER);
-    const moveCosts = rom.isPointer(costs) && rom.offsetOf(costs) + TERRAIN_COUNT <= rom.size ? rom.bytes.slice(rom.offsetOf(costs), rom.offsetOf(costs) + TERRAIN_COUNT) : null;
-    out.push({ id, name, mapSprite: rom.u8(a + 6), mov: rom.u8(a + BASE_MOV), moveCosts, weaponRanks: rom.bytes.slice(a + WEAPON_RANKS, a + WEAPON_RANKS + 8) });
+    const b = (k: number) => rom.u8(a + BASE_STATS + k);
+    const g = (k: number) => rom.u8(a + GROWTHS + k);
+    out.push({
+      id,
+      name,
+      mapSprite: rom.u8(a + 6),
+      mov: rom.u8(a + BASE_MOV),
+      moveCosts: terrainTable(rom, a + MOVE_COST_POINTER),
+      weaponRanks: rom.bytes.slice(a + WEAPON_RANKS, a + WEAPON_RANKS + 8),
+      base: { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: 0, con: b(6) },
+      growths: { hp: g(0), str: g(1), skl: g(2), spd: g(3), def: g(4), res: g(5), lck: g(6), con: 0 },
+      terrainAvoid: terrainTable(rom, a + TERRAIN_AVOID_POINTER),
+      terrainDef: terrainTable(rom, a + TERRAIN_DEF_POINTER),
+      terrainRes: terrainTable(rom, a + TERRAIN_RES_POINTER),
+    });
   }
   return out;
 }
