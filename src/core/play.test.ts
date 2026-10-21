@@ -8,7 +8,7 @@ const chapter: ProjectChapter = {
   map: 'fe8-us/chapter-entry-0',
   goal: 'rout',
   units: [
-    { id: 'eirika', class: 'lord-eirika', team: 'player', level: 1, at: [1, 1] },
+    { id: 'eirika', class: 'lord-eirika', team: 'player', level: 1, at: [1, 1], items: ['rapier'] },
     { id: 'brigand-1', class: 'brigand', team: 'enemy', level: 1, at: [5, 5] },
   ],
 };
@@ -17,7 +17,7 @@ describe('play session', () => {
   it('starts from the chapter without changing it', () => {
     const s = startPlay(chapter);
     const moved = moveUnit(s, 'eirika', [2, 1]);
-    expect(unitAt(moved, 2, 1)).toMatchObject({ id: 'eirika', moved: true });
+    expect(unitAt(moved, 2, 1)).toMatchObject({ id: 'eirika', moved: true, items: ['rapier'] });
     expect(unitAt(moved, 1, 1)).toBeUndefined();
     expect(chapter.units[0]!.at).toEqual([1, 1]);
     expect(unitAt(s, 1, 1)?.id).toBe('eirika');

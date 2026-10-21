@@ -8,6 +8,8 @@ export interface PlayUnit {
   readonly class: string;
   readonly team: Team;
   readonly at: readonly [number, number];
+  /** Item names, as in the project. */
+  readonly items: readonly string[];
   /** Has acted this turn. */
   readonly moved: boolean;
 }
@@ -23,7 +25,10 @@ export function areFoes(a: Team, b: Team): boolean {
 }
 
 export function startPlay(chapter: ProjectChapter): PlayState {
-  return { turn: 1, units: chapter.units.map((u) => ({ id: u.id, class: u.class, team: u.team, at: [u.at[0], u.at[1]], moved: false })) };
+  return {
+    turn: 1,
+    units: chapter.units.map((u) => ({ id: u.id, class: u.class, team: u.team, at: [u.at[0], u.at[1]], items: [...(u.items ?? [])], moved: false })),
+  };
 }
 
 export function unitAt(state: PlayState, x: number, y: number): PlayUnit | undefined {
