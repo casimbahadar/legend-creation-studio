@@ -7,6 +7,7 @@ import { readRom } from './gba-rom';
 import { readClasses } from './fe8-classes';
 import { checkClassNames } from './fe8-names';
 import { FE8_US_ITEM_TABLE, findItemTable, readItems } from './fe8-items';
+import { checkItemNames } from './fe8-item-names';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
@@ -76,5 +77,9 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
   it('reads class weapon ranks', () => {
     const lord = readClasses(rom, findTextTable(rom)!).find((c) => c.id === 2)!;
     expect(lord.weaponRanks[0]).toBeGreaterThan(0);
+  });
+
+  it('matches every item name in the hand-written list', () => {
+    expect(checkItemNames(readItems(rom, findTextTable(rom)!, findItemTable(rom)!))).toEqual([]);
   });
 });
