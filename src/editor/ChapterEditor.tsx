@@ -20,13 +20,15 @@ import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, endTurn, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
-  cursorTo,
+  finishWalk,
   moveCursor,
   pressA,
   pressB,
   selectedUnit as selectedOf,
   startView,
+  tapAt,
   visibleRoute,
+  walkPosition,
   type PlayRules,
   type PlayView,
 } from '../core/play-input';
@@ -274,6 +276,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   // searchOf reads only map and artByName, so the rules change only when they do.
   const rules = useMemo<PlayRules | null>(() => (map ? { width: map.width, height: map.height, searchOf } : null), [map, artByName]);
   const arrow = view && rules ? visibleRoute(view, rules) : null;
+  // When a walk starts, note the time; the draw loop moves the unit along its route from then on.
+  const walk = view?.walking ?? null;
+  const walkStart = useRef(0);
+  useEffect(() => {
+    if (walk) walkStart.current = performance.now();
+  }, [walk]);
 
   // Arrow keys, Z (A) and X (B) for playing on a computer, like an emulator.
   useEffect(() => {
@@ -309,20 +317,30 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       }
       if (arrow) drawArrow(g, arrow, c.width / 16);
       const frame = idleFrame(now);
+      let walkDone = false;
+      const placed = units.map((u) => {
+        const walker = walk && play && play.units.find((p) => p.id === walk.id);
+        if (!walk || walker !== u) return { u, x: u.at[0], y: u.at[1], walking: false };
+        const pos = walkPosition(walk.route, c.width / 16, now - walkStart.current);
+        walkDone = pos.done;
+        return { u, x: pos.x, y: pos.y, walking: !pos.done };
+      });
       // Top rows first, so taller sprites lower down overlap the ones behind them.
-      for (const u of [...units].sort((a, b) => a.at[1] - b.at[1])) {
+      for (const { u, x, y, walking } of placed.sort((a, b) => a.y - b.y)) {
         const art = artByName.get(u.class);
         if (!art) continue;
-        const [sx, sy] = spriteOrigin(art, u.at[0], u.at[1]);
-        // Units that have moved are grey and stand still, as in FE.
-        g.drawImage(u.moved ? art.frames.moved[0]! : art.frames[u.team][frame]!, sx, sy);
+        const [sx, sy] = spriteOrigin(art, x, y);
+        // Walking units cycle their frames quickly, as EC does; units that have moved are grey and still, as in FE.
+        const img = walking ? art.frames[u.team][[0, 1, 2, 1][Math.floor(now / 110) % 4]!]! : u.moved ? art.frames.moved[0]! : art.frames[u.team][frame]!;
+        g.drawImage(img, Math.round(sx), Math.round(sy));
       }
+      if (walkDone) setView((v) => v && finishWalk(v));
       if (view) drawCursor(g, view.cursor[0], view.cursor[1], now);
       if (units.length) raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow]);
+  }, [mapImage, chapter.units, artByName, play, range, selectedUnit, view, arrow, walk]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -341,7 +359,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const x = Math.floor(((event.clientX - rect.left) / rect.width) * (c.width / 16));
     const y = Math.floor(((event.clientY - rect.top) / rect.height) * (c.height / 16));
     // A tap moves the cursor there and presses A.
-    if (view) return rules && setView(pressA(cursorTo(view, x, y, rules), rules));
+    if (view) return rules && setView(tapAt(view, x, y, rules));
     const art = data.art[artIndex];
     if (!map || !art || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
     const here = chapter.units.find((u) => u.at[0] === x && u.at[1] === y);
