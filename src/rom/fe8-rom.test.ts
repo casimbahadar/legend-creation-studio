@@ -8,6 +8,8 @@ import { readClasses } from './fe8-classes';
 import { checkClassNames } from './fe8-names';
 import { FE8_US_ITEM_TABLE, findItemTable, readItems } from './fe8-items';
 import { checkItemNames } from './fe8-item-names';
+import { readChapter, readPlayerUnits } from './fe8-chapters';
+import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe8-characters';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
@@ -90,5 +92,20 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
       expect(c.terrainAvoid).not.toBeNull();
       expect(c.terrainDef).not.toBeNull();
     }
+  });
+
+  it('finds the character table with Eirika first', () => {
+    const table = findCharacterTable(rom);
+    expect(table).toBe(FE8_US_CHARACTER_TABLE);
+    expect(readCharacters(rom, findTextTable(rom)!, table!)[0]).toMatchObject({ id: 1, name: 'Eirika', defaultClass: 2 });
+  });
+
+  it("reads the Prologue's player units as the decompilation lists them: Seth, then Eirika", () => {
+    const text = findTextTable(rom)!;
+    const units = readPlayerUnits(rom, readChapter(rom, text, 0));
+    expect(units.map((u) => [u.character, u.classId, u.allegiance, u.level, u.x, u.y])).toEqual([
+      [2, 7, 'player', 1, 13, 9],
+      [1, 2, 'player', 1, 8, 5],
+    ]);
   });
 });
