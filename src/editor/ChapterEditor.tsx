@@ -4,6 +4,7 @@ import {
   mapEntry,
   BEHAVIOURS,
   DEFAULT_BEHAVIOUR,
+  isLordClass,
   MAX_ITEMS,
   MAX_LEVEL,
   MAX_STAT,
@@ -641,7 +642,15 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       setEditing(null);
     } else {
       const cls = art.entry.name;
-      const unit: ProjectUnit = { id: nextUnitId(chapter.units, cls), class: cls, team, level: 1, at: [x, y] };
+      const unit: ProjectUnit = {
+        id: nextUnitId(chapter.units, cls),
+        class: cls,
+        team,
+        level: 1,
+        at: [x, y],
+        // Lords on the player's side must survive, as in FE (decision 26).
+        ...(team === 'player' && isLordClass(cls) ? { mustSurvive: true } : {}),
+      };
       const items = defaultItems(art, data.items);
       updateChapter({ units: [...chapter.units, items.length ? { ...unit, items } : unit] });
     }
@@ -705,6 +714,9 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   return (
     <section className="panel">
       <h2>Your chapter</h2>
+      <p className="note">
+        Goal: defeat every enemy. The chapter is lost if a unit marked Must survive falls, or all your units fall.
+      </p>
 
       <label className="field">
         Project name
@@ -767,7 +779,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
               play={play}
               selected={selectedUnit}
               canMove={canMove}
-              phase={view && view.phase !== 'player' ? view.phase : view?.battle ? 'battle' : view?.walking ? 'walk' : (view?.action?.kind ?? null)}
+              phase={view?.outcome ? 'over' : view && view.phase !== 'player' ? view.phase : view?.battle ? 'battle' : view?.walking ? 'walk' : (view?.action?.kind ?? null)}
               label={(u) => artByName.get(u.class)?.entry.label ?? u.class}
               onEndTurn={() => setView((v) => v && endPlayerTurn(v))}
             />
@@ -852,6 +864,29 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   </div>
                 );
               })()}
+            {view?.outcome && (
+              <div className={`result-screen ${view.outcome.result}`} role="alertdialog" aria-label={view.outcome.result === 'victory' ? 'Chapter clear' : 'Defeat'}>
+                <strong>{view.outcome.result === 'victory' ? 'Chapter Clear!' : 'Defeat'}</strong>
+                <span>
+                  {view.outcome.result === 'victory'
+                    ? `Every enemy defeated on turn ${view.state.turn}.`
+                    : view.outcome.fallen
+                      ? `${unitLabel(view.outcome.fallen)} has fallen.`
+                      : 'All your units have fallen.'}
+                </span>
+                {view.state.fallen.some((u) => u.team === 'player') && view.outcome.result === 'victory' && (
+                  <span className="note">Lost: {view.state.fallen.filter((u) => u.team === 'player').map(unitLabel).join(', ')}</span>
+                )}
+                <div className="stepper">
+                  <button type="button" className="button" onClick={() => setMode(true)}>
+                    Play again
+                  </button>
+                  <button type="button" className="button button-secondary" onClick={() => setMode(false)}>
+                    Back to editing
+                  </button>
+                </div>
+              </div>
+            )}
             {view?.banner && (
               <div className={`phase-banner phase-${view.banner}`} role="status">
                 {view.banner === 'player' ? 'Player Phase' : view.banner === 'enemy' ? 'Enemy Phase' : 'Ally Phase'}
@@ -949,14 +984,15 @@ function PlayStatus({
   selected: PlayUnit | undefined;
   canMove: boolean;
   /** What the player is in the middle of, if anything. */
-  phase: 'walk' | 'menu' | 'target' | 'battle' | 'enemy' | 'ally' | null;
+  phase: 'walk' | 'menu' | 'target' | 'battle' | 'enemy' | 'ally' | 'over' | null;
   label: (u: PlayUnit) => string;
   onEndTurn: () => void;
 }) {
   const yours = play.units.filter((u) => u.team === 'player');
   const allMoved = yours.length > 0 && yours.every((u) => u.moved);
   let hint: string;
-  if (phase === 'enemy') hint = 'Enemy phase: the enemies are moving.';
+  if (phase === 'over') hint = 'The chapter is over. Play again, or go back to editing.';
+  else if (phase === 'enemy') hint = 'Enemy phase: the enemies are moving.';
   else if (phase === 'ally') hint = 'Ally phase: the green units are moving.';
   else if (phase === 'menu') hint = 'Choose Attack or Wait with ▲▼ and A, or tap it. B takes the move back.';
   else if (phase === 'target') hint = 'Choose a target with the arrows or by tapping it, then press A to attack. B goes back.';
@@ -1210,6 +1246,14 @@ function UnitPanel({
           Reset to class stats
         </button>
       </details>
+      {unit.team !== 'enemy' && (
+        <label className="check-row">
+          <input type="checkbox" checked={!!unit.mustSurvive} onChange={(e) => onChange({ mustSurvive: e.target.checked || undefined })} />
+          <span>
+            Must survive <span className="note">(the chapter is lost if this unit falls)</span>
+          </span>
+        </label>
+      )}
       {unit.team !== 'player' && (
         <label className="field">
           Behaviour

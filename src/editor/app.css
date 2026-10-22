@@ -536,3 +536,59 @@ h3 {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+  margin: 0.25rem 0;
+}
+
+.check-row input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}
+
+/* FE's end-of-chapter screen over the map. */
+.result-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 1rem;
+  text-align: center;
+  color: #fff;
+  animation: fade-in 0.3s ease-out both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.result-screen.victory { background: rgba(20, 40, 110, 0.82); }
+.result-screen.defeat { background: rgba(60, 10, 10, 0.85); }
+
+.result-screen strong {
+  font-size: 1.8rem;
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.6);
+}
+
+.result-screen .note {
+  color: #dfe6f5;
+}
+
+.result-screen .stepper {
+  margin-top: 0.5rem;
+}
+
+.result-screen .button-secondary {
+  color: #fff;
+  box-shadow: inset 0 0 0 2px #fff;
+}
