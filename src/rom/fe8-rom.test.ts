@@ -8,9 +8,10 @@ import { readClasses } from './fe8-classes';
 import { checkClassNames } from './fe8-names';
 import { FE8_US_ITEM_TABLE, findItemTable, readItems } from './fe8-items';
 import { checkItemNames } from './fe8-item-names';
-import { readChapter, readPlayerUnits } from './fe8-chapters';
+import { CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readChapter, readPlayerUnits } from './fe8-chapters';
 import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe8-characters';
 import { checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
+import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
@@ -118,5 +119,33 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
       [2, 7, 'player', 1, 13, 9],
       [1, 2, 'player', 1, 8, 5],
     ]);
+  });
+
+  it("finds what the patch reuses: the Prologue's next chapter and the Rout objective", () => {
+    const text = findTextTable(rom)!;
+    const group = readChapter(rom, text, 0).eventGroup!;
+    expect(findChapterChange(rom, rom.offsetOf(rom.u32(group + EVENT_GROUP.endingScene)))).toBe(0x00012a22); // MNC2(1)
+    const rout = CHAPTER_TABLE + ROUT_GOAL_CHAPTER * CHAPTER_STRIDE;
+    expect(decodeText(rom, text, rom.u16(rout + 0x88))).toMatch(/^Defeat all\s*enemy units/);
+    expect(decodeText(rom, text, rom.u16(rout + 0x8a))).toMatch(/^Defeat enemy/);
+    expect(rom.u8(rout + 0x8c)).toBe(1); // goal window type: Defeat all
+  });
+
+  it('builds a chapter into the Prologue and reads it back', () => {
+    const text = findTextTable(rom)!;
+    const built = readRom(
+      buildFe8Rom(rom, {
+        id: 'c',
+        name: 'C',
+        map: 'fe8-us/chapter-entry-0',
+        goal: 'rout',
+        units: [
+          { id: 'eirika', class: 'lord-eirika', team: 'player', level: 1, at: [8, 5], items: ['rapier'], mustSurvive: true },
+          { id: 'f', class: 'fighter', team: 'enemy', level: 3, at: [10, 5], items: ['iron-axe'] },
+        ],
+      }).bytes,
+    );
+    const units = readPlayerUnits(built, readChapter(built, text, 0));
+    expect(units.map((u) => [u.character, u.classId, u.allegiance, u.level, u.x, u.y, u.items])).toEqual([[1, 2, 'player', 1, 8, 5, [9]]]);
   });
 });

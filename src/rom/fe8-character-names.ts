@@ -67,3 +67,15 @@ export function checkCharacterNames(
   const byId = new Map(romCharacters.map((c) => [c.id, c.name]));
   return list.filter((e) => byId.get(e.id) !== e.gameName).map((entry) => ({ entry, romName: byId.get(entry.id) ?? null }));
 }
+
+/**
+ * A character for a player unit that has none (decision 28): Eirika or Ephraim for their Lord and
+ * Great Lord classes, otherwise the first cast member not yet taken whose own class in the ROM is
+ * the unit's class, otherwise the first one not taken. Null when the whole cast is taken.
+ */
+export function pickCharacter(cls: string, classId: number, taken: ReadonlySet<string>, defaultClassOf: (id: number) => number | undefined): string | null {
+  const lord = /^(?:great-)?lord-(eirika|ephraim)$/.exec(cls)?.[1];
+  if (lord && !taken.has(lord)) return lord;
+  const free = FE8_CHARACTER_NAMES.filter((c) => !taken.has(c.name) && c.name !== 'eirika' && c.name !== 'ephraim');
+  return (free.find((c) => defaultClassOf(c.id) === classId) ?? free[0])?.name ?? null;
+}
