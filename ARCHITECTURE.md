@@ -6,8 +6,8 @@
 | --- | --- |
 | `src/core` | Project format, rules engine, event language, checker. No DOM or React here. |
 | `src/rom` | Reading and writing FE8 ROMs, UPS patches. |
-| `src/play` | The game renderer (canvas). |
-| `src/editor` | The React app. |
+| `src/play` | The game renderer (canvas), and what play needs from the ROM: the class and item catalog and the rules for a chapter's map. |
+| `src/editor` | The React app: the editor, test play's screens and controls, project files. |
 | `src/export` | Web game export (desktop builds later). |
 
 ## Data flow
