@@ -25,10 +25,10 @@ import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import { readChapterMap, renderMap, type ChapterMap } from '../rom/fe8-maps';
 import { FE8_CLASS_NAMES, type NameMismatch } from '../rom/fe8-names';
 import { FE8_ITEM_NAMES, type ItemMismatch } from '../rom/fe8-item-names';
-import { attackRange, IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
+import { attackRange } from '../core/movement';
 import { battleFrame, type BattleFrame } from '../core/battle-anim';
-import { forecast, randomNumbers, resolveBattle, withBonus, type Combatant, type Forecast } from '../core/combat';
-import { areFoes, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
+import { randomNumbers, withBonus, type Forecast } from '../core/combat';
+import { startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
   chooseOption,
@@ -45,7 +45,6 @@ import {
   tapAt,
   visibleRoute,
   walkPosition,
-  type PlayRules,
   type PlayView,
 } from '../core/play-input';
 import type { GbaRom } from '../rom/gba-rom';
@@ -53,18 +52,16 @@ import type { TextTable } from '../rom/text';
 import {
   classStats,
   defaultItems,
-  distance,
-  inReach,
   itemStats,
   readCatalog,
   toCanvas,
-  toWeapon,
   usable,
   weaponRanges,
   weaponsOf,
   type ClassArt,
   type GameItem,
 } from '../play/catalog';
+import { chapterRules } from '../play/rules';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
@@ -286,96 +283,26 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const mapImage = useMemo(() => (map ? toCanvas(renderMap(map)) : null), [map]);
   const selectedUnit = view ? selectedOf(view) : undefined;
 
-  /** Where a unit could move this turn and how, from its class's ROM movement. */
-  function searchOf(u: PlayUnit, state: PlayState, mov?: number): MoveSearch {
-    const art = artByName.get(u.class);
-    const costs = art?.moveCosts;
-    const grid = map ?? { width: 1, height: 1, terrain: [0] };
-    return searchMoves(grid, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), map && art ? (mov ?? art.mov) : 0, u.at, (x, y) => {
-      const o = unitAt(state, x, y);
-      if (!o || o.id === u.id) return null;
-      return areFoes(o.team, u.team) ? 'foe' : 'friend';
-    });
-  }
+  // One stream of random numbers per test play session.
+  const rng = useRef(randomNumbers(Date.now()));
+  // The rules change only with the map or the ROM data.
+  const chapterPlay = useMemo(() => (map ? chapterRules(map, artByName, data.items, () => rng.current()) : null), [map, artByName, data.items]);
+  const rules = chapterPlay?.rules ?? null;
+  const forecastOf = (a: PlayUnit, d: PlayUnit) => chapterPlay!.preview(a, d);
   const canMove = unitCanMove(selectedUnit);
   // A unit of yours that has already moved shows no range, as in FE.
   const showRange = !!selectedUnit && (selectedUnit.team !== 'player' || canMove);
   const range = useMemo(() => {
-    if (!play || !selectedUnit || !showRange || !map) return null;
-    const stops = searchOf(selectedUnit, play).stops;
+    if (!play || !selectedUnit || !showRange || !map || !rules) return null;
+    const stops = rules!.searchOf(selectedUnit, play).stops;
     const attack = attackRange(stops, map.width, map.height, weaponRanges(artByName.get(selectedUnit.class), selectedUnit.items, data.items));
     return { stops, attack };
   },
-    // searchOf only reads map and artByName besides its arguments.
-    [play, selectedUnit, showRange, map, artByName],
+    [play, selectedUnit, showRange, map, artByName, rules],
   );
   const unitLabel = (u: { name?: string; class: string }) => u.name ?? artByName.get(u.class)?.entry.label ?? u.class;
 
-  // One stream of random numbers per test play session.
-  const rng = useRef(randomNumbers(Date.now()));
 
-  function combatantOf(u: PlayUnit, weapon: GameItem | undefined): Combatant {
-    const art = artByName.get(u.class);
-    const t = map ? (map.terrain[u.at[1] * map.width + u.at[0]] ?? 0) : 0;
-    return {
-      stats: u.stats,
-      hp: u.hp,
-      weapon: weapon ? toWeapon(weapon) : null,
-      terrain: { avoid: art?.terrainAvoid?.[t] ?? 0, def: art?.terrainDef?.[t] ?? 0, res: art?.terrainRes?.[t] ?? 0 },
-    };
-  }
-
-  /**
-   * A fight's forecast. The attacker uses the first weapon it can use that reaches; the defender
-   * counters with its first usable weapon, if that reaches.
-   */
-  function forecastOf(a: PlayUnit, d: PlayUnit) {
-    return forecastFrom(a, a.at, d);
-  }
-
-  /** As forecastOf, with the attacker standing on `at` (terrain bonuses from there). */
-  function forecastFrom(unit: PlayUnit, at: readonly [number, number], d: PlayUnit) {
-    const a = { ...unit, at };
-    const dist = distance(a, d);
-    const attackerWeapon = weaponsOf(artByName.get(a.class), a.items, data.items).find((w) => inReach(w, dist));
-    const defenderWeapon = weaponsOf(artByName.get(d.class), d.items, data.items)[0];
-    const attacker = combatantOf(a, attackerWeapon);
-    const defender = combatantOf(d, defenderWeapon);
-    return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender };
-  }
-
-  /** Foes the unit could attack from square `at`, nearest first. */
-  function targetsAt(u: PlayUnit, at: readonly [number, number], state: PlayState): PlayUnit[] {
-    const weapons = weaponsOf(artByName.get(u.class), u.items, data.items);
-    const from = { ...u, at };
-    return state.units
-      .filter((o) => o.id !== u.id && areFoes(o.team, u.team) && weapons.some((w) => inReach(w, distance(from, o))))
-      .sort((a, b) => distance(from, a) - distance(from, b));
-  }
-
-  function targetsOf(u: PlayUnit, state: PlayState): string[] {
-    return targetsAt(u, u.at, state).map((o) => o.id);
-  }
-
-  // searchOf, targetsOf and fight read only map, artByName and the items, so the rules change only when they do.
-  const rules = useMemo<PlayRules | null>(
-    () =>
-      map
-        ? {
-            width: map.width,
-            height: map.height,
-            searchOf,
-            targetsOf,
-            targetsAt,
-            forecastAt: (u, at, target) => forecastFrom(u, at, target).forecast,
-            fight: (a, d) => {
-              const f = forecastOf(a, d);
-              return resolveBattle(f.attacker, f.defender, f.forecast, rng.current);
-            },
-          }
-        : null,
-    [map, artByName, data.items],
-  );
   const arrow = view && rules ? visibleRoute(view, rules) : null;
   // When a walk starts, note the time; the draw loop moves the unit along its route from then on.
   const walk = view?.walking ?? null;
