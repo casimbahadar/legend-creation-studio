@@ -54,8 +54,19 @@ describe('FE8 characters', () => {
     view.setUint32(0x40 + 4, (ROM_BASE + 0x100) | 0x80000000, true);
     view.setUint16(T, 1, true);
     bytes[T + 5] = 2;
+    bytes[T + 0x0b] = 1;
+    // Personal bases HP to Con, one of them negative as FE8 stores it; then growths HP to Luck.
+    bytes.set([2, 0, 0xff, 0xfd, 3, 0, 5, 1], T + 0x0c);
+    bytes.set([70, 40, 60, 60, 30, 30, 60], T + 0x1c);
     const rom = readRom(bytes);
     expect(findCharacterTable(rom)).toBe(T);
-    expect(readCharacters(rom, { root: 0, nodes: 0, table: 0x40, count: 4 }, T)[0]).toEqual({ id: 1, name: 'Eirika', defaultClass: 2 });
+    expect(readCharacters(rom, { root: 0, nodes: 0, table: 0x40, count: 4 }, T)[0]).toEqual({
+      id: 1,
+      name: 'Eirika',
+      defaultClass: 2,
+      baseLevel: 1,
+      base: { hp: 2, str: 0, skl: -1, spd: -3, def: 3, res: 0, lck: 5, con: 1 },
+      growths: { hp: 70, str: 40, skl: 60, spd: 60, def: 30, res: 30, lck: 60, con: 0 },
+    });
   });
 });

@@ -1,9 +1,10 @@
 // Checks for whoever is building the tool rather than making a chapter: reading any text entry from
-// the ROM, and whether the hand-written class and item name lists (decision 18) match it. Collapsed
+// the ROM, and whether the hand-written class, item and character name lists (decision 18) match it. Collapsed
 // at the bottom of the page; a mismatch still shows a warning outside it, since the editor relies on
 // those lists.
 
 import { useState } from 'react';
+import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY } from '../rom/fe8-character-names';
 import { FE8_ITEM_NAMES } from '../rom/fe8-item-names';
 import { FE8_CLASS_NAMES } from '../rom/fe8-names';
 import type { GbaRom } from '../rom/gba-rom';
@@ -15,11 +16,11 @@ import type { EditorRom } from './project-io';
 
 export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTable | null; data: EditorRom | null }) {
   const [textId, setTextId] = useState('');
-  const mismatched = data ? data.mismatches.length + data.itemMismatches.length : 0;
+  const mismatched = data ? data.mismatches.length + data.itemMismatches.length + data.characterMismatches.length : 0;
   return (
     <section className="panel">
       {mismatched > 0 && (
-        <p className="bad">Some class or item names don't match your ROM, so parts of the editor may not work. See Developer checks below.</p>
+        <p className="bad">Some class, item or character names don't match your ROM, so parts of the editor may not work. See Developer checks below.</p>
       )}
       <details className="developer">
         <summary>Developer checks</summary>
@@ -76,6 +77,27 @@ export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTa
               </details>
             ) : (
               <p className="note">Item list check: all {FE8_ITEM_NAMES.length} item names match your ROM.</p>
+            )}
+            {data.characterMismatches.length ? (
+              <details className="note bad">
+                <summary>
+                  Character list check: {data.characterMismatches.length} of {FE8_CHARACTER_NAMES.length} character names don't match your
+                  ROM. Tap to see them.
+                </summary>
+                <ul className="problems">
+                  {data.characterMismatches.map((m) => (
+                    <li key={m.entry.name}>
+                      {m.entry.name} (character 0x{m.entry.id.toString(16).toUpperCase()}): expected "{m.entry.gameName}", ROM shows{' '}
+                      {m.romName === null ? 'nothing' : `"${m.romName}"`}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : (
+              <p className="note">
+                Character list check: all {FE8_CHARACTER_NAMES.length} character names match your ROM. Enemies will be "
+                {data.characters[GENERIC_ENEMY - 1]?.name ?? '?'}" and allies "{data.characters[GENERIC_ALLY - 1]?.name ?? '?'}" (expected Soldier and Frelian).
+              </p>
             )}
           </>
         )}

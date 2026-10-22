@@ -3,6 +3,8 @@
 
 import { checkProject, mapEntry, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
+import { checkCharacterNames, type CharacterMismatch } from '../rom/fe8-character-names';
+import { findCharacterTable, readCharacters, type RomCharacter } from '../rom/fe8-characters';
 import { readChapterMap, type ChapterMap } from '../rom/fe8-maps';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
@@ -14,7 +16,19 @@ import { classStats, readCatalog, type ClassArt, type GameItem } from '../play/c
 export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]): EditorRom {
   const c = readCatalog(rom, text);
   const chapterTitles = Array.from({ length: CHAPTER_COUNT }, (_, i) => readChapter(rom, text, i).title);
-  return { rom, maps, art: c.art, items: c.items, mismatches: c.classMismatches, itemMismatches: c.itemMismatches, chapterTitles };
+  const table = findCharacterTable(rom);
+  const characters = table === null ? [] : readCharacters(rom, text, table);
+  return {
+    rom,
+    maps,
+    art: c.art,
+    items: c.items,
+    mismatches: c.classMismatches,
+    itemMismatches: c.itemMismatches,
+    chapterTitles,
+    characters,
+    characterMismatches: checkCharacterNames(characters),
+  };
 }
 
 export interface EditorRom {
@@ -26,6 +40,9 @@ export interface EditorRom {
   readonly itemMismatches: ItemMismatch[];
   /** Each FE8 chapter's title by chapter index ("" if it has none), to name the maps. */
   readonly chapterTitles: string[];
+  /** FE8's character table by id - 1, or [] if it wasn't found. */
+  readonly characters: RomCharacter[];
+  readonly characterMismatches: CharacterMismatch[];
 }
 
 export const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;

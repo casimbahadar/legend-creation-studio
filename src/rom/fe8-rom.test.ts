@@ -10,6 +10,7 @@ import { FE8_US_ITEM_TABLE, findItemTable, readItems } from './fe8-items';
 import { checkItemNames } from './fe8-item-names';
 import { readChapter, readPlayerUnits } from './fe8-chapters';
 import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe8-characters';
+import { checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, findTextTable } from './text';
@@ -97,7 +98,17 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
   it('finds the character table with Eirika first', () => {
     const table = findCharacterTable(rom);
     expect(table).toBe(FE8_US_CHARACTER_TABLE);
-    expect(readCharacters(rom, findTextTable(rom)!, table!)[0]).toMatchObject({ id: 1, name: 'Eirika', defaultClass: 2 });
+    const characters = readCharacters(rom, findTextTable(rom)!, table!);
+    expect(characters[0]).toMatchObject({ id: 1, name: 'Eirika', defaultClass: 2, baseLevel: 1 });
+    // Seth's personal bases and growths, as the decompilation lists them.
+    expect(characters[1]).toMatchObject({
+      base: { hp: 7, str: 7, skl: 9, spd: 5, def: 3, res: 5, lck: 13, con: 0 },
+      growths: { hp: 90, str: 50, skl: 45, spd: 45, def: 40, res: 30, lck: 25 },
+    });
+    expect(checkCharacterNames(characters)).toEqual([]);
+    // The generic characters the patch uses for enemies and allies.
+    expect(characters[GENERIC_ENEMY - 1]?.name).toBe('Soldier');
+    expect(characters[GENERIC_ALLY - 1]?.name).toBe('Frelian');
   });
 
   it("reads the Prologue's player units as the decompilation lists them: Seth, then Eirika", () => {
