@@ -109,6 +109,31 @@ describe('must survive', () => {
   });
 });
 
+describe('characters and chapter slots', () => {
+  it('gives player units one character each, checked against a catalog', () => {
+    const p = sample();
+    p.chapters[0]!.units[0]!.character = 'eirika';
+    expect(checkProject(roundTrip(p), { characters: new Set(['eirika']) }).problems).toEqual([]);
+    expect(checkProject(roundTrip(p), { characters: new Set(['seth']) }).problems.map((x) => x.message)).toEqual([
+      '"eirika" is a character this tool doesn\'t know: "eirika".',
+    ]);
+    p.chapters[0]!.units.push({ id: 'eirika-2', class: 'lord-eirika', team: 'player', level: 1, at: [4, 8], character: 'eirika' });
+    p.chapters[0]!.units[1]!.character = 'seth';
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual([
+      '"brigand-1" isn\'t a player unit, so it can\'t be an FE8 character yet.',
+      'Two player units are both "eirika".',
+    ]);
+  });
+
+  it('accepts a vanilla chapter slot in map-reference form', () => {
+    const p = sample();
+    p.chapters[0]!.replaces = mapRef(0);
+    expect(checkProject(roundTrip(p)).problems).toEqual([]);
+    (p.chapters[0] as { replaces: unknown }).replaces = 'prologue';
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.path)).toEqual(['chapters[0].replaces']);
+  });
+});
+
 describe('helpers', () => {
   it('reads and writes map references', () => {
     expect(mapRef(12)).toBe('fe8-us/chapter-entry-12');

@@ -3,7 +3,7 @@
 
 import { checkProject, mapEntry, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
-import { checkCharacterNames, type CharacterMismatch } from '../rom/fe8-character-names';
+import { checkCharacterNames, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
 import { findCharacterTable, readCharacters, type RomCharacter } from '../rom/fe8-characters';
 import { readChapterMap, type ChapterMap } from '../rom/fe8-maps';
 import type { ItemMismatch } from '../rom/fe8-item-names';
@@ -96,6 +96,7 @@ export function loadProject(data: EditorRom, raw: unknown): { project: Project |
   const { project, problems } = checkProject(parsed, {
     classes: new Set(data.art.map((a) => a.entry.name)),
     items: new Set(data.items.map((i) => i.entry.name)),
+    characters: new Set(FE8_CHARACTER_NAMES.map((c) => c.name)),
   });
   if (project) {
     project.chapters.forEach((c, ci) => {

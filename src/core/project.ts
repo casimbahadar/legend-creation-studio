@@ -45,6 +45,8 @@ export interface ProjectUnit {
   statBonus?: StatBonus;
   /** The chapter is lost if this unit falls (decision 26). Player and ally units only. */
   mustSurvive?: boolean;
+  /** For player units: an FE8 character from the name list, e.g. "seth" (decision 28). */
+  character?: string;
 }
 
 export interface ProjectChapter {
@@ -52,6 +54,11 @@ export interface ProjectChapter {
   name: string;
   /** "fe8-us/chapter-entry-N": the map used by entry N of the player's ROM chapter table. */
   map: string;
+  /**
+   * The vanilla chapter this one takes the place of in the patch, in the same "fe8-us/chapter-entry-N"
+   * form as maps (decision 27). The Prologue (entry 0) when missing.
+   */
+  replaces?: string;
   goal: ChapterGoal;
   units: ProjectUnit[];
 }
@@ -74,6 +81,7 @@ export interface Problem {
 export interface Catalog {
   classes?: ReadonlySet<string>;
   items?: ReadonlySet<string>;
+  characters?: ReadonlySet<string>;
 }
 
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -160,11 +168,15 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
       else chapterIds.add(c.id);
       if (typeof c.name !== 'string' || !c.name.trim()) problem(`${at}.name`, 'The chapter needs a name.');
       if (typeof c.map !== 'string' || mapEntry(c.map) === null) problem(`${at}.map`, 'The chapter needs a map.');
+      if (c.replaces !== undefined && (typeof c.replaces !== 'string' || mapEntry(c.replaces) === null)) {
+        problem(`${at}.replaces`, "The chapter's place in the game is unreadable.");
+      }
       if (c.goal !== 'rout') problem(`${at}.goal`, 'The chapter goal must be "rout" (defeat every enemy).');
       if (!Array.isArray(c.units)) return problem(`${at}.units`, 'The chapter needs a list of units, even an empty one.');
 
       const unitIds = new Set<string>();
       const cells = new Set<string>();
+      const characters = new Set<string>();
       c.units.forEach((u: unknown, ui) => {
         const up = `${at}.units[${ui}]`;
         if (!isObject(u)) return problem(up, 'This unit is not readable.');
@@ -195,6 +207,13 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
         if (u.mustSurvive !== undefined) {
           if (typeof u.mustSurvive !== 'boolean') problem(`${up}.mustSurvive`, `${who} has an unreadable Must survive setting.`);
           else if (u.mustSurvive && u.team === 'enemy') problem(`${up}.mustSurvive`, `${who} is an enemy, so it can't be marked Must survive.`);
+        }
+        if (u.character !== undefined) {
+          if (typeof u.character !== 'string' || !NAME.test(u.character)) problem(`${up}.character`, `${who} has an unreadable character.`);
+          else if (u.team !== 'player') problem(`${up}.character`, `${who} isn't a player unit, so it can't be an FE8 character yet.`);
+          else if (catalog.characters && !catalog.characters.has(u.character)) problem(`${up}.character`, `${who} is a character this tool doesn't know: "${u.character}".`);
+          else if (characters.has(u.character)) problem(`${up}.character`, `Two player units are both "${u.character}".`);
+          else characters.add(u.character);
         }
         if (u.ai !== undefined && !BEHAVIOURS.includes(u.ai as Behaviour)) {
           problem(`${up}.ai`, `${who} has a behaviour this tool doesn't know: "${String(u.ai)}".`);
