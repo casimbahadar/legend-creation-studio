@@ -48,10 +48,11 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   // Restore the autosaved chapter if it still checks out against this ROM; otherwise start fresh.
   const [start] = useState(() => {
     const saved = readAutosave(store);
-    const restored = saved ? loadProject(data, saved.project).project : null;
-    if (restored) return { project: restored, savedJson: saved!.savedJson, freshJson: null, restored: true };
+    const loaded = saved ? loadProject(data, saved.project) : null;
+    const restored = loaded?.project;
+    if (restored) return { project: restored, savedJson: saved!.savedJson, freshJson: null, restored: true, notes: loaded.notes };
     const fresh = newProject('My First Chapter', mapRef(data.maps[0]?.chapter ?? 0));
-    return { project: fresh, savedJson: null, freshJson: projectToJson(fresh), restored: false };
+    return { project: fresh, savedJson: null, freshJson: projectToJson(fresh), restored: false, notes: [] };
   });
   const [project, setProject] = useState<Project>(start.project);
   const [savedJson, setSavedJson] = useState<string | null>(start.savedJson);
@@ -59,7 +60,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const [artIndex, setArtIndex] = useState(0);
   const [team, setTeam] = useState<Team>('player');
   const [status, setStatus] = useState<{ ok: boolean; text: string; problems?: Problem[] } | null>(
-    start.restored ? { ok: true, text: `Picked up "${start.project.name}" where you left off.` } : null,
+    start.restored ? { ok: true, text: `Picked up "${start.project.name}" where you left off.`, problems: start.notes.map((message) => ({ path: '', message })) } : null,
   );
   const json = projectToJson(project);
   // An untouched new chapter has nothing to lose, so it doesn't count as unsaved.
@@ -308,7 +309,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       setStatus({ ok: false, text: `Couldn't open ${file.name}: it isn't a project file.` });
       return;
     }
-    const { project: opened, problems } = loadProject(data, parsed);
+    const { project: opened, problems, notes } = loadProject(data, parsed);
     if (!opened || problems.length) {
       setStatus({ ok: false, text: `Couldn't open ${file.name}:`, problems });
       return;
@@ -317,7 +318,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     setMode(false);
     setProject(opened);
     setSavedJson(projectToJson(opened));
-    setStatus({ ok: true, text: `Opened "${opened.name}".` });
+    setStatus({ ok: true, text: `Opened "${opened.name}".`, problems: notes.map((message) => ({ path: '', message })) });
   }
 
   const counts = TEAMS.map((t) => [t, chapter.units.filter((u) => u.team === t).length] as const).filter(([, n]) => n > 0);

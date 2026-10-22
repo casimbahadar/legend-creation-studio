@@ -87,8 +87,8 @@ export interface Catalog {
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAP_REF = /^fe8-us\/chapter-entry-(\d+)$/;
 export const MAX_LEVEL = 20;
-/** A unit's inventory size in FE. */
-export const MAX_ITEMS = 5;
+/** Items a unit starts with: FE8's unit placements hold four. */
+export const MAX_ITEMS = 4;
 
 export function mapRef(chapterEntry: number): string {
   return `fe8-us/chapter-entry-${chapterEntry}`;

@@ -8,7 +8,7 @@
 // enemy and ally units, a misc list with vanilla's Rout check (DefeatAll) and game over check, and
 // an ending scene that moves on to the chapter the slot's vanilla ending moves on to.
 
-import { mapEntry, mapRef, type Behaviour, type ProjectChapter, type ProjectUnit, type Team } from '../core/project';
+import { mapEntry, mapRef, MAX_ITEMS, type Behaviour, type ProjectChapter, type ProjectUnit, type Team } from '../core/project';
 import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
 import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
 import { CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE } from './fe8-characters';
@@ -70,8 +70,6 @@ export const AI_BYTES: Record<Behaviour, readonly number[]> = {
 
 /** Characters whose defeat ends the game in vanilla FE8 in every chapter (src/data_battlequotes.c). */
 const GAME_OVER_CHARACTERS = new Set(['eirika', 'ephraim']);
-/** A unit definition holds four items. */
-const UNIT_ITEMS = 4;
 
 const ALLEGIANCE: Record<Team, number> = { player: 0, ally: 1, enemy: 2 };
 
@@ -139,7 +137,7 @@ export function unitDefinition(u: ProjectUnit, character: number): number[] {
   const pos = (u.at[0] & 0x3f) | ((u.at[1] & 0x3f) << 6);
   d[4] = pos & 0xff;
   d[5] = pos >> 8;
-  (u.items ?? []).slice(0, UNIT_ITEMS).forEach((item, i) => (d[12 + i] = idOf(FE8_ITEM_NAMES, item, 'item')));
+  (u.items ?? []).slice(0, MAX_ITEMS).forEach((item, i) => (d[12 + i] = idOf(FE8_ITEM_NAMES, item, 'item')));
   if (u.team !== 'player') AI_BYTES[u.ai ?? 'attack-in-range'].forEach((b, i) => (d[16 + i] = b));
   return d;
 }
@@ -171,7 +169,6 @@ export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, n
     const who = u.name ?? u.id;
     const character = FE8_CHARACTER_NAMES.find((c) => c.id === names.get(u.id))?.name;
     if (u.statBonus && Object.values(u.statBonus).some((v) => v !== 0)) notes.push(`${who}: custom stats aren't in the patch yet.`);
-    if ((u.items?.length ?? 0) > UNIT_ITEMS) notes.push(`${who}: FE8 starts a unit with at most ${UNIT_ITEMS} items, so the last is left out.`);
     if (u.team === 'player') {
       const lord = character !== undefined && GAME_OVER_CHARACTERS.has(character);
       if (u.mustSurvive && !lord) notes.push(`${who}: Must survive only works for Eirika and Ephraim in the patch so far.`);

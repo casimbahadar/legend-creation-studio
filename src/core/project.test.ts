@@ -62,12 +62,12 @@ describe('project file', () => {
 });
 
 describe('inventories', () => {
-  it('allows up to five items', () => {
+  it('allows up to four items', () => {
     const p = sample();
-    p.chapters[0]!.units[0]!.items = ['rapier', 'rapier', 'rapier', 'rapier', 'rapier'];
+    p.chapters[0]!.units[0]!.items = ['rapier', 'rapier', 'rapier', 'rapier'];
     expect(checkProject(roundTrip(p)).problems).toEqual([]);
     p.chapters[0]!.units[0]!.items.push('rapier');
-    expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual(['"eirika" carries 6 items; a unit can carry at most 5.']);
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual(['"eirika" carries 5 items; a unit can carry at most 4.']);
   });
 });
 

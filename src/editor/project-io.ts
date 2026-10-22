@@ -1,7 +1,7 @@
 // Project files in the editor: reading what the editor needs from the ROM, opening a file (checked
 // against this ROM, older forms converted), and saving one.
 
-import { checkProject, mapEntry, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
+import { checkProject, mapEntry, MAX_ITEMS, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
 import { characterIds } from '../rom/fe8-build';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
 import { checkCharacterNames, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
@@ -110,9 +110,31 @@ export function upgradeCustomStats(data: EditorRom, parsed: unknown): unknown {
   return parsed;
 }
 
-/** Checks a parsed project file against this ROM: the file itself, its class names, its maps and unit positions. */
-export function loadProject(data: EditorRom, raw: unknown): { project: Project | null; problems: Problem[] } {
+/**
+ * Keeps the first MAX_ITEMS items of units that carry more, from before the editor allowed four.
+ * Returns what was changed, in words.
+ */
+export function limitItems(parsed: unknown): string[] {
+  const p = parsed as { chapters?: { units?: Record<string, unknown>[] }[] } | null;
+  const changed: string[] = [];
+  for (const ch of p?.chapters ?? []) {
+    for (const u of ch.units ?? []) {
+      if (Array.isArray(u.items) && u.items.length > MAX_ITEMS) {
+        changed.push(`"${String(u.id)}" carried ${u.items.length} items; kept the first ${MAX_ITEMS}, as a unit starts with at most ${MAX_ITEMS}.`);
+        u.items = u.items.slice(0, MAX_ITEMS);
+      }
+    }
+  }
+  return changed;
+}
+
+/**
+ * Checks a parsed project file against this ROM: the file itself, its class names, its maps and unit
+ * positions. Notes say what was changed to bring an older file up to date.
+ */
+export function loadProject(data: EditorRom, raw: unknown): { project: Project | null; problems: Problem[]; notes: string[] } {
   const parsed = upgradeCustomStats(data, raw);
+  const notes = limitItems(parsed);
   const { project, problems } = checkProject(parsed, {
     classes: new Set(data.art.map((a) => a.entry.name)),
     items: new Set(data.items.map((i) => i.entry.name)),
@@ -128,7 +150,7 @@ export function loadProject(data: EditorRom, raw: unknown): { project: Project |
         });
     });
   }
-  return { project: project && !problems.length ? project : null, problems };
+  return { project: project && !problems.length ? project : null, problems, notes };
 }
 
 export function saveFile(project: Project) {
