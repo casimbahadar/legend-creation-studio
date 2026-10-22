@@ -1,4 +1,4 @@
-// The panel for a placed unit in Edit mode: character, level, stats, Must survive, behaviour, items,
+// The panel for a placed unit in Edit mode: class, character, level, stats, Must survive, behaviour, items,
 // removing it.
 
 import { useState } from 'react';
@@ -14,6 +14,7 @@ import { BEHAVIOUR_LABELS, signed, STAT_LABELS, TEAM_LABELS } from './labels';
 export function UnitPanel({
   unit,
   art,
+  classes,
   items,
   character,
   takenCharacters,
@@ -23,6 +24,8 @@ export function UnitPanel({
 }: {
   unit: ProjectUnit;
   art: ClassArt | undefined;
+  /** Every class the unit can change to. */
+  classes: ClassArt[];
   items: GameItem[];
   /** The FE8 character whose stats the unit has (player units), if any. */
   character: RomCharacter | undefined;
@@ -59,6 +62,16 @@ export function UnitPanel({
   return (
     <div className="unit-panel">
       <h3>{title}</h3>
+      <label className="field">
+        Class
+        <select value={unit.class} onChange={(e) => onChange({ class: e.target.value })}>
+          {classes.map((c) => (
+            <option key={c.entry.name} value={c.entry.name}>
+              {c.entry.label}
+            </option>
+          ))}
+        </select>
+      </label>
       {unit.team === 'player' && (
         <label className="field">
           Character <span className="note">(name, portrait and personal stats in the patch)</span>

@@ -519,6 +519,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   key={unit.id}
                   unit={unit}
                   art={artByName.get(unit.class)}
+                  classes={data.art}
                   items={data.items}
                   character={playerCharacters(data, chapter.units).get(unit.id)}
                   takenCharacters={new Set(chapter.units.flatMap((u) => (u.id !== unit.id && u.character ? [u.character] : [])))}
