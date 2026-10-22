@@ -4,7 +4,8 @@ import { FE8_US_CRC32 } from '../rom/fe8';
 import { readAllChapterMaps } from '../rom/fe8-maps';
 import { readRom, type GbaRom } from '../rom/gba-rom';
 import { decodeText, findTextTable, type TextTable } from '../rom/text';
-import { ChapterEditor, readEditorRom, type EditorRom } from './ChapterEditor';
+import { ChapterEditor } from './ChapterEditor';
+import { readEditorRom, type EditorRom } from './project-io';
 
 type RomCheck =
   | { state: 'idle' }

@@ -1,0 +1,101 @@
+// Project files in the editor: reading what the editor needs from the ROM, opening a file (checked
+// against this ROM, older forms converted), and saving one.
+
+import { checkProject, mapEntry, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
+import { readChapterMap, type ChapterMap } from '../rom/fe8-maps';
+import type { ItemMismatch } from '../rom/fe8-item-names';
+import type { NameMismatch } from '../rom/fe8-names';
+import type { GbaRom } from '../rom/gba-rom';
+import type { TextTable } from '../rom/text';
+import { classStats, readCatalog, type ClassArt, type GameItem } from '../play/catalog';
+
+/** Everything the editor needs from the ROM, read once when the ROM is chosen. */
+export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]): EditorRom {
+  const c = readCatalog(rom, text);
+  return { rom, maps, art: c.art, items: c.items, mismatches: c.classMismatches, itemMismatches: c.itemMismatches };
+}
+
+export interface EditorRom {
+  readonly rom: GbaRom;
+  readonly maps: ChapterMap[];
+  readonly art: ClassArt[];
+  readonly mismatches: NameMismatch[];
+  readonly items: GameItem[];
+  readonly itemMismatches: ItemMismatch[];
+}
+
+export const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;
+
+/** Index in `maps` of the map a reference points to, or -1. Entries that reuse a listed layout resolve to it. */
+export function findMap(data: EditorRom, ref: string): number {
+  const entry = mapEntry(ref);
+  if (entry === null) return -1;
+  const direct = data.maps.findIndex((m) => m.chapter === entry);
+  if (direct >= 0) return direct;
+  const map = readChapterMap(data.rom, entry);
+  return map ? data.maps.findIndex((m) => layoutKey(m) === layoutKey(map)) : -1;
+}
+
+export function nextUnitId(units: ProjectUnit[], cls: string): string {
+  const taken = new Set(units.map((u) => u.id));
+  let n = 1;
+  while (taken.has(`${cls}-${n}`)) n++;
+  return `${cls}-${n}`;
+}
+
+/**
+ * Converts custom stats from their first form (fixed values in `stats`) to changes from the class
+ * value in `statBonus`, using this ROM's class stats. Files and autosaves from before the change open
+ * as they looked.
+ */
+export function upgradeCustomStats(data: EditorRom, parsed: unknown): unknown {
+  const p = parsed as { chapters?: { units?: Record<string, unknown>[] }[] } | null;
+  for (const ch of p?.chapters ?? []) {
+    for (const u of ch.units ?? []) {
+      const fixed = u.stats as Record<string, unknown> | undefined;
+      if (!fixed || typeof fixed !== 'object' || u.statBonus !== undefined) continue;
+      const art = data.art.find((a) => a.entry.name === u.class);
+      const level = typeof u.level === 'number' ? u.level : 1;
+      const base = classStats(art, level);
+      const bonus: Record<string, number> = {};
+      for (const k of STAT_KEYS) {
+        const v = fixed[k];
+        if (typeof v === 'number' && v !== base[k]) bonus[k] = v - base[k];
+      }
+      delete u.stats;
+      if (Object.keys(bonus).length) u.statBonus = bonus;
+    }
+  }
+  return parsed;
+}
+
+/** Checks a parsed project file against this ROM: the file itself, its class names, its maps and unit positions. */
+export function loadProject(data: EditorRom, raw: unknown): { project: Project | null; problems: Problem[] } {
+  const parsed = upgradeCustomStats(data, raw);
+  const { project, problems } = checkProject(parsed, {
+    classes: new Set(data.art.map((a) => a.entry.name)),
+    items: new Set(data.items.map((i) => i.entry.name)),
+  });
+  if (project) {
+    project.chapters.forEach((c, ci) => {
+      const m = data.maps[findMap(data, c.map)];
+      if (!m) problems.push({ path: `chapters[${ci}].map`, message: `The map for "${c.name}" isn't in your ROM.` });
+      else
+        c.units.forEach((u, ui) => {
+          if (u.at[0] >= m.width || u.at[1] >= m.height) problems.push({ path: `chapters[${ci}].units[${ui}].at`, message: `"${u.id}" is outside the map.` });
+        });
+    });
+  }
+  return { project: project && !problems.length ? project : null, problems };
+}
+
+export function saveFile(project: Project) {
+  const url = URL.createObjectURL(new Blob([projectToJson(project)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${toName(project.name)}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
