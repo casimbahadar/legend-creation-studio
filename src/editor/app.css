@@ -450,9 +450,29 @@ h3 {
   gap: 0.25rem;
 }
 
-.level-row strong {
-  min-width: 2ch;
+.level-row {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.level-row .icon-button {
+  touch-action: manipulation;
+}
+
+.level-input {
+  width: 3.5rem;
+  min-height: 44px;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
   text-align: center;
+  font-weight: 700;
+  /* 16px stops iPhone Safari zooming in on focus */
+  font-size: 16px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* FE's phase banner across the middle of the map. */

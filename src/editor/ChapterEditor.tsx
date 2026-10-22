@@ -5,6 +5,7 @@ import {
   BEHAVIOURS,
   DEFAULT_BEHAVIOUR,
   MAX_ITEMS,
+  MAX_LEVEL,
   mapRef,
   newProject,
   projectToJson,
@@ -59,7 +60,7 @@ const BEHAVIOUR_LABELS: Record<Behaviour, string> = {
 
 /** How long a phase banner shows, and the pause between computer units' actions. */
 const BANNER_MS = 1000;
-const AI_PAUSE_MS = 250;
+const AI_PAUSE_MS = 700;
 
 /** Range square colours from Endless Chronicle: blue where a unit can move, red where it can attack, as in FE. */
 const MOVE_COLOURS = { fill: 'rgba(48, 110, 255, 0.45)', edge: 'rgba(170, 200, 255, 0.8)' };
@@ -614,6 +615,15 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     }
   }
 
+  /** Raises or lowers a unit's level from its latest value, so a held button keeps counting. */
+  function stepLevel(id: string, delta: number) {
+    setProject((p) => {
+      const ch = p.chapters[0]!;
+      const units = ch.units.map((u) => (u.id === id ? { ...u, level: Math.min(MAX_LEVEL, Math.max(1, u.level + delta)) } : u));
+      return { ...p, chapters: [{ ...ch, units }, ...p.chapters.slice(1)] };
+    });
+  }
+
   function updateUnit(id: string, change: Partial<ProjectUnit> | null) {
     if (!change) {
       setEditing(null);
@@ -827,6 +837,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   art={artByName.get(unit.class)}
                   items={data.items}
                   onChange={(change) => updateUnit(unit.id, change)}
+                  onLevelStep={(delta) => stepLevel(unit.id, delta)}
                   onClose={() => setEditing(null)}
                 />
               ) : null;
@@ -1033,10 +1044,16 @@ function BattlePopup({
 }
 
 const REPEAT_DELAY = 300;
+/** Level buttons repeat a little slower than the D-pad, so a held button is easy to stop on a number. */
+const LEVEL_REPEAT_EVERY = 120;
 const REPEAT_EVERY = 80;
 
 /** On-screen GBA buttons: a D-pad that repeats while held, and A and B. */
-function GbaControls({ onDirection, onA, onB }: { onDirection: (dx: number, dy: number) => void; onA: () => void; onB: () => void }) {
+/**
+ * Pointer handlers for a button that acts once when pressed and then repeats while held, like the
+ * GBA's D-pad. preventDefault stops Safari selecting text or opening its menu on a long press.
+ */
+function useHoldRepeat(every = REPEAT_EVERY) {
   const timers = useRef<{ delay?: number; repeat?: number }>({});
   const stop = () => {
     clearTimeout(timers.current.delay);
@@ -1044,20 +1061,25 @@ function GbaControls({ onDirection, onA, onB }: { onDirection: (dx: number, dy: 
     timers.current = {};
   };
   useEffect(() => stop, []);
-
-  const hold = (dx: number, dy: number) => ({
+  return (action: () => void) => ({
     onPointerDown: (e: ReactPointerEvent) => {
       e.preventDefault();
       stop();
-      onDirection(dx, dy);
+      action();
       timers.current.delay = window.setTimeout(() => {
-        timers.current.repeat = window.setInterval(() => onDirection(dx, dy), REPEAT_EVERY);
+        timers.current.repeat = window.setInterval(action, every);
       }, REPEAT_DELAY);
     },
     onPointerUp: stop,
     onPointerLeave: stop,
     onPointerCancel: stop,
+    onContextMenu: (e: { preventDefault: () => void }) => e.preventDefault(),
   });
+}
+
+function GbaControls({ onDirection, onA, onB }: { onDirection: (dx: number, dy: number) => void; onA: () => void; onB: () => void }) {
+  const repeat = useHoldRepeat();
+  const hold = (dx: number, dy: number) => repeat(() => onDirection(dx, dy));
   const press = (action: () => void) => ({
     onPointerDown: (e: ReactPointerEvent) => {
       e.preventDefault();
@@ -1087,6 +1109,7 @@ function UnitPanel({
   art,
   items,
   onChange,
+  onLevelStep,
   onClose,
 }: {
   unit: ProjectUnit;
@@ -1094,8 +1117,11 @@ function UnitPanel({
   items: EditorItem[];
   /** A change to the unit, or null to remove it. */
   onChange: (change: Partial<ProjectUnit> | null) => void;
+  /** Raise (+1) or lower (-1) the level. */
+  onLevelStep: (delta: number) => void;
   onClose: () => void;
 }) {
+  const repeat = useHoldRepeat(LEVEL_REPEAT_EVERY);
   const carried = unit.items ?? [];
   const byName = new Map(items.map((i) => [i.entry.name, i]));
   const choices = art ? items.filter((i) => usable(art, i)) : [];
@@ -1106,12 +1132,12 @@ function UnitPanel({
     <div className="unit-panel">
       <h3>{title}</h3>
       <div className="level-row">
-        <span>Level</span>
-        <button type="button" className="icon-button" aria-label="Lower level" disabled={unit.level <= 1} onClick={() => onChange({ level: unit.level - 1 })}>
+        <label htmlFor={`level-${unit.id}`}>Level</label>
+        <button type="button" className="icon-button" aria-label="Lower level" disabled={unit.level <= 1} {...repeat(() => onLevelStep(-1))}>
           −
         </button>
-        <strong aria-live="polite">{unit.level}</strong>
-        <button type="button" className="icon-button" aria-label="Raise level" disabled={unit.level >= 20} onClick={() => onChange({ level: unit.level + 1 })}>
+        <LevelInput id={`level-${unit.id}`} level={unit.level} onLevel={(level) => onChange({ level })} />
+        <button type="button" className="icon-button" aria-label="Raise level" disabled={unit.level >= MAX_LEVEL} {...repeat(() => onLevelStep(1))}>
           +
         </button>
       </div>
@@ -1181,5 +1207,28 @@ function UnitPanel({
         </button>
       </div>
     </div>
+  );
+}
+
+/** A level you can type: digits only, applied when it is a level from 1 to 20, put back otherwise. */
+function LevelInput({ id, level, onLevel }: { id: string; level: number; onLevel: (level: number) => void }) {
+  const [draft, setDraft] = useState(String(level));
+  useEffect(() => setDraft(String(level)), [level]);
+  return (
+    <input
+      id={id}
+      className="level-input"
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={draft}
+      onChange={(e) => {
+        const text = e.target.value.replace(/\D/g, '').slice(0, 2);
+        setDraft(text);
+        const n = Number(text);
+        if (text && n >= 1 && n <= MAX_LEVEL) onLevel(n);
+      }}
+      onBlur={() => setDraft(String(level))}
+    />
   );
 }

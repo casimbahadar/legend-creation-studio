@@ -63,7 +63,7 @@ export interface Catalog {
 
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAP_REF = /^fe8-us\/chapter-entry-(\d+)$/;
-const MAX_LEVEL = 20;
+export const MAX_LEVEL = 20;
 /** A unit's inventory size in FE. */
 export const MAX_ITEMS = 5;
 
