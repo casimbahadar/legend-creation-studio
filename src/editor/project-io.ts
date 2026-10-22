@@ -2,6 +2,7 @@
 // against this ROM, older forms converted), and saving one.
 
 import { checkProject, mapEntry, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
+import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
 import { readChapterMap, type ChapterMap } from '../rom/fe8-maps';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
@@ -12,7 +13,8 @@ import { classStats, readCatalog, type ClassArt, type GameItem } from '../play/c
 /** Everything the editor needs from the ROM, read once when the ROM is chosen. */
 export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]): EditorRom {
   const c = readCatalog(rom, text);
-  return { rom, maps, art: c.art, items: c.items, mismatches: c.classMismatches, itemMismatches: c.itemMismatches };
+  const chapterTitles = Array.from({ length: CHAPTER_COUNT }, (_, i) => readChapter(rom, text, i).title);
+  return { rom, maps, art: c.art, items: c.items, mismatches: c.classMismatches, itemMismatches: c.itemMismatches, chapterTitles };
 }
 
 export interface EditorRom {
@@ -22,6 +24,8 @@ export interface EditorRom {
   readonly mismatches: NameMismatch[];
   readonly items: GameItem[];
   readonly itemMismatches: ItemMismatch[];
+  /** Each FE8 chapter's title by chapter index ("" if it has none), to name the maps. */
+  readonly chapterTitles: string[];
 }
 
 export const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;

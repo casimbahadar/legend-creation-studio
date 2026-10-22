@@ -358,7 +358,11 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       {map ? (
         <>
           <p>
-            Map {mapIndex + 1} of {data.maps.length} (chapter entry {map.chapter}), {map.width} × {map.height} tiles
+            <strong>{data.chapterTitles[map.chapter] || `Chapter entry ${map.chapter}`}</strong>
+            <br />
+            <span className="note">
+              Map {mapIndex + 1} of {data.maps.length} · {map.width} × {map.height} squares · chapter entry {map.chapter}
+            </span>
           </p>
           <div className="stepper">
             <button type="button" className="button" disabled={mapIndex <= 0 || !!play} onClick={() => goTo(mapIndex - 1)}>

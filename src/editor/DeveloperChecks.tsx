@@ -7,6 +7,9 @@ import { useState } from 'react';
 import { FE8_ITEM_NAMES } from '../rom/fe8-item-names';
 import { FE8_CLASS_NAMES } from '../rom/fe8-names';
 import type { GbaRom } from '../rom/gba-rom';
+import { readChapter, readPlayerUnits } from '../rom/fe8-chapters';
+import { findCharacterTable, readCharacters } from '../rom/fe8-characters';
+import { FE8_CLASS_NAMES as CLASS_LIST } from '../rom/fe8-names';
 import { decodeText, type TextTable } from '../rom/text';
 import type { EditorRom } from './project-io';
 
@@ -33,6 +36,9 @@ export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTa
         ) : (
           <p className="bad">Couldn't find the text table in this ROM.</p>
         )}
+        <h3>Prologue units</h3>
+        <p className="note">The Prologue's player units as your ROM stores them. In the game: Seth, a Paladin, and Eirika, a Lord, both level 1.</p>
+        {text && <PrologueUnits rom={rom} text={text} />}
         <h3>Name lists</h3>
         {data && (
           <>
@@ -75,5 +81,23 @@ export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTa
         )}
       </details>
     </section>
+  );
+}
+
+function PrologueUnits({ rom, text }: { rom: GbaRom; text: TextTable }) {
+  const table = findCharacterTable(rom);
+  const names = new Map((table === null ? [] : readCharacters(rom, text, table)).map((c) => [c.id, c.name]));
+  const itemName = (id: number) => FE8_ITEM_NAMES.find((i) => i.id === id)?.gameName ?? `item 0x${id.toString(16)}`;
+  const units = readPlayerUnits(rom, readChapter(rom, text, 0));
+  if (!units.length) return <p className="bad">Couldn't find the Prologue's units.</p>;
+  return (
+    <ul className="problems">
+      {units.map((u, i) => (
+        <li key={i}>
+          {names.get(u.character) ?? `character 0x${u.character.toString(16)}`} ({CLASS_LIST.find((c) => c.id === u.classId)?.label ?? `class 0x${u.classId.toString(16)}`}), {u.allegiance}, level{' '}
+          {u.level} at ({u.x}, {u.y}){u.items.length ? `: ${u.items.map(itemName).join(', ')}` : ''}
+        </li>
+      ))}
+    </ul>
   );
 }
