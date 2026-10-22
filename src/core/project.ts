@@ -13,8 +13,9 @@ export type ChapterGoal = 'rout';
 /** Stats a unit can set for itself (decision 25), in FE's display order. */
 export const STAT_KEYS = ['hp', 'str', 'skl', 'spd', 'lck', 'def', 'res', 'con'] as const;
 export type StatKey = (typeof STAT_KEYS)[number];
-export type StatOverrides = Partial<Record<StatKey, number>>;
-/** Highest value a custom stat can have. */
+/** A unit's own adjustment to each stat, added to its class value at its level. */
+export type StatBonus = Partial<Record<StatKey, number>>;
+/** Largest value a stat, or a stat bonus either way, can have. */
 export const MAX_STAT = 99;
 
 /** How an enemy or ally acts on its turn (decision 23). Player units ignore it. */
@@ -37,8 +38,11 @@ export interface ProjectUnit {
   items?: string[];
   /** For enemies and allies; Attack in range when missing. */
   ai?: Behaviour;
-  /** Stats set for this unit, replacing its class and level values; only changed stats are listed. */
-  stats?: StatOverrides;
+  /**
+   * This unit's own stat adjustments, added to its class and level values (decision 25), so they
+   * still grow with its level. Only changed stats are listed.
+   */
+  statBonus?: StatBonus;
 }
 
 export interface ProjectChapter {
@@ -173,13 +177,12 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
           if (cells.has(key)) problem(`${up}.at`, `${who} is standing on the same square as another unit.`);
           cells.add(key);
         }
-        if (u.stats !== undefined) {
-          if (!isObject(u.stats)) problem(`${up}.stats`, `${who} has unreadable custom stats.`);
+        if (u.statBonus !== undefined) {
+          if (!isObject(u.statBonus)) problem(`${up}.statBonus`, `${who} has unreadable custom stats.`);
           else
-            for (const [k, v] of Object.entries(u.stats)) {
-              const min = k === 'hp' ? 1 : 0;
-              if (!STAT_KEYS.includes(k as StatKey)) problem(`${up}.stats.${k}`, `${who} has a stat this tool doesn't know: "${k}".`);
-              else if (!isInt(v) || v < min || v > MAX_STAT) problem(`${up}.stats.${k}`, `${who} needs ${k.toUpperCase()} from ${min} to ${MAX_STAT}.`);
+            for (const [k, v] of Object.entries(u.statBonus)) {
+              if (!STAT_KEYS.includes(k as StatKey)) problem(`${up}.statBonus.${k}`, `${who} has a stat this tool doesn't know: "${k}".`);
+              else if (!isInt(v) || Math.abs(v) > MAX_STAT) problem(`${up}.statBonus.${k}`, `${who} has a custom ${k.toUpperCase()} change outside ${-MAX_STAT} to +${MAX_STAT}.`);
             }
         }
         if (u.ai !== undefined && !BEHAVIOURS.includes(u.ai as Behaviour)) {

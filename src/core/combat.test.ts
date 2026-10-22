@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attackSpeed, withOverrides, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
+import { attackSpeed, withBonus, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
 
 const stats = (s: Partial<Stats>): Stats => ({ hp: 20, str: 5, skl: 5, spd: 5, def: 3, res: 1, lck: 4, con: 7, ...s });
 const weapon = (w: Partial<Weapon>): Weapon => ({ name: 'w', kind: 'sword', magic: false, might: 5, hit: 90, crit: 0, weight: 5, minRange: 1, maxRange: 1, ...w });
@@ -16,10 +16,10 @@ describe('statsAtLevel', () => {
   });
 });
 
-describe('withOverrides', () => {
-  it('replaces only the stats given', () => {
-    expect(withOverrides(stats({ hp: 20, str: 5 }), { str: 9 })).toMatchObject({ hp: 20, str: 9 });
-    expect(withOverrides(stats({}), undefined)).toEqual(stats({}));
+describe('withBonus', () => {
+  it('adds the unit\'s own adjustments, keeping HP at least 1 and the rest at least 0', () => {
+    expect(withBonus(stats({ hp: 20, str: 5, def: 3 }), { str: 4, def: -9, hp: -30 })).toMatchObject({ hp: 1, str: 9, def: 0 });
+    expect(withBonus(stats({}), undefined)).toEqual(stats({}));
   });
 });
 

@@ -20,9 +20,11 @@ export function statsAtLevel(base: Stats, growths: Stats, level: number): Stats 
   return { hp: up('hp'), str: up('str'), skl: up('skl'), spd: up('spd'), def: up('def'), res: up('res'), lck: up('lck'), con: base.con };
 }
 
-/** Stats with a unit's own values in place of the class and level ones (decision 25). */
-export function withOverrides(stats: Stats, overrides: Partial<Stats> | undefined): Stats {
-  return overrides ? { ...stats, ...overrides } : stats;
+/** Stats with a unit's own adjustments added (decision 25); HP stays at least 1 and the rest at least 0. */
+export function withBonus(stats: Stats, bonus: Partial<Stats> | undefined): Stats {
+  if (!bonus) return stats;
+  const add = (k: keyof Stats, min: number) => Math.max(min, stats[k] + (bonus[k] ?? 0));
+  return { hp: add('hp', 1), str: add('str', 0), skl: add('skl', 0), spd: add('spd', 0), def: add('def', 0), res: add('res', 0), lck: add('lck', 0), con: add('con', 0) };
 }
 
 export type WeaponKind = 'sword' | 'lance' | 'axe' | 'bow' | 'staff' | 'anima' | 'light' | 'dark' | 'other';

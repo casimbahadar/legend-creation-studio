@@ -28,7 +28,7 @@ import { checkItemNames, FE8_ITEM_NAMES, type ItemMismatch, type ItemName } from
 import { findItemTable, isStaff, isWeapon, readItems, WEAPON_TYPES, type RomItem } from '../rom/fe8-items';
 import { attackRange, IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { battleFrame, type BattleFrame } from '../core/battle-anim';
-import { forecast, randomNumbers, resolveBattle, statsAtLevel, withOverrides, type Combatant, type Forecast, type Stats, type Weapon } from '../core/combat';
+import { forecast, randomNumbers, resolveBattle, statsAtLevel, withBonus, type Combatant, type Forecast, type Stats, type Weapon } from '../core/combat';
 import { areFoes, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
@@ -55,6 +55,7 @@ import type { TextTable } from '../rom/text';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
+const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 const STAT_LABELS: Record<StatKey, string> = { hp: 'HP', str: 'Str', skl: 'Skl', spd: 'Spd', lck: 'Lck', def: 'Def', res: 'Res', con: 'Con' };
 const BEHAVIOUR_LABELS: Record<Behaviour, string> = {
   'attack-in-range': 'Attack in range: waits until a target is within reach',
@@ -308,8 +309,35 @@ function itemStats(i: RomItem): string {
   return `${i.uses} uses`;
 }
 
+/**
+ * Converts custom stats from their first form (fixed values in `stats`) to changes from the class
+ * value in `statBonus`, using this ROM's class stats. Files and autosaves from before the change open
+ * as they looked.
+ */
+function upgradeCustomStats(data: EditorRom, parsed: unknown): unknown {
+  const p = parsed as { chapters?: { units?: Record<string, unknown>[] }[] } | null;
+  for (const ch of p?.chapters ?? []) {
+    for (const u of ch.units ?? []) {
+      const fixed = u.stats as Record<string, unknown> | undefined;
+      if (!fixed || typeof fixed !== 'object' || u.statBonus !== undefined) continue;
+      const art = data.art.find((a) => a.entry.name === u.class);
+      const level = typeof u.level === 'number' ? u.level : 1;
+      const base = classStats(art, level);
+      const bonus: Record<string, number> = {};
+      for (const k of STAT_KEYS) {
+        const v = fixed[k];
+        if (typeof v === 'number' && v !== base[k]) bonus[k] = v - base[k];
+      }
+      delete u.stats;
+      if (Object.keys(bonus).length) u.statBonus = bonus;
+    }
+  }
+  return parsed;
+}
+
 /** Checks a parsed project file against this ROM: the file itself, its class names, its maps and unit positions. */
-function loadProject(data: EditorRom, parsed: unknown): { project: Project | null; problems: Problem[] } {
+function loadProject(data: EditorRom, raw: unknown): { project: Project | null; problems: Problem[] } {
+  const parsed = upgradeCustomStats(data, raw);
   const { project, problems } = checkProject(parsed, {
     classes: new Set(data.art.map((a) => a.entry.name)),
     items: new Set(data.items.map((i) => i.entry.name)),
@@ -640,7 +668,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   function setMode(playing: boolean) {
     setEditing(null);
     rng.current = randomNumbers(Date.now());
-    setView(playing ? startView(startPlay(chapter, (u) => withOverrides(classStats(artByName.get(u.class), u.level), u.stats))) : null);
+    setView(playing ? startView(startPlay(chapter, (u) => withBonus(classStats(artByName.get(u.class), u.level), u.statBonus))) : null);
   }
 
   function onSave() {
@@ -1133,17 +1161,18 @@ function UnitPanel({
   const setItems = (next: string[]) => onChange({ items: next.length ? next : undefined });
   const title = `${unit.name ?? art?.entry.label ?? unit.class} (${TEAM_LABELS[unit.team].toLowerCase()})`;
   const classSt = classStats(art, unit.level);
-  const custom = unit.stats ?? {};
-  const st = withOverrides(classSt, custom);
+  const custom = unit.statBonus ?? {};
+  const st = withBonus(classSt, custom);
   const isCustom = (k: StatKey) => custom[k] !== undefined;
   // Open to start with if the unit has custom stats; after that it stays as the user leaves it.
-  const [showCustom, setShowCustom] = useState(() => Object.keys(unit.stats ?? {}).length > 0);
-  /** Sets one stat; the class + level value clears the override, so only real changes are saved. */
+  const [showCustom, setShowCustom] = useState(() => Object.keys(unit.statBonus ?? {}).length > 0);
+  /** Sets one stat, saved as its difference from the class value; the class value itself clears it. */
   const setStat = (k: StatKey, v: number) => {
     const next = { ...custom };
-    if (v === classSt[k]) delete next[k];
-    else next[k] = v;
-    onChange({ stats: Object.keys(next).length ? next : undefined });
+    const diff = v - classSt[k];
+    if (diff === 0) delete next[k];
+    else next[k] = diff;
+    onChange({ statBonus: Object.keys(next).length ? next : undefined });
   };
   return (
     <div className="unit-panel">
@@ -1159,15 +1188,15 @@ function UnitPanel({
         </button>
       </div>
       <p className="note">
-        {STAT_KEYS.map((k) => `${STAT_LABELS[k]} ${st[k]}${isCustom(k) ? '*' : ''}`).join(' · ')}
+        {STAT_KEYS.map((k) => `${STAT_LABELS[k]} ${st[k]}${isCustom(k) ? `* (${signed(custom[k]!)})` : ''}`).join(' · ')}
         {art ? ` · Mov ${art.mov}` : ''}
         {Object.keys(custom).length > 0 && <> (* custom)</>}
       </p>
       <details className="custom-stats" open={showCustom} onToggle={(e) => setShowCustom(e.currentTarget.open)}>
         <summary>Custom stats</summary>
         <p className="note">
-          Type a number to set a stat for this unit only. Custom stats stay as typed when you change the level; the others follow its
-          class and level.
+          Type a number to set a stat for this unit only. It is saved as a change from the class (shown in brackets), so it still grows
+          when you raise the level.
         </p>
         <div className="stat-grid">
           {STAT_KEYS.map((k) => (
@@ -1177,7 +1206,7 @@ function UnitPanel({
             </label>
           ))}
         </div>
-        <button type="button" className="button button-secondary" disabled={!Object.keys(custom).length} onClick={() => onChange({ stats: undefined })}>
+        <button type="button" className="button button-secondary" disabled={!Object.keys(custom).length} onClick={() => onChange({ statBonus: undefined })}>
           Reset to class stats
         </button>
       </details>
