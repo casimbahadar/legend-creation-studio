@@ -4,13 +4,11 @@
 
 import { createImage, drawTile4bpp, readPalettes, type Image, type Palette } from './gba-graphics';
 import type { GbaRom } from './gba-rom';
+import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE } from './fe8-chapters';
 import { decompressLz77 } from './lz77';
 
-const CHAPTER_TABLE = 0x8b0894;
-const CHAPTER_STRIDE = 0x94;
-const MAP_ASSET_TABLE = 0x8b363c;
-/** EC scans this many chapter entries; invalid ones are skipped. */
-const MAX_CHAPTER_ENTRIES = 0x90;
+/** Map ids start 4 bytes into each chapter record (see fe8-chapters.ts). */
+const CHAPTER_MAP_IDS = CHAPTER_TABLE + 4;
 /** A tile config holds 1024 metatiles of 4 tile entries (8 bytes each), then one terrain byte per metatile. */
 const METATILE_BYTES = 0x2000;
 const MIN_CONFIG_BYTES = 0x2400;
@@ -37,12 +35,12 @@ export interface ChapterMap {
 }
 
 function asset(rom: GbaRom, index: number): Uint8Array {
-  return decompressLz77(rom.bytes, rom.offsetOf(rom.u32(MAP_ASSET_TABLE + index * 4)));
+  return decompressLz77(rom.bytes, rom.offsetOf(rom.u32(ASSET_TABLE + index * 4)));
 }
 
 /** Reads one chapter-table entry's map, or null if the entry does not hold a valid map. */
 export function readChapterMap(rom: GbaRom, chapter: number): ChapterMap | null {
-  const p = CHAPTER_TABLE + chapter * CHAPTER_STRIDE;
+  const p = CHAPTER_MAP_IDS + chapter * CHAPTER_STRIDE;
   try {
     const [obj1, obj2, palette, config, main] = [0, 1, 2, 3, 4].map((k) => rom.u8(p + k)) as [number, number, number, number, number];
     const layer = asset(rom, main);
@@ -56,7 +54,7 @@ export function readChapterMap(rom: GbaRom, chapter: number): ChapterMap | null 
     const tiles = new Uint8Array(t1.length + t2.length);
     tiles.set(t1);
     tiles.set(t2, t1.length);
-    const palettes = readPalettes(rom, rom.offsetOf(rom.u32(MAP_ASSET_TABLE + palette * 4)), 16);
+    const palettes = readPalettes(rom, rom.offsetOf(rom.u32(ASSET_TABLE + palette * 4)), 16);
 
     const cells = new Uint16Array(width * height);
     const terrain = new Uint8Array(width * height);
@@ -75,7 +73,7 @@ export function readChapterMap(rom: GbaRom, chapter: number): ChapterMap | null 
 export function readAllChapterMaps(rom: GbaRom): ChapterMap[] {
   const out: ChapterMap[] = [];
   const seen = new Set<string>();
-  for (let k = 0; k < MAX_CHAPTER_ENTRIES; k++) {
+  for (let k = 0; k < CHAPTER_COUNT; k++) {
     const map = readChapterMap(rom, k);
     if (!map) continue;
     const key = `${map.width}x${map.height}:${map.cells.join(',')}`;
