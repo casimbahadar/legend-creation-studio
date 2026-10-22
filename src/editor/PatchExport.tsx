@@ -48,7 +48,7 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
       </label>
       <p className="note">
         {slot === 0
-          ? 'A new game starts with your chapter, then carries on into the rest of Sacred Stones.'
+          ? "A new game starts with your chapter, then carries on into the rest of Sacred Stones. Your player units stay in the army; Chapter 1 brings in Eirika and Seth itself if they aren't there, and later chapters may still treat characters you used as not yet met."
           : 'Only the Prologue has been tried so far; other chapters may not build or play right.'}
       </p>
       {notes.length > 0 && (
