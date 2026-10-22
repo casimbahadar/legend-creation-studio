@@ -30,8 +30,6 @@ import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } 
 import { chapterRules } from '../play/rules';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import { renderMap } from '../rom/fe8-maps';
-import { FE8_CLASS_NAMES } from '../rom/fe8-names';
-import { FE8_ITEM_NAMES } from '../rom/fe8-item-names';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 import { GbaControls } from './controls';
 import { TEAM_LABELS } from './labels';
@@ -539,41 +537,6 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         <p className="bad">Couldn't find any chapter maps in this ROM.</p>
       )}
 
-      {data.mismatches.length ? (
-        <details className="note bad">
-          <summary>
-            Name list check: {data.mismatches.length} of {FE8_CLASS_NAMES.length} class names don't match your ROM. Tap to see
-            them.
-          </summary>
-          <ul className="problems">
-            {data.mismatches.map((m) => (
-              <li key={m.entry.name}>
-                {m.entry.name} (class 0x{m.entry.id.toString(16).toUpperCase()}): expected "{m.entry.gameName}", ROM shows{' '}
-                {m.romName === null ? 'nothing' : `"${m.romName}"`}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : (
-        <p className="note">Name list check: all {FE8_CLASS_NAMES.length} class names match your ROM.</p>
-      )}
-      {data.itemMismatches.length ? (
-        <details className="note bad">
-          <summary>
-            Item list check: {data.itemMismatches.length} of {FE8_ITEM_NAMES.length} item names don't match your ROM. Tap to see them.
-          </summary>
-          <ul className="problems">
-            {data.itemMismatches.map((m) => (
-              <li key={m.entry.name}>
-                {m.entry.name} (item 0x{m.entry.id.toString(16).toUpperCase()}): expected "{m.entry.gameName}", ROM shows{' '}
-                {m.romName === null ? 'nothing' : `"${m.romName}"`}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : (
-        <p className="note">Item list check: all {FE8_ITEM_NAMES.length} item names match your ROM.</p>
-      )}
     </section>
   );
 }

@@ -3,8 +3,9 @@ import { crc32, formatCrc32 } from '../rom/crc32';
 import { FE8_US_CRC32 } from '../rom/fe8';
 import { readAllChapterMaps } from '../rom/fe8-maps';
 import { readRom, type GbaRom } from '../rom/gba-rom';
-import { decodeText, findTextTable, type TextTable } from '../rom/text';
+import { findTextTable, type TextTable } from '../rom/text';
 import { ChapterEditor } from './ChapterEditor';
+import { DeveloperChecks } from './DeveloperChecks';
 import { readEditorRom, type EditorRom } from './project-io';
 
 type RomCheck =
@@ -16,7 +17,6 @@ type RomCheck =
 
 export function App() {
   const [check, setCheck] = useState<RomCheck>({ state: 'idle' });
-  const [textId, setTextId] = useState('');
 
   async function onFileChosen(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -60,33 +60,8 @@ export function App() {
         {check.state === 'error' && <span className="bad">Couldn't read that file. Try choosing it again.</span>}
       </p>
 
-      {check.state === 'clean' && (
-        <section className="panel">
-          <h2>ROM text check</h2>
-          {check.text ? (
-            <>
-              <p>Read {check.text.count.toLocaleString()} text entries from your ROM.</p>
-              <label className="field">
-                Text number (0 to {check.text.count - 1})
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={textId}
-                  onChange={(e) => setTextId(e.target.value.replace(/\D/g, ''))}
-                />
-              </label>
-              {textId !== '' && (
-                <pre className="text-out">{decodeText(check.rom, check.text, Number(textId)) || '(empty)'}</pre>
-              )}
-            </>
-          ) : (
-            <p className="bad">Couldn't find the text table in this ROM.</p>
-          )}
-        </section>
-      )}
-
       {check.state === 'clean' && check.editor && <ChapterEditor data={check.editor} />}
+      {check.state === 'clean' && <DeveloperChecks rom={check.rom} text={check.text} data={check.editor} />}
 
       <footer className="footer">
         Non-commercial fan tool. Not affiliated with Nintendo or Intelligent Systems.
