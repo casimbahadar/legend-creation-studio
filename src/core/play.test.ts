@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBattle, areFoes, endTurn, finishAction, moveUnit, startPlay, unitAt } from './play';
+import { applyBattle, areFoes, endTurn, finishAction, moveUnit, outcomeOf, startPlay, unitAt } from './play';
 import type { Stats } from './combat';
 import type { ProjectChapter } from './project';
 
@@ -44,5 +44,16 @@ describe('play session', () => {
     expect(areFoes('player', 'enemy')).toBe(true);
     expect(areFoes('ally', 'enemy')).toBe(true);
     expect(areFoes('enemy', 'enemy')).toBe(false);
+  });
+
+  it('wins when every enemy has fallen and loses with a Must survive unit or the whole army', () => {
+    const marked = { ...chapter, units: chapter.units.map((u) => (u.id === 'eirika' ? { ...u, mustSurvive: true } : u)) };
+    const s = startPlay(marked, statsOf);
+    expect(outcomeOf(s)).toBeNull();
+    expect(outcomeOf(applyBattle(s, 'eirika', 'brigand-1', 18, 0))).toEqual({ result: 'victory' });
+    const lost = outcomeOf(applyBattle(s, 'brigand-1', 'eirika', 18, 0));
+    expect(lost).toMatchObject({ result: 'defeat', fallen: { id: 'eirika' } });
+    const unmarked = startPlay(chapter, statsOf);
+    expect(outcomeOf(applyBattle(unmarked, 'brigand-1', 'eirika', 18, 0))).toEqual({ result: 'defeat', fallen: null });
   });
 });

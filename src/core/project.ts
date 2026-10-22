@@ -43,6 +43,8 @@ export interface ProjectUnit {
    * still grow with its level. Only changed stats are listed.
    */
   statBonus?: StatBonus;
+  /** The chapter is lost if this unit falls (decision 26). Player and ally units only. */
+  mustSurvive?: boolean;
 }
 
 export interface ProjectChapter {
@@ -88,6 +90,11 @@ export function mapRef(chapterEntry: number): string {
 export function mapEntry(ref: string): number | null {
   const m = MAP_REF.exec(ref);
   return m ? Number(m[1]) : null;
+}
+
+/** Lord and Great Lord classes, which are marked Must survive when placed on the player's side. */
+export function isLordClass(cls: string): boolean {
+  return cls.startsWith('lord-') || cls.startsWith('great-lord-');
 }
 
 /** Turns any text into a name usable as an id: "My First Chapter!" becomes "my-first-chapter". */
@@ -184,6 +191,10 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
               if (!STAT_KEYS.includes(k as StatKey)) problem(`${up}.statBonus.${k}`, `${who} has a stat this tool doesn't know: "${k}".`);
               else if (!isInt(v) || Math.abs(v) > MAX_STAT) problem(`${up}.statBonus.${k}`, `${who} has a custom ${k.toUpperCase()} change outside ${-MAX_STAT} to +${MAX_STAT}.`);
             }
+        }
+        if (u.mustSurvive !== undefined) {
+          if (typeof u.mustSurvive !== 'boolean') problem(`${up}.mustSurvive`, `${who} has an unreadable Must survive setting.`);
+          else if (u.mustSurvive && u.team === 'enemy') problem(`${up}.mustSurvive`, `${who} is an enemy, so it can't be marked Must survive.`);
         }
         if (u.ai !== undefined && !BEHAVIOURS.includes(u.ai as Behaviour)) {
           problem(`${up}.ai`, `${who} has a behaviour this tool doesn't know: "${String(u.ai)}".`);

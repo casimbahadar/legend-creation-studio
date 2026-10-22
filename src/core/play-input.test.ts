@@ -23,7 +23,7 @@ import {
 import type { ProjectChapter } from './project';
 
 const STATS: Stats = { hp: 18, str: 5, skl: 5, spd: 5, def: 3, res: 1, lck: 2, con: 6 };
-const chapterWith = (brigandAt: [number, number]): ProjectChapter => ({
+const chapterWith = (brigandAt: [number, number], extra: ProjectChapter['units'] = []): ProjectChapter => ({
   id: 'c',
   name: 'C',
   map: 'fe8-us/chapter-entry-0',
@@ -31,9 +31,12 @@ const chapterWith = (brigandAt: [number, number]): ProjectChapter => ({
   units: [
     { id: 'brigand-1', class: 'brigand', team: 'enemy', level: 1, at: brigandAt },
     { id: 'eirika', class: 'lord-eirika', team: 'player', level: 1, at: [1, 1] },
+    ...extra,
   ],
 });
-const start = (brigandAt: [number, number] = [4, 0]) => startView(startPlay(chapterWith(brigandAt), () => STATS));
+const start = (brigandAt: [number, number] = [4, 0], extra: ProjectChapter['units'] = []) => startView(startPlay(chapterWith(brigandAt, extra), () => STATS));
+/** A second player unit out of everyone's reach, so losing Eirika doesn't end the chapter. */
+const SETH: ProjectChapter['units'][number] = { id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [0, 2] };
 
 // Open 5x3 field where every step costs 1 and every unit has Mov 1. A unit can attack a foe next to it,
 // and every fight is one blow that defeats the defender.
@@ -166,7 +169,7 @@ describe('attacking', () => {
 describe('enemy and ally phases', () => {
   it('runs the enemy phase after End turn, then hands back to the player', () => {
     // The brigand at (3,1) can step to (2,1), next to Eirika at (1,1), and attack.
-    let v = endPlayerTurn(start([3, 1]));
+    let v = endPlayerTurn(start([3, 1], [SETH]));
     expect(v).toMatchObject({ phase: 'enemy', banner: 'enemy', queue: ['brigand-1'] });
     expect(moveCursor(v, 1, 0, rules)).toBe(v);
     v = stepAI(v, rules); // banner cleared
@@ -177,7 +180,8 @@ describe('enemy and ally phases', () => {
     v = finishWalk(v, rules);
     expect(v.battle).toMatchObject({ attacker: 'brigand-1', defender: 'eirika' });
     v = finishBattle(v);
-    expect(v.state.units.map((u) => u.id)).toEqual(['brigand-1']);
+    expect(v.state.units.map((u) => u.id)).toEqual(['brigand-1', 'seth']);
+    expect(v.outcome).toBeNull();
     v = stepAI(v, rules); // no allies: straight on to the player phase
     expect(v).toMatchObject({ phase: 'ally', banner: null });
     v = stepAI(v, rules);
@@ -198,6 +202,25 @@ describe('enemy and ally phases', () => {
   it("doesn't end the turn in the middle of an action", () => {
     const menu = moveRight(start());
     expect(endPlayerTurn(menu)).toBe(menu);
+  });
+});
+
+describe('winning and losing', () => {
+  it('wins when the last enemy falls and stops all input', () => {
+    // Eirika attacks the brigand next to her; the test rules always defeat the defender.
+    let v = pressA(moveRight(start([3, 1])), rules);
+    v = finishBattle(pressA(v, rules));
+    expect(v.outcome).toEqual({ result: 'victory' });
+    expect(moveCursor(v, 1, 0, rules)).toBe(v);
+    expect(endPlayerTurn(v)).toBe(v);
+    expect(stepAI(v, rules)).toBe(v);
+  });
+
+  it('loses when the enemy defeats the last player unit, stopping the enemy phase', () => {
+    let v = stepAI(stepAI(endPlayerTurn(start([3, 1])), rules), rules);
+    v = finishBattle(finishWalk(v, rules));
+    expect(v.outcome).toEqual({ result: 'defeat', fallen: null });
+    expect(stepAI(v, rules)).toBe(v);
   });
 });
 

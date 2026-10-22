@@ -17,6 +17,8 @@ export interface PlayUnit {
   readonly hp: number;
   /** How the unit acts when the computer moves it. */
   readonly ai: Behaviour;
+  /** The chapter is lost if this unit falls. */
+  readonly mustSurvive: boolean;
   /** Has acted this turn. */
   readonly moved: boolean;
 }
@@ -24,7 +26,11 @@ export interface PlayUnit {
 export interface PlayState {
   readonly turn: number;
   readonly units: readonly PlayUnit[];
+  /** Units that have fallen, in order. */
+  readonly fallen: readonly PlayUnit[];
 }
+
+export type Outcome = { readonly result: 'victory' } | { readonly result: 'defeat'; readonly fallen: PlayUnit | null };
 
 /** Player and ally units are on one side; enemies on the other. */
 export function areFoes(a: Team, b: Team): boolean {
@@ -47,9 +53,11 @@ export function startPlay(chapter: ProjectChapter, statsOf: (unit: ProjectUnit) 
         stats,
         hp: stats.hp,
         ai: u.ai ?? DEFAULT_BEHAVIOUR,
+        mustSurvive: (u.mustSurvive ?? false) && u.team !== 'enemy',
         moved: false,
       };
     }),
+    fallen: [],
   };
 }
 
@@ -69,10 +77,20 @@ export function finishAction(state: PlayState, id: string): PlayState {
 
 /** Applies a fight's result: both units' HP, fallen units removed, and the attacker done for the turn. */
 export function applyBattle(state: PlayState, attacker: string, defender: string, attackerHp: number, defenderHp: number): PlayState {
-  const units = state.units
-    .map((u) => (u.id === attacker ? { ...u, hp: attackerHp, moved: true } : u.id === defender ? { ...u, hp: defenderHp } : u))
-    .filter((u) => u.hp > 0);
-  return { ...state, units };
+  const all = state.units.map((u) => (u.id === attacker ? { ...u, hp: attackerHp, moved: true } : u.id === defender ? { ...u, hp: defenderHp } : u));
+  return { ...state, units: all.filter((u) => u.hp > 0), fallen: [...state.fallen, ...all.filter((u) => u.hp <= 0)] };
+}
+
+/**
+ * Whether the chapter is over (decision 26): lost if a Must survive unit has fallen or no player unit
+ * is left, won (Rout) once no enemy is left. Checked after each battle.
+ */
+export function outcomeOf(state: PlayState): Outcome | null {
+  const lost = state.fallen.find((u) => u.mustSurvive);
+  if (lost) return { result: 'defeat', fallen: lost };
+  if (!state.units.some((u) => u.team === 'player')) return { result: 'defeat', fallen: null };
+  if (!state.units.some((u) => u.team === 'enemy')) return { result: 'victory' };
+  return null;
 }
 
 /** Every unit ready to act again, as at the start of each phase in FE. */

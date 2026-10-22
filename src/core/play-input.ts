@@ -7,7 +7,7 @@
 import { planAction, type AiRules } from './ai';
 import type { Strike } from './combat';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, endTurn, finishAction, moveUnit, readyAll, unitAt, type PlayState, type PlayUnit } from './play';
+import { applyBattle, endTurn, finishAction, moveUnit, outcomeOf, readyAll, unitAt, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -46,6 +46,8 @@ export interface PlayView {
   readonly queue: readonly string[];
   /** The phase banner showing, if any. Input waits until stepAI clears it. */
   readonly banner: Phase | null;
+  /** Set when the chapter is won or lost; play stops there. */
+  readonly outcome: Outcome | null;
 }
 
 export interface PlayRules extends AiRules {
@@ -62,7 +64,7 @@ export interface PlayRules extends AiRules {
 /** The cursor starts on the first player unit, as FE starts it on the lord. */
 export function startView(state: PlayState): PlayView {
   const first = state.units.find((u) => u.team === 'player') ?? state.units[0];
-  return { state, cursor: first ? first.at : [0, 0], selected: null, route: null, walking: null, action: null, battle: null, phase: 'player', queue: [], banner: null };
+  return { state, cursor: first ? first.at : [0, 0], selected: null, route: null, walking: null, action: null, battle: null, phase: 'player', queue: [], banner: null, outcome: null };
 }
 
 const unitById = (state: PlayState, id: string | null) => (id === null ? undefined : state.units.find((u) => u.id === id));
@@ -77,7 +79,7 @@ export function canMove(unit: PlayUnit | undefined): boolean {
 }
 
 /** Player input is ignored while a unit walks, a battle plays, a banner shows, or the computer has the turn. */
-const busy = (view: PlayView) => !!view.walking || !!view.battle || !!view.banner || view.phase !== 'player';
+const busy = (view: PlayView) => !!view.walking || !!view.battle || !!view.banner || view.phase !== 'player' || !!view.outcome;
 
 /** The search for the unit being moved, if one is selected and can still move. */
 function moving(view: PlayView, rules: PlayRules): { unit: PlayUnit; search: MoveSearch } | null {
@@ -247,7 +249,7 @@ export function endPlayerTurn(view: PlayView): PlayView {
  * or waiting), or moves on to the next phase. Does nothing while a walk or battle is still playing.
  */
 export function stepAI(view: PlayView, rules: PlayRules): PlayView {
-  if (view.walking || view.battle) return view;
+  if (view.walking || view.battle || view.outcome) return view;
   if (view.banner) return { ...view, banner: null };
   if (view.phase === 'player') return view;
   const [next, ...rest] = view.queue;
@@ -283,7 +285,8 @@ export function finishBattle(view: PlayView): PlayView {
   const last = b.strikes[b.strikes.length - 1];
   const state = applyBattle(view.state, b.attacker, b.defender, last?.attackerHp ?? attacker?.hp ?? 0, last?.defenderHp ?? defender?.hp ?? 0);
   const still = unitById(state, b.attacker);
-  return { ...view, state, battle: null, cursor: still ? still.at : view.cursor };
+  // The chapter can end with this fight; then the phase and its queue stop where they are.
+  return { ...view, state, battle: null, cursor: still ? still.at : view.cursor, outcome: outcomeOf(state), banner: null };
 }
 
 /** The arrow to draw: only while it ends under the cursor. */

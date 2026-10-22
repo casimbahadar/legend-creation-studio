@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkProject, mapEntry, mapRef, newProject, projectToJson, toName, type Project } from './project';
+import { checkProject, isLordClass, mapEntry, mapRef, newProject, projectToJson, toName, type Project } from './project';
 
 function sample(): Project {
   const p = newProject('My First Chapter', mapRef(5));
@@ -92,6 +92,20 @@ describe('custom stats', () => {
       '"eirika" has a stat this tool doesn\'t know: "mag".',
       '"eirika" has a custom SPD change outside -99 to +99.',
     ]);
+  });
+});
+
+describe('must survive', () => {
+  it('can be set on player and ally units but not enemies', () => {
+    const p = sample();
+    p.chapters[0]!.units[0]!.mustSurvive = true;
+    expect(checkProject(roundTrip(p)).problems).toEqual([]);
+    p.chapters[0]!.units[1]!.mustSurvive = true;
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual(['"brigand-1" is an enemy, so it can\'t be marked Must survive.']);
+  });
+
+  it('knows the lord classes', () => {
+    expect(['lord-eirika', 'great-lord-ephraim', 'brigand', 'lord'].map(isLordClass)).toEqual([true, true, false, false]);
   });
 });
 
