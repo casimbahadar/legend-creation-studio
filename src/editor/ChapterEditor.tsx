@@ -21,15 +21,13 @@ import {
   type ProjectUnit,
   type Team,
 } from '../core/project';
-import { readClasses, type ClassStats } from '../rom/fe8-classes';
-import { idleFrame, readMapSprite, readTeamPalettes, renderMapSprite, spriteOrigin, type TeamColour } from '../rom/fe8-map-sprites';
+import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import { readChapterMap, renderMap, type ChapterMap } from '../rom/fe8-maps';
-import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } from '../rom/fe8-names';
-import { checkItemNames, FE8_ITEM_NAMES, type ItemMismatch, type ItemName } from '../rom/fe8-item-names';
-import { findItemTable, isStaff, isWeapon, readItems, WEAPON_TYPES, type RomItem } from '../rom/fe8-items';
+import { FE8_CLASS_NAMES, type NameMismatch } from '../rom/fe8-names';
+import { FE8_ITEM_NAMES, type ItemMismatch } from '../rom/fe8-item-names';
 import { attackRange, IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { battleFrame, type BattleFrame } from '../core/battle-anim';
-import { forecast, randomNumbers, resolveBattle, statsAtLevel, withBonus, type Combatant, type Forecast, type Stats, type Weapon } from '../core/combat';
+import { forecast, randomNumbers, resolveBattle, withBonus, type Combatant, type Forecast } from '../core/combat';
 import { areFoes, startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   canMove as unitCanMove,
@@ -50,9 +48,23 @@ import {
   type PlayRules,
   type PlayView,
 } from '../core/play-input';
-import type { Image } from '../rom/gba-graphics';
 import type { GbaRom } from '../rom/gba-rom';
 import type { TextTable } from '../rom/text';
+import {
+  classStats,
+  defaultItems,
+  distance,
+  inReach,
+  itemStats,
+  readCatalog,
+  toCanvas,
+  toWeapon,
+  usable,
+  weaponRanges,
+  weaponsOf,
+  type ClassArt,
+  type GameItem,
+} from '../play/catalog';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 
 const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
@@ -144,28 +156,10 @@ function drawCursor(g: CanvasRenderingContext2D, x: number, y: number, now: numb
   }
 }
 
-/** A listed class with its standing frames in each team's colours, plus grey for units that have moved. */
-export interface ClassArt {
-  readonly entry: ClassName;
-  readonly frames: Record<TeamColour, HTMLCanvasElement[]>;
-  /** Base movement and move cost per terrain id from the ROM. */
-  readonly mov: number;
-  readonly moveCosts: Uint8Array | null;
-  /** Starting rank per weapon type (sword, lance, axe, bow, staff, anima, light, dark); 0 = can't use. */
-  readonly weaponRanks: Uint8Array;
-  readonly base: ClassStats;
-  readonly growths: ClassStats;
-  readonly terrainAvoid: Uint8Array | null;
-  readonly terrainDef: Uint8Array | null;
-  readonly terrainRes: Uint8Array | null;
-  readonly width: number;
-  readonly height: number;
-}
-
-/** A listed item with its stats from the ROM. */
-export interface EditorItem {
-  readonly entry: ItemName;
-  readonly rom: RomItem;
+/** Everything the editor needs from the ROM, read once when the ROM is chosen. */
+export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]): EditorRom {
+  const c = readCatalog(rom, text);
+  return { rom, maps, art: c.art, items: c.items, mismatches: c.classMismatches, itemMismatches: c.itemMismatches };
 }
 
 export interface EditorRom {
@@ -173,57 +167,8 @@ export interface EditorRom {
   readonly maps: ChapterMap[];
   readonly art: ClassArt[];
   readonly mismatches: NameMismatch[];
-  readonly items: EditorItem[];
+  readonly items: GameItem[];
   readonly itemMismatches: ItemMismatch[];
-}
-
-function toCanvas(image: Image): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = image.width;
-  c.height = image.height;
-  c.getContext('2d')?.putImageData(new ImageData(image.rgba, image.width, image.height), 0, 0);
-  return c;
-}
-
-/** Everything the editor needs from the ROM, read once when the ROM is chosen. */
-export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]): EditorRom {
-  const romClasses = readClasses(rom, text);
-  const byId = new Map(romClasses.map((c) => [c.id, c]));
-  const palettes = readTeamPalettes(rom);
-  const art: ClassArt[] = [];
-  for (const entry of FE8_CLASS_NAMES) {
-    const c = byId.get(entry.id);
-    if (!c) continue;
-    try {
-      const sprite = readMapSprite(rom, c.mapSprite);
-      const framesFor = (colour: TeamColour) => [0, 1, 2].map((f) => toCanvas(renderMapSprite(sprite, palettes[colour], f)));
-      art.push({
-        entry,
-        width: sprite.width,
-        height: sprite.height,
-        frames: { player: framesFor('player'), enemy: framesFor('enemy'), ally: framesFor('ally'), moved: framesFor('moved') },
-        mov: c.mov,
-        moveCosts: c.moveCosts,
-        weaponRanks: c.weaponRanks,
-        base: c.base,
-        growths: c.growths,
-        terrainAvoid: c.terrainAvoid,
-        terrainDef: c.terrainDef,
-        terrainRes: c.terrainRes,
-      });
-    } catch {
-      // class without a usable map sprite
-    }
-  }
-  const table = findItemTable(rom);
-  const romItems = table === null ? [] : readItems(rom, text, table);
-  const romItemById = new Map(romItems.map((i) => [i.id, i]));
-  const items: EditorItem[] = [];
-  for (const entry of FE8_ITEM_NAMES) {
-    const it = romItemById.get(entry.id);
-    if (it) items.push({ entry, rom: it });
-  }
-  return { rom, maps, art, mismatches: checkClassNames(romClasses), items, itemMismatches: checkItemNames(romItems) };
 }
 
 const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;
@@ -243,71 +188,6 @@ function nextUnitId(units: ProjectUnit[], cls: string): string {
   let n = 1;
   while (taken.has(`${cls}-${n}`)) n++;
   return `${cls}-${n}`;
-}
-
-/** Can this class use this item? Weapons and staves need a rank in their type; other items anyone can carry. */
-function usable(art: ClassArt, item: EditorItem): boolean {
-  if (!isWeapon(item.rom) && !isStaff(item.rom)) return true;
-  return item.rom.type < WEAPON_TYPES.length && (art.weaponRanks[item.rom.type] ?? 0) > 0;
-}
-
-/** Starting weapon for a newly placed unit: an iron-tier weapon of the first type its class can use. */
-const DEFAULT_WEAPONS = ['iron-sword', 'iron-lance', 'iron-axe', 'iron-bow', 'fire', 'lightning', 'flux', 'heal'];
-function defaultItems(art: ClassArt, items: EditorItem[]): string[] {
-  for (const name of DEFAULT_WEAPONS) {
-    const item = items.find((i) => i.entry.name === name);
-    if (item && (isWeapon(item.rom) || isStaff(item.rom)) && usable(art, item)) return [name];
-  }
-  return [];
-}
-
-/** Weapon ranges [min, max] a unit can attack with: weapons it carries and its class can use, not staves. */
-function weaponRanges(art: ClassArt | undefined, itemNames: readonly string[], items: EditorItem[]): [number, number][] {
-  if (!art) return [];
-  return itemNames
-    .map((n) => items.find((i) => i.entry.name === n))
-    .filter((i): i is EditorItem => !!i && isWeapon(i.rom) && !isStaff(i.rom) && usable(art, i))
-    .map((i) => [i.rom.minRange, i.rom.maxRange]);
-}
-
-/** Weapons a unit can fight with, in inventory order: weapons it carries that its class can use, not staves. */
-function weaponsOf(art: ClassArt | undefined, itemNames: readonly string[], items: EditorItem[]): EditorItem[] {
-  if (!art) return [];
-  return itemNames
-    .map((n) => items.find((i) => i.entry.name === n))
-    .filter((i): i is EditorItem => !!i && isWeapon(i.rom) && !isStaff(i.rom) && usable(art, i));
-}
-
-function toWeapon(item: EditorItem): Weapon {
-  const r = item.rom;
-  const kind = r.type < WEAPON_TYPES.length ? WEAPON_TYPES[r.type]! : 'other';
-  return {
-    name: item.entry.gameName,
-    kind,
-    // Anima, light and dark target Res, as do weapons the ROM marks as magic.
-    magic: kind === 'anima' || kind === 'light' || kind === 'dark' || (r.attributes & 2) !== 0,
-    might: r.might,
-    hit: r.hit,
-    crit: r.crit,
-    weight: r.weight,
-    minRange: r.minRange,
-    maxRange: r.maxRange,
-  };
-}
-
-const distance = (a: PlayUnit, b: PlayUnit) => Math.abs(a.at[0] - b.at[0]) + Math.abs(a.at[1] - b.at[1]);
-const inReach = (w: EditorItem, d: number) => d >= w.rom.minRange && d <= w.rom.maxRange;
-
-/** Stats for a class at a level, or a 1 HP stand-in if the class isn't known. */
-function classStats(art: ClassArt | undefined, level: number): Stats {
-  return art ? statsAtLevel(art.base, art.growths, level) : { hp: 1, str: 0, skl: 0, spd: 0, def: 0, res: 0, lck: 0, con: 0 };
-}
-
-/** One-line stats for an item, e.g. "Mt 5 · Hit 90 · Rng 1 · 46 uses". */
-function itemStats(i: RomItem): string {
-  const rng = i.minRange === i.maxRange ? `${i.minRange}` : `${i.minRange}-${i.maxRange}`;
-  if (isWeapon(i) && !isStaff(i)) return `Mt ${i.might} · Hit ${i.hit} · Rng ${rng} · ${i.uses} uses`;
-  return `${i.uses} uses`;
 }
 
 /**
@@ -434,7 +314,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   // One stream of random numbers per test play session.
   const rng = useRef(randomNumbers(Date.now()));
 
-  function combatantOf(u: PlayUnit, weapon: EditorItem | undefined): Combatant {
+  function combatantOf(u: PlayUnit, weapon: GameItem | undefined): Combatant {
     const art = artByName.get(u.class);
     const t = map ? (map.terrain[u.at[1] * map.width + u.at[0]] ?? 0) : 0;
     return {
@@ -1183,7 +1063,7 @@ function UnitPanel({
 }: {
   unit: ProjectUnit;
   art: ClassArt | undefined;
-  items: EditorItem[];
+  items: GameItem[];
   /** A change to the unit, or null to remove it. */
   onChange: (change: Partial<ProjectUnit> | null) => void;
   /** Raise (+1) or lower (-1) the level. */
