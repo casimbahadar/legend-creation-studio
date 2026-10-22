@@ -100,7 +100,10 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   },
     [play, selectedUnit, showRange, map, artByName, rules],
   );
-  const unitLabel = (u: { name?: string; class: string }) => u.name ?? artByName.get(u.class)?.entry.label ?? u.class;
+  const characters = useMemo(() => playerCharacters(data, chapter.units), [data, chapter.units]);
+  /** A unit's name in test play: its own, its character's, or its class's. */
+  const unitLabel = (u: { id: string; class: string }) =>
+    chapter.units.find((x) => x.id === u.id)?.name ?? characters.get(u.id)?.name ?? artByName.get(u.class)?.entry.label ?? u.class;
 
 
   const arrow = view && rules ? visibleRoute(view, rules) : null;
@@ -521,7 +524,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   art={artByName.get(unit.class)}
                   classes={data.art}
                   items={data.items}
-                  character={playerCharacters(data, chapter.units).get(unit.id)}
+                  character={characters.get(unit.id)}
+                  textCodes={data.textCodes}
                   takenCharacters={new Set(chapter.units.flatMap((u) => (u.id !== unit.id && u.character ? [u.character] : [])))}
                   onChange={(change) => updateUnit(unit.id, change)}
                   onLevelStep={(delta) => stepLevel(unit.id, delta)}

@@ -1,4 +1,4 @@
-// The panel for a placed unit in Edit mode: class, character, level, stats, Must survive, behaviour, items,
+// The panel for a placed unit in Edit mode: name, class, character, level, stats, Must survive, behaviour, items,
 // removing it.
 
 import { useState } from 'react';
@@ -7,6 +7,10 @@ import { BEHAVIOURS, DEFAULT_BEHAVIOUR, MAX_ITEMS, MAX_LEVEL, MAX_STAT, STAT_KEY
 import { itemStats, unitStats, usable, type ClassArt, type GameItem } from '../play/catalog';
 import { FE8_CHARACTER_NAMES } from '../rom/fe8-character-names';
 import type { RomCharacter } from '../rom/fe8-characters';
+import { encodeTextBytes, type HuffmanCodes } from '../rom/text-encode';
+
+/** Longest name the editor takes; FE8's own longest is L'Arachel's nine letters. */
+const MAX_NAME = 10;
 import { LEVEL_REPEAT_EVERY, NumberInput, useHoldRepeat } from './controls';
 import { BEHAVIOUR_LABELS, signed, STAT_LABELS, TEAM_LABELS } from './labels';
 
@@ -17,6 +21,7 @@ export function UnitPanel({
   classes,
   items,
   character,
+  textCodes,
   takenCharacters,
   onChange,
   onLevelStep,
@@ -29,6 +34,8 @@ export function UnitPanel({
   items: GameItem[];
   /** The FE8 character whose stats the unit has (player units), if any. */
   character: RomCharacter | undefined;
+  /** The ROM's text codes, to check a name can be written into the game. */
+  textCodes: HuffmanCodes;
   /** Characters other player units already are. */
   takenCharacters: ReadonlySet<string>;
   /** A change to the unit, or null to remove it. */
@@ -42,7 +49,17 @@ export function UnitPanel({
   const byName = new Map(items.map((i) => [i.entry.name, i]));
   const choices = art ? items.filter((i) => usable(art, i)) : [];
   const setItems = (next: string[]) => onChange({ items: next.length ? next : undefined });
-  const title = `${unit.name ?? art?.entry.label ?? unit.class} (${TEAM_LABELS[unit.team].toLowerCase()})`;
+  const shownName = unit.name ?? character?.name ?? art?.entry.label ?? unit.class;
+  const title = `${shownName} (${TEAM_LABELS[unit.team].toLowerCase()})`;
+  // A name the game's text can't write (a letter outside its font) is flagged as it is typed.
+  let nameProblem: string | null = null;
+  if (unit.name?.trim() && unit.team === 'player') {
+    try {
+      encodeTextBytes(textCodes, [...unit.name.trim()].map((c) => c.charCodeAt(0)));
+    } catch (e) {
+      nameProblem = (e as Error).message;
+    }
+  }
   // The class's stats, or its character's for a player unit (decision 29); custom stats change these.
   const baseSt = unitStats(art, character, unit.level);
   const baseName = character ? character.name : 'class';
@@ -63,6 +80,18 @@ export function UnitPanel({
     <div className="unit-panel">
       <h3>{title}</h3>
       <label className="field">
+        Name{' '}
+        <span className="note">{unit.team === 'player' ? '(in the patch, replaces the character\'s name)' : '(in the editor only, for now)'}</span>
+        <input
+          type="text"
+          value={unit.name ?? ''}
+          maxLength={MAX_NAME}
+          placeholder={character?.name ?? art?.entry.label ?? unit.class}
+          onChange={(e) => onChange({ name: e.target.value.trim() ? e.target.value : undefined })}
+        />
+      </label>
+      {nameProblem && <p className="bad">{nameProblem}</p>}
+      <label className="field">
         Class
         <select value={unit.class} onChange={(e) => onChange({ class: e.target.value })}>
           {classes.map((c) => (
@@ -74,7 +103,7 @@ export function UnitPanel({
       </label>
       {unit.team === 'player' && (
         <label className="field">
-          Character <span className="note">(name, portrait and personal stats in the patch)</span>
+          Character <span className="note">(portrait, starting stats and growths in the patch)</span>
           <select value={unit.character ?? ''} onChange={(e) => onChange({ character: e.target.value || undefined })}>
             <option value="">Picked for you</option>
             {FE8_CHARACTER_NAMES.map((c) => (
