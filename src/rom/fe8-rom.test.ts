@@ -14,7 +14,8 @@ import { checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-characte
 import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
-import { decodeText, findTextTable } from './text';
+import { decodeText, decodeTextBytes, findTextTable } from './text';
+import { encodeTextBytes, readHuffmanCodes } from './text-encode';
 
 const romPath = process.env.LCS_FE8_ROM;
 
@@ -147,5 +148,21 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     );
     const units = readPlayerUnits(built, readChapter(built, text, 0));
     expect(units.map((u) => [u.character, u.classId, u.allegiance, u.level, u.x, u.y, u.items])).toEqual([[1, 2, 'player', 1, 8, 5, [9]]]);
+  });
+
+  it("encodes names with the ROM's own Huffman tree so they decode back", () => {
+    const text = findTextTable(rom)!;
+    const codes = readHuffmanCodes(rom, text);
+    const copy = new Uint8Array(rom.size + 0x10000);
+    copy.set(bytes);
+    const view = new DataView(copy.buffer);
+    const names = ['Bram', "L'Arachel", 'Mira-7', 'Zed Q'];
+    names.forEach((name, i) => {
+      const at = rom.size + i * 0x100;
+      copy.set(encodeTextBytes(codes, [...name].map((c) => c.charCodeAt(0))), at);
+      view.setUint32(text.table + i * 4, 0x08000000 + at, true);
+    });
+    const out = readRom(copy);
+    expect(names.map((_, i) => String.fromCharCode(...decodeTextBytes(out, text, i)))).toEqual(names);
   });
 });
