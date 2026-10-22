@@ -135,7 +135,7 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
   it('builds a chapter into the Prologue and reads it back', () => {
     const text = findTextTable(rom)!;
     const built = readRom(
-      buildFe8Rom(rom, {
+      buildFe8Rom(rom, text, {
         id: 'c',
         name: 'C',
         map: 'fe8-us/chapter-entry-0',

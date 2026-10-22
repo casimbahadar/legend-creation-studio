@@ -11,6 +11,7 @@ import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
 import type { GbaRom } from '../rom/gba-rom';
 import type { TextTable } from '../rom/text';
+import { readHuffmanCodes, type HuffmanCodes } from '../rom/text-encode';
 import { classStats, readCatalog, type ClassArt, type GameItem } from '../play/catalog';
 
 /** Everything the editor needs from the ROM, read once when the ROM is chosen. */
@@ -21,6 +22,8 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
   const characters = table === null ? [] : readCharacters(rom, text, table);
   return {
     rom,
+    text,
+    textCodes: readHuffmanCodes(rom, text),
     maps,
     art: c.art,
     items: c.items,
@@ -34,6 +37,9 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
 
 export interface EditorRom {
   readonly rom: GbaRom;
+  readonly text: TextTable;
+  /** The ROM's text codes, to check that a unit's name can be written into the game. */
+  readonly textCodes: HuffmanCodes;
   readonly maps: ChapterMap[];
   readonly art: ClassArt[];
   readonly mismatches: NameMismatch[];

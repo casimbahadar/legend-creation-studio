@@ -22,7 +22,7 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
   function save(kind: 'patch' | 'rom') {
     setError(null);
     try {
-      const built = buildFe8Rom(data.rom, chapter).bytes;
+      const built = buildFe8Rom(data.rom, data.text, chapter).bytes;
       const name = toName(project.name);
       if (kind === 'patch') download(new Blob([createUps(data.rom.bytes, built)]), `${name}.ups`);
       else download(new Blob([built]), `${name}.gba`);

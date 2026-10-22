@@ -5,8 +5,15 @@ import { ASSET_TABLE, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readUnitList }
 import { GENERIC_ENEMY } from './fe8-character-names';
 import { CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE } from './fe8-characters';
 import { readRom, ROM_BASE, type GbaRom } from './gba-rom';
+import { decodeTextBytes, type TextTable } from './text';
 import { crc32 } from './crc32';
 import { applyUps, createUps } from './ups';
+
+// The stand-in's text: a Huffman tree with leaves "A", "B", the pair "AB" and the end marker, and a
+// table of 0x20 entries. Franz's name is text 0x10.
+const NODES = 0x250000;
+const ROOT = NODES + 24;
+const TEXT: TextTable = { root: ROOT, nodes: NODES, table: 0x251000, count: 0x20 };
 
 // A clean-ROM stand-in: 16 MB with the Prologue's record and event group set up as the real ROM
 // has them, as far as the builder reads them.
@@ -41,6 +48,14 @@ function fakeClean(): Uint8Array {
   u32(MISC + 16, ROM_BASE + 0x240000);
   u32(MISC + 20, 101);
 
+  [0x41, 0x42, 0x4241, 0].forEach((v, i) => u32(NODES + i * 4, 0x80000000 | v));
+  u32(NODES + 16, 0 | (1 << 16));
+  u32(NODES + 20, 2 | (3 << 16));
+  u32(ROOT, 4 | (5 << 16));
+  for (let i = 0; i < TEXT.count; i++) u32(TEXT.table + i * 4, ROM_BASE + 0x252000);
+  view.setUint16(FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE, 0x10, true);
+  bytes.set([1, 2, 0, 0, 0, 0, 3, 0], FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x0c); // Franz's personal bases
+
   // Default classes: Seth a Paladin (7), Franz a Cavalier (5).
   bytes[FE8_US_CHARACTER_TABLE + 1 * CHARACTER_STRIDE + 5] = 7;
   bytes[FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 5] = 5;
@@ -67,7 +82,7 @@ const words = (rom: GbaRom, pointer: number, n: number) => Array.from({ length: 
 
 describe('FE8 builder', () => {
   const clean = fakeClean();
-  const built = buildFe8Rom(readRom(clean), chapter());
+  const built = buildFe8Rom(readRom(clean), TEXT, chapter());
   const rom = readRom(built.bytes);
   const group = groupOf(rom);
 
@@ -114,7 +129,7 @@ describe('FE8 builder', () => {
   it("copies another chapter's map fields, keeping the slot's title and prep setting", () => {
     const c = chapter();
     c.map = mapRef(5);
-    const b = buildFe8Rom(readRom(clean), c).bytes;
+    const b = buildFe8Rom(readRom(clean), TEXT, c).bytes;
     expect(Array.from(b.subarray(CHAPTER_TABLE + 4, CHAPTER_TABLE + 0x14))).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 3, 0, 0, 0, 4, 5, 2, 9]);
   });
 
@@ -123,18 +138,38 @@ describe('FE8 builder', () => {
     c.units[1]!.statBonus = { str: 2 };
     c.units[1]!.mustSurvive = true;
     c.units[0]!.mustSurvive = undefined;
-    expect(buildFe8Rom(readRom(clean), c).notes).toEqual([
+    expect(buildFe8Rom(readRom(clean), TEXT, c).notes).toEqual([
       "eirika: as Eirika, the game is lost if this unit falls, even without Must survive.",
-      "cavalier-m-1: custom stats aren't in the patch yet.",
       'cavalier-m-1: Must survive only works for Eirika and Ephraim in the patch so far.',
     ]);
     expect(built.notes).toEqual([]);
+    c.units[2]!.name = 'Brute';
+    c.units[2]!.statBonus = { def: 1 };
+    expect(buildFe8Rom(readRom(clean), TEXT, c).notes.slice(2)).toEqual([
+      "Brute: custom stats for enemies and allies aren't in the patch yet.",
+      "Brute: names for enemies and allies aren't in the patch yet.",
+    ]);
+  });
+
+  it("writes a player unit's name and custom stats into its character", () => {
+    const c = chapter();
+    c.units[1]!.name = 'ABBA';
+    c.units[1]!.statBonus = { hp: -1, str: 2, lck: -5 };
+    const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
+    expect(out.u32(TEXT.table + 0x10 * 4)).toBeGreaterThanOrEqual(ROM_BASE + EXPANSION);
+    expect(String.fromCharCode(...decodeTextBytes(out, TEXT, 0x10))).toBe('ABBA');
+    const franz = FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x0c;
+    expect(Array.from(out.bytes.subarray(franz, franz + 8)).map((b) => (b << 24) >> 24)).toEqual([0, 4, 0, 0, 0, 0, -2, 0]);
+    // Another unit's character is untouched, and a name the tree can't write is refused.
+    expect(out.u32(TEXT.table + 0x11 * 4)).toBe(ROM_BASE + 0x252000);
+    c.units[1]!.name = 'Franz';
+    expect(() => buildFe8Rom(readRom(clean), TEXT, c)).toThrow('can\'t show "F"');
   });
 
   it('refuses slots whose next chapter it cannot find', () => {
     const c = chapter();
     c.replaces = mapRef(3);
-    expect(() => buildFe8Rom(readRom(clean), c)).toThrow("This chapter's place in the game has no events to replace.");
+    expect(() => buildFe8Rom(readRom(clean), TEXT, c)).toThrow("This chapter's place in the game has no events to replace.");
     expect(findChapterChange(readRom(clean), 0x400000, 4)).toBeNull();
   });
 

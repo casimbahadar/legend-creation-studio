@@ -4,17 +4,23 @@
 // fe8-chapters. Everything new goes in an area added after the clean ROM's 16 MB; inside the ROM only
 // the slot's chapter record and its event-group pointer change.
 //
+// Player units' names and custom stats are written into their FE8 characters (decision 30): the
+// character's name text is repointed to the unit's name, encoded with the ROM's own Huffman tree, and
+// the custom stats are added to the character's personal bases.
+//
 // The chapter's events are FE's own building blocks: a beginning scene that loads the player,
 // enemy and ally units, a misc list with vanilla's Rout check (DefeatAll) and game over check, and
 // an ending scene that moves on to the chapter the slot's vanilla ending moves on to.
 
-import { mapEntry, mapRef, MAX_ITEMS, type Behaviour, type ProjectChapter, type ProjectUnit, type Team } from '../core/project';
+import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectUnit, type StatKey, type Team } from '../core/project';
 import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
 import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
 import { CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE } from './fe8-characters';
 import { FE8_ITEM_NAMES } from './fe8-item-names';
 import { FE8_CLASS_NAMES } from './fe8-names';
 import { ROM_BASE, type GbaRom } from './gba-rom';
+import type { TextTable } from './text';
+import { encodeTextBytes, readHuffmanCodes } from './text-encode';
 
 /** Where the added area starts: just past the clean ROM. */
 export const EXPANSION = 0x1000000;
@@ -72,6 +78,10 @@ export const AI_BYTES: Record<Behaviour, readonly number[]> = {
 const GAME_OVER_CHARACTERS = new Set(['eirika', 'ephraim']);
 
 const ALLEGIANCE: Record<Team, number> = { player: 0, ally: 1, enemy: 2 };
+
+/** Where each stat sits among a character's personal bases (HP, Str, Skl, Spd, Def, Res, Lck, Con from +0x0C). */
+const PERSONAL_BASE = 0x0c;
+const PERSONAL_ORDER: Record<StatKey, number> = { hp: 0, str: 1, skl: 2, spd: 3, def: 4, res: 5, lck: 6, con: 7 };
 
 export interface BuiltRom {
   readonly bytes: Uint8Array<ArrayBuffer>;
@@ -168,7 +178,10 @@ export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, n
   for (const u of chapter.units) {
     const who = u.name ?? u.id;
     const character = FE8_CHARACTER_NAMES.find((c) => c.id === names.get(u.id))?.name;
-    if (u.statBonus && Object.values(u.statBonus).some((v) => v !== 0)) notes.push(`${who}: custom stats aren't in the patch yet.`);
+    if (u.team !== 'player') {
+      if (u.statBonus && Object.values(u.statBonus).some((v) => v !== 0)) notes.push(`${who}: custom stats for enemies and allies aren't in the patch yet.`);
+      if (u.name) notes.push(`${who}: names for enemies and allies aren't in the patch yet.`);
+    }
     if (u.team === 'player') {
       const lord = character !== undefined && GAME_OVER_CHARACTERS.has(character);
       if (u.mustSurvive && !lord) notes.push(`${who}: Must survive only works for Eirika and Ephraim in the patch so far.`);
@@ -183,7 +196,7 @@ export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, n
  * The clean ROM with `chapter` in place of the vanilla chapter it replaces (the Prologue by default).
  * Throws with a plain-words message when the chapter can't be built.
  */
-export function buildFe8Rom(clean: GbaRom, chapter: ProjectChapter): BuiltRom {
+export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChapter): BuiltRom {
   const slot = mapEntry(chapter.replaces ?? mapRef(0));
   const source = mapEntry(chapter.map);
   if (slot === null || slot >= CHAPTER_COUNT) throw new Error("The chapter's place in the game isn't one this tool knows.");
@@ -223,6 +236,17 @@ export function buildFe8Rom(clean: GbaRom, chapter: ProjectChapter): BuiltRom {
   const noTutorial = w.words([0]);
   const noTraps = w.bytes([0]);
 
+  // Player units' names, encoded with the ROM's tree; each replaces its character's name text.
+  const playerUnits = chapter.units.filter((u) => u.team === 'player');
+  const codes = playerUnits.some((u) => u.name) ? readHuffmanCodes(clean, text) : null;
+  const names = playerUnits.flatMap((u) => {
+    const name = u.name?.trim();
+    if (!name || !codes) return [];
+    const record = FE8_US_CHARACTER_TABLE + (characters.get(u.id)! - 1) * CHARACTER_STRIDE;
+    const encoded = encodeTextBytes(codes, [...name].map((c) => c.charCodeAt(0)));
+    return [{ textId: clean.u16(record), pointer: w.bytes(Array.from(encoded)) }];
+  });
+
   // The new event group starts as a copy of vanilla's, which keeps its skirmish lists.
   const group = Array.from({ length: EVENT_GROUP.size / 4 }, (_, k) => clean.u32(vanillaGroup + 4 * k));
   const set = (offset: number, value: number) => (group[offset / 4] = value);
@@ -244,6 +268,20 @@ export function buildFe8Rom(clean: GbaRom, chapter: ProjectChapter): BuiltRom {
   bytes.set(w.out, EXPANSION);
   const view = new DataView(bytes.buffer);
   view.setUint32(groupEntry, newGroup, true);
+  for (const n of names) {
+    if (n.textId >= text.count) throw new Error("A character's name isn't where this tool expects it.");
+    view.setUint32(text.table + n.textId * 4, n.pointer, true);
+  }
+  // Player units' custom stats, added to their characters' personal bases (signed bytes).
+  for (const u of playerUnits) {
+    const record = FE8_US_CHARACTER_TABLE + (characters.get(u.id)! - 1) * CHARACTER_STRIDE;
+    for (const k of STAT_KEYS) {
+      const bonus = u.statBonus?.[k];
+      if (!bonus) continue;
+      const at = record + PERSONAL_BASE + PERSONAL_ORDER[k];
+      view.setInt8(at, Math.max(-128, Math.min(127, view.getInt8(at) + bonus)));
+    }
+  }
 
   // The slot's chapter record: the map's own fields when it comes from another chapter (keeping the
   // slot's title and prep-screen setting), and a Rout objective.
