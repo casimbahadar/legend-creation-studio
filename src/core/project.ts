@@ -10,6 +10,13 @@ export const TEAMS: readonly Team[] = ['player', 'enemy', 'ally'];
 
 export type ChapterGoal = 'rout';
 
+/** Stats a unit can set for itself (decision 25), in FE's display order. */
+export const STAT_KEYS = ['hp', 'str', 'skl', 'spd', 'lck', 'def', 'res', 'con'] as const;
+export type StatKey = (typeof STAT_KEYS)[number];
+export type StatOverrides = Partial<Record<StatKey, number>>;
+/** Highest value a custom stat can have. */
+export const MAX_STAT = 99;
+
 /** How an enemy or ally acts on its turn (decision 23). Player units ignore it. */
 export type Behaviour = 'charge' | 'attack-in-range' | 'hold';
 export const BEHAVIOURS: readonly Behaviour[] = ['attack-in-range', 'charge', 'hold'];
@@ -30,6 +37,8 @@ export interface ProjectUnit {
   items?: string[];
   /** For enemies and allies; Attack in range when missing. */
   ai?: Behaviour;
+  /** Stats set for this unit, replacing its class and level values; only changed stats are listed. */
+  stats?: StatOverrides;
 }
 
 export interface ProjectChapter {
@@ -163,6 +172,15 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
           const key = u.at.join(',');
           if (cells.has(key)) problem(`${up}.at`, `${who} is standing on the same square as another unit.`);
           cells.add(key);
+        }
+        if (u.stats !== undefined) {
+          if (!isObject(u.stats)) problem(`${up}.stats`, `${who} has unreadable custom stats.`);
+          else
+            for (const [k, v] of Object.entries(u.stats)) {
+              const min = k === 'hp' ? 1 : 0;
+              if (!STAT_KEYS.includes(k as StatKey)) problem(`${up}.stats.${k}`, `${who} has a stat this tool doesn't know: "${k}".`);
+              else if (!isInt(v) || v < min || v > MAX_STAT) problem(`${up}.stats.${k}`, `${who} needs ${k.toUpperCase()} from ${min} to ${MAX_STAT}.`);
+            }
         }
         if (u.ai !== undefined && !BEHAVIOURS.includes(u.ai as Behaviour)) {
           problem(`${up}.ai`, `${who} has a behaviour this tool doesn't know: "${String(u.ai)}".`);

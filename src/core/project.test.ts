@@ -81,6 +81,20 @@ describe('behaviours', () => {
   });
 });
 
+describe('custom stats', () => {
+  it('accepts known stats in range and rejects the rest', () => {
+    const p = sample();
+    p.chapters[0]!.units[0]!.stats = { hp: 30, str: 0, con: 99 };
+    expect(checkProject(roundTrip(p)).problems).toEqual([]);
+    (p.chapters[0]!.units[0]! as { stats: unknown }).stats = { hp: 0, mag: 5, spd: 4.5 };
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual([
+      '"eirika" needs HP from 1 to 99.',
+      '"eirika" has a stat this tool doesn\'t know: "mag".',
+      '"eirika" needs SPD from 0 to 99.',
+    ]);
+  });
+});
+
 describe('helpers', () => {
   it('reads and writes map references', () => {
     expect(mapRef(12)).toBe('fe8-us/chapter-entry-12');

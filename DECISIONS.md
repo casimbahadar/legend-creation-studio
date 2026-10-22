@@ -26,3 +26,4 @@ Settled decisions for Legend Creation Studio. Do not contradict these; raise a c
 22. Battles are shown on the map first, in FE's "animations off" style: a forecast, then units lunge with damage numbers and HP bars. ROM battle animations can come after 0.1.
 23. Enemy and ally behaviour is set per unit, as in FE's own chapters: Charge (head for the other side every turn), Attack in range (act only when a target is within reach; the default) or Hold (never move, attack anything in reach). Lets one chapter mix rushers, ambushers and guards.
 24. Turn order is FE's: player, then enemies, then allies (green units), which use the same behaviours against enemies.
+25. Custom stats are set per unit first: a unit can override any of HP, Str, Skl, Spd, Lck, Def, Res and Con with its own number, saved only for the stats changed and kept as typed when its level changes; class-wide stat editing comes later. Covers bosses and named characters with the least to build.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attackSpeed, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
+import { attackSpeed, withOverrides, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
 
 const stats = (s: Partial<Stats>): Stats => ({ hp: 20, str: 5, skl: 5, spd: 5, def: 3, res: 1, lck: 4, con: 7, ...s });
 const weapon = (w: Partial<Weapon>): Weapon => ({ name: 'w', kind: 'sword', magic: false, might: 5, hit: 90, crit: 0, weight: 5, minRange: 1, maxRange: 1, ...w });
@@ -13,6 +13,13 @@ describe('statsAtLevel', () => {
     expect(statsAtLevel(base, growths, 1)).toEqual(base);
     // Level 5: four level-ups. HP 18 + 3.2 -> 21, Str 4 + 1.8 -> 5, Lck 0 + 1.2 -> 1.
     expect(statsAtLevel(base, growths, 5)).toMatchObject({ hp: 21, str: 5, lck: 1, con: 6 });
+  });
+});
+
+describe('withOverrides', () => {
+  it('replaces only the stats given', () => {
+    expect(withOverrides(stats({ hp: 20, str: 5 }), { str: 9 })).toMatchObject({ hp: 20, str: 9 });
+    expect(withOverrides(stats({}), undefined)).toEqual(stats({}));
   });
 });
 

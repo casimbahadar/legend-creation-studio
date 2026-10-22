@@ -20,6 +20,11 @@ export function statsAtLevel(base: Stats, growths: Stats, level: number): Stats 
   return { hp: up('hp'), str: up('str'), skl: up('skl'), spd: up('spd'), def: up('def'), res: up('res'), lck: up('lck'), con: base.con };
 }
 
+/** Stats with a unit's own values in place of the class and level ones (decision 25). */
+export function withOverrides(stats: Stats, overrides: Partial<Stats> | undefined): Stats {
+  return overrides ? { ...stats, ...overrides } : stats;
+}
+
 export type WeaponKind = 'sword' | 'lance' | 'axe' | 'bow' | 'staff' | 'anima' | 'light' | 'dark' | 'other';
 
 export interface Weapon {
