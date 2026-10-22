@@ -28,12 +28,14 @@ import { isLordClass, mapRef, MAX_LEVEL, newProject, projectToJson, TEAMS, type 
 import { classStats, defaultItems, toCanvas, weaponRanges, weaponsOf } from '../play/catalog';
 import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } from '../play/draw';
 import { chapterRules } from '../play/rules';
+import { pickCharacter } from '../rom/fe8-character-names';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import { renderMap } from '../rom/fe8-maps';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 import { GbaControls } from './controls';
 import { TEAM_LABELS } from './labels';
 import { findMap, loadProject, nextUnitId, saveFile, type EditorRom } from './project-io';
+import { PatchExport } from './PatchExport';
 import { BattleHud, BattlePopup, ForecastBox, PlayStatus } from './TestPlayPanels';
 import { UnitPanel } from './UnitPanel';
 
@@ -246,6 +248,9 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
       setEditing(null);
     } else {
       const cls = art.entry.name;
+      // Player units become an FE8 character (decision 28), picked here so the panel shows which.
+      const taken = new Set(chapter.units.flatMap((u) => (u.character ? [u.character] : [])));
+      const character = team === 'player' ? pickCharacter(cls, art.entry.id, taken, (id) => data.characters[id - 1]?.defaultClass) : null;
       const unit: ProjectUnit = {
         id: nextUnitId(chapter.units, cls),
         class: cls,
@@ -254,6 +259,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         at: [x, y],
         // Lords on the player's side must survive, as in FE (decision 26).
         ...(team === 'player' && isLordClass(cls) ? { mustSurvive: true } : {}),
+        ...(character ? { character } : {}),
       };
       const items = defaultItems(art, data.items);
       updateChapter({ units: [...chapter.units, items.length ? { ...unit, items } : unit] });
@@ -512,6 +518,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   unit={unit}
                   art={artByName.get(unit.class)}
                   items={data.items}
+                  takenCharacters={new Set(chapter.units.flatMap((u) => (u.id !== unit.id && u.character ? [u.character] : [])))}
                   onChange={(change) => updateUnit(unit.id, change)}
                   onLevelStep={(delta) => stepLevel(unit.id, delta)}
                   onClose={() => setEditing(null)}
@@ -536,6 +543,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
               ? `${chapter.units.length} ${chapter.units.length === 1 ? 'unit' : 'units'}: ${counts.map(([t, n]) => `${n} ${TEAM_LABELS[t].toLowerCase()}`).join(', ')}`
               : 'No units yet.'}
           </p>
+          {!view && <PatchExport data={data} project={project} chapter={chapter} onChange={(replaces) => updateChapter({ replaces })} />}
         </>
       ) : (
         <p className="bad">Couldn't find any chapter maps in this ROM.</p>

@@ -42,7 +42,7 @@ function push32(out: number[], v: number) {
 const read32 = (b: Uint8Array, i: number) => (b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16) | (b[i + 3]! << 24)) >>> 0;
 
 /** A UPS patch that turns `source` into `target`. */
-export function createUps(source: Uint8Array, target: Uint8Array): Uint8Array {
+export function createUps(source: Uint8Array, target: Uint8Array): Uint8Array<ArrayBuffer> {
   const out: number[] = [...MAGIC];
   encodeNumber(source.length, out);
   encodeNumber(target.length, out);

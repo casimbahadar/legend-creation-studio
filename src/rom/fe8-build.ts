@@ -76,7 +76,7 @@ const UNIT_ITEMS = 4;
 const ALLEGIANCE: Record<Team, number> = { player: 0, ally: 1, enemy: 2 };
 
 export interface BuiltRom {
-  readonly bytes: Uint8Array;
+  readonly bytes: Uint8Array<ArrayBuffer>;
   /** Things in the chapter the patch can't carry yet, in words for the person making it. */
   readonly notes: string[];
 }

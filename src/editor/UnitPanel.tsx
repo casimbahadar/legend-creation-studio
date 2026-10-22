@@ -1,9 +1,11 @@
-// The panel for a placed unit in Edit mode: level, stats, Must survive, behaviour, items, removing it.
+// The panel for a placed unit in Edit mode: character, level, stats, Must survive, behaviour, items,
+// removing it.
 
 import { useState } from 'react';
 import { withBonus } from '../core/combat';
 import { BEHAVIOURS, DEFAULT_BEHAVIOUR, MAX_ITEMS, MAX_LEVEL, MAX_STAT, STAT_KEYS, type Behaviour, type ProjectUnit, type StatKey } from '../core/project';
 import { classStats, itemStats, usable, type ClassArt, type GameItem } from '../play/catalog';
+import { FE8_CHARACTER_NAMES } from '../rom/fe8-character-names';
 import { LEVEL_REPEAT_EVERY, NumberInput, useHoldRepeat } from './controls';
 import { BEHAVIOUR_LABELS, signed, STAT_LABELS, TEAM_LABELS } from './labels';
 
@@ -12,6 +14,7 @@ export function UnitPanel({
   unit,
   art,
   items,
+  takenCharacters,
   onChange,
   onLevelStep,
   onClose,
@@ -19,6 +22,8 @@ export function UnitPanel({
   unit: ProjectUnit;
   art: ClassArt | undefined;
   items: GameItem[];
+  /** Characters other player units already are. */
+  takenCharacters: ReadonlySet<string>;
   /** A change to the unit, or null to remove it. */
   onChange: (change: Partial<ProjectUnit> | null) => void;
   /** Raise (+1) or lower (-1) the level. */
@@ -48,6 +53,20 @@ export function UnitPanel({
   return (
     <div className="unit-panel">
       <h3>{title}</h3>
+      {unit.team === 'player' && (
+        <label className="field">
+          Character <span className="note">(name, portrait and personal stats in the patch)</span>
+          <select value={unit.character ?? ''} onChange={(e) => onChange({ character: e.target.value || undefined })}>
+            <option value="">Picked for you</option>
+            {FE8_CHARACTER_NAMES.map((c) => (
+              <option key={c.name} value={c.name} disabled={takenCharacters.has(c.name)}>
+                {c.gameName}
+                {takenCharacters.has(c.name) ? ' (already placed)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="level-row">
         <label htmlFor={`level-${unit.id}`}>Level</label>
         <button type="button" className="icon-button" aria-label="Lower level" disabled={unit.level <= 1} {...repeat(() => onLevelStep(-1))}>

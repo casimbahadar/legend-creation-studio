@@ -112,10 +112,15 @@ export function loadProject(data: EditorRom, raw: unknown): { project: Project |
 }
 
 export function saveFile(project: Project) {
-  const url = URL.createObjectURL(new Blob([projectToJson(project)], { type: 'application/json' }));
+  download(new Blob([projectToJson(project)], { type: 'application/json' }), `${toName(project.name)}.json`);
+}
+
+/** Hands a file to the browser to save. */
+export function download(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${toName(project.name)}.json`;
+  a.download = fileName;
   document.body.append(a);
   a.click();
   a.remove();
