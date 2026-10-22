@@ -20,6 +20,24 @@ export function statsAtLevel(base: Stats, growths: Stats, level: number): Stats 
   return { hp: up('hp'), str: up('str'), skl: up('skl'), spd: up('spd'), def: up('def'), res: up('res'), lck: up('lck'), con: base.con };
 }
 
+/**
+ * An FE8 character's stats at a level (decision 29): the class's bases plus the character's own,
+ * raised by the character's growths for each level above its base level, as FE8 levels a player unit.
+ */
+export function characterStatsAtLevel(classBase: Stats, personalBase: Stats, growths: Stats, baseLevel: number, level: number): Stats {
+  const base: Stats = {
+    hp: classBase.hp + personalBase.hp,
+    str: classBase.str + personalBase.str,
+    skl: classBase.skl + personalBase.skl,
+    spd: classBase.spd + personalBase.spd,
+    def: classBase.def + personalBase.def,
+    res: classBase.res + personalBase.res,
+    lck: classBase.lck + personalBase.lck,
+    con: classBase.con + personalBase.con,
+  };
+  return statsAtLevel(base, growths, level - Math.max(1, baseLevel) + 1);
+}
+
 /** Stats with a unit's own adjustments added (decision 25); HP stays at least 1 and the rest at least 0. */
 export function withBonus(stats: Stats, bonus: Partial<Stats> | undefined): Stats {
   if (!bonus) return stats;

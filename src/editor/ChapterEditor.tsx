@@ -25,7 +25,7 @@ import {
   type PlayView,
 } from '../core/play-input';
 import { isLordClass, mapRef, MAX_LEVEL, newProject, projectToJson, TEAMS, type Problem, type Project, type ProjectUnit, type Team } from '../core/project';
-import { classStats, defaultItems, toCanvas, weaponRanges, weaponsOf } from '../play/catalog';
+import { defaultItems, toCanvas, unitStats, weaponRanges, weaponsOf } from '../play/catalog';
 import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } from '../play/draw';
 import { chapterRules } from '../play/rules';
 import { pickCharacter } from '../rom/fe8-character-names';
@@ -34,7 +34,7 @@ import { renderMap } from '../rom/fe8-maps';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 import { GbaControls } from './controls';
 import { TEAM_LABELS } from './labels';
-import { findMap, loadProject, nextUnitId, saveFile, type EditorRom } from './project-io';
+import { findMap, loadProject, nextUnitId, playerCharacters, saveFile, type EditorRom } from './project-io';
 import { PatchExport } from './PatchExport';
 import { BattleHud, BattlePopup, ForecastBox, PlayStatus } from './TestPlayPanels';
 import { UnitPanel } from './UnitPanel';
@@ -287,7 +287,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   function setMode(playing: boolean) {
     setEditing(null);
     rng.current = randomNumbers(Date.now());
-    setView(playing ? startView(startPlay(chapter, (u) => withBonus(classStats(artByName.get(u.class), u.level), u.statBonus))) : null);
+    const characters = playerCharacters(data, chapter.units);
+    setView(playing ? startView(startPlay(chapter, (u) => withBonus(unitStats(artByName.get(u.class), characters.get(u.id), u.level), u.statBonus))) : null);
   }
 
   function onSave() {
@@ -518,6 +519,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   unit={unit}
                   art={artByName.get(unit.class)}
                   items={data.items}
+                  character={playerCharacters(data, chapter.units).get(unit.id)}
                   takenCharacters={new Set(chapter.units.flatMap((u) => (u.id !== unit.id && u.character ? [u.character] : [])))}
                   onChange={(change) => updateUnit(unit.id, change)}
                   onLevelStep={(delta) => stepLevel(unit.id, delta)}

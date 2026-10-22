@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attackSpeed, withBonus, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
+import { attackSpeed, characterStatsAtLevel, withBonus, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
 
 const stats = (s: Partial<Stats>): Stats => ({ hp: 20, str: 5, skl: 5, spd: 5, def: 3, res: 1, lck: 4, con: 7, ...s });
 const weapon = (w: Partial<Weapon>): Weapon => ({ name: 'w', kind: 'sword', magic: false, might: 5, hit: 90, crit: 0, weight: 5, minRange: 1, maxRange: 1, ...w });
@@ -13,6 +13,20 @@ describe('statsAtLevel', () => {
     expect(statsAtLevel(base, growths, 1)).toEqual(base);
     // Level 5: four level-ups. HP 18 + 3.2 -> 21, Str 4 + 1.8 -> 5, Lck 0 + 1.2 -> 1.
     expect(statsAtLevel(base, growths, 5)).toMatchObject({ hp: 21, str: 5, lck: 1, con: 6 });
+  });
+});
+
+describe('characterStatsAtLevel', () => {
+  it("adds the character's bases to the class's and grows by the character's growths from its base level", () => {
+    const paladin = stats({ hp: 23, str: 7, skl: 4, spd: 7, def: 6, res: 3, lck: 0, con: 11 });
+    const seth = stats({ hp: 7, str: 7, skl: 9, spd: 5, def: 3, res: 5, lck: 13, con: 0 });
+    const growths = stats({ hp: 90, str: 50, skl: 45, spd: 45, def: 40, res: 30, lck: 25, con: 0 });
+    expect(characterStatsAtLevel(paladin, seth, growths, 1, 1)).toEqual(stats({ hp: 30, str: 14, skl: 13, spd: 12, def: 9, res: 8, lck: 13, con: 11 }));
+    // Level 3 from base level 1: two level-ups. HP 30 + 1.8 -> 31, Str 14 + 1 -> 15, Lck 13 + 0.5 -> 13.
+    expect(characterStatsAtLevel(paladin, seth, growths, 1, 3)).toMatchObject({ hp: 31, str: 15, lck: 13, con: 11 });
+    // A character whose base level is 5 has no level-ups at level 5, nor below it.
+    expect(characterStatsAtLevel(paladin, seth, growths, 5, 5)).toMatchObject({ hp: 30, str: 14 });
+    expect(characterStatsAtLevel(paladin, seth, growths, 5, 2)).toMatchObject({ hp: 30, str: 14 });
   });
 });
 

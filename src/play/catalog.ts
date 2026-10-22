@@ -12,7 +12,8 @@ import { checkClassNames, FE8_CLASS_NAMES, type ClassName, type NameMismatch } f
 import type { Image } from '../rom/gba-graphics';
 import type { GbaRom } from '../rom/gba-rom';
 import type { TextTable } from '../rom/text';
-import { statsAtLevel } from '../core/combat';
+import { characterStatsAtLevel, statsAtLevel } from '../core/combat';
+import type { RomCharacter } from '../rom/fe8-characters';
 
 /** A listed class with its standing frames in each team's colours, plus grey for units that have moved. */
 export interface ClassArt {
@@ -151,6 +152,11 @@ export const inReach = (w: GameItem, d: number) => d >= w.rom.minRange && d <= w
 /** Stats for a class at a level, or a 1 HP stand-in if the class isn't known. */
 export function classStats(art: ClassArt | undefined, level: number): Stats {
   return art ? statsAtLevel(art.base, art.growths, level) : { hp: 1, str: 0, skl: 0, spd: 0, def: 0, res: 0, lck: 0, con: 0 };
+}
+
+/** Stats for a unit at a level: its FE8 character's when it has one (decision 29), otherwise its class's. */
+export function unitStats(art: ClassArt | undefined, character: RomCharacter | undefined, level: number): Stats {
+  return art && character ? characterStatsAtLevel(art.base, character.base, character.growths, character.baseLevel, level) : classStats(art, level);
 }
 
 /** One-line stats for an item, e.g. "Mt 5 · Hit 90 · Rng 1 · 46 uses". */

@@ -4,8 +4,9 @@
 import { useState } from 'react';
 import { withBonus } from '../core/combat';
 import { BEHAVIOURS, DEFAULT_BEHAVIOUR, MAX_ITEMS, MAX_LEVEL, MAX_STAT, STAT_KEYS, type Behaviour, type ProjectUnit, type StatKey } from '../core/project';
-import { classStats, itemStats, usable, type ClassArt, type GameItem } from '../play/catalog';
+import { itemStats, unitStats, usable, type ClassArt, type GameItem } from '../play/catalog';
 import { FE8_CHARACTER_NAMES } from '../rom/fe8-character-names';
+import type { RomCharacter } from '../rom/fe8-characters';
 import { LEVEL_REPEAT_EVERY, NumberInput, useHoldRepeat } from './controls';
 import { BEHAVIOUR_LABELS, signed, STAT_LABELS, TEAM_LABELS } from './labels';
 
@@ -14,6 +15,7 @@ export function UnitPanel({
   unit,
   art,
   items,
+  character,
   takenCharacters,
   onChange,
   onLevelStep,
@@ -22,6 +24,8 @@ export function UnitPanel({
   unit: ProjectUnit;
   art: ClassArt | undefined;
   items: GameItem[];
+  /** The FE8 character whose stats the unit has (player units), if any. */
+  character: RomCharacter | undefined;
   /** Characters other player units already are. */
   takenCharacters: ReadonlySet<string>;
   /** A change to the unit, or null to remove it. */
@@ -36,16 +40,18 @@ export function UnitPanel({
   const choices = art ? items.filter((i) => usable(art, i)) : [];
   const setItems = (next: string[]) => onChange({ items: next.length ? next : undefined });
   const title = `${unit.name ?? art?.entry.label ?? unit.class} (${TEAM_LABELS[unit.team].toLowerCase()})`;
-  const classSt = classStats(art, unit.level);
+  // The class's stats, or its character's for a player unit (decision 29); custom stats change these.
+  const baseSt = unitStats(art, character, unit.level);
+  const baseName = character ? character.name : 'class';
   const custom = unit.statBonus ?? {};
-  const st = withBonus(classSt, custom);
+  const st = withBonus(baseSt, custom);
   const isCustom = (k: StatKey) => custom[k] !== undefined;
   // Open to start with if the unit has custom stats; after that it stays as the user leaves it.
   const [showCustom, setShowCustom] = useState(() => Object.keys(unit.statBonus ?? {}).length > 0);
-  /** Sets one stat, saved as its difference from the class value; the class value itself clears it. */
+  /** Sets one stat, saved as its difference from the base value; the base value itself clears it. */
   const setStat = (k: StatKey, v: number) => {
     const next = { ...custom };
-    const diff = v - classSt[k];
+    const diff = v - baseSt[k];
     if (diff === 0) delete next[k];
     else next[k] = diff;
     onChange({ statBonus: Object.keys(next).length ? next : undefined });
@@ -85,7 +91,7 @@ export function UnitPanel({
       <details className="custom-stats" open={showCustom} onToggle={(e) => setShowCustom(e.currentTarget.open)}>
         <summary>Custom stats</summary>
         <p className="note">
-          Type a number to set a stat for this unit only. It is saved as a change from the class (shown in brackets), so it still grows
+          Type a number to set a stat for this unit only. It is saved as a change from the {baseName} stats (shown in brackets), so it still grows
           when you raise the level.
         </p>
         <div className="stat-grid">
@@ -97,7 +103,7 @@ export function UnitPanel({
           ))}
         </div>
         <button type="button" className="button button-secondary" disabled={!Object.keys(custom).length} onClick={() => onChange({ statBonus: undefined })}>
-          Reset to class stats
+          Reset to {baseName} stats
         </button>
       </details>
       {unit.team !== 'enemy' && (
