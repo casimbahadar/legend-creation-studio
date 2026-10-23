@@ -28,21 +28,53 @@ export function readHuffmanCodes(rom: GbaRom, t: TextTable): HuffmanCodes {
   return codes;
 }
 
-/** `text` (bytes, without a terminator) compressed with `codes`, ending with the terminator. Throws if a byte has no code. */
+/**
+ * The filler FE8 puts after the last letter of an odd-length string ("[.]"): letters are compressed
+ * in pairs, and the game drops trailing fillers after decoding (msg.c, SetMsgTerminator).
+ */
+export const TEXT_FILLER = 0x1f;
+
+/**
+ * `text` (bytes, without a terminator) compressed with `codes`, ending with the terminator. FE8's
+ * tree holds letters only in pairs, so a lone last letter is paired with the filler, as the game
+ * does; otherwise the shortest split into the pairs and single bytes the tree has is used. Throws
+ * when no split works.
+ */
 export function encodeTextBytes(codes: HuffmanCodes, text: readonly number[]): Uint8Array {
-  const bits: number[] = [];
-  for (let i = 0; i < text.length; ) {
-    const b = text[i]!;
-    const pair = i + 1 < text.length ? codes.get(b | (text[i + 1]! << 8)) : undefined;
-    const code = pair ?? codes.get(b);
-    if (!code || b === 0) throw new Error(`The game's text can't show "${String.fromCharCode(b)}".`);
-    bits.push(...code);
-    i += pair ? 2 : 1;
+  const n = text.length;
+  // best[i]: the shortest code for text[i..]; null if there is none.
+  const best: ({ bits: number; symbol: number; next: number } | null)[] = new Array(n + 1).fill(null);
+  best[n] = { bits: 0, symbol: -1, next: n };
+  for (let i = n - 1; i >= 0; i--) {
+    if (text[i] === 0) continue;
+    const options: [number, number][] = [[text[i]!, i + 1]];
+    if (i + 1 < n && text[i + 1] !== 0) options.push([text[i]! | (text[i + 1]! << 8), i + 2]);
+    if (i + 1 === n) options.push([text[i]! | (TEXT_FILLER << 8), n]);
+    for (const [symbol, next] of options) {
+      const code = codes.get(symbol);
+      const rest = best[next];
+      if (!code || !rest) continue;
+      const bits = code.length + rest.bits;
+      if (!best[i] || bits < best[i]!.bits) best[i] = { bits, symbol, next };
+    }
   }
+  if (!best[0]) throw new Error("The game's text can't spell this name. Try another spelling.");
   const end = codes.get(0);
   if (!end) throw new Error("This ROM's text has no end marker.");
+  const bits: number[] = [];
+  for (let i = 0; i < n; i = best[i]!.next) bits.push(...codes.get(best[i]!.symbol)!);
   bits.push(...end);
   const out = new Uint8Array(Math.ceil(bits.length / 8));
   bits.forEach((bit, k) => (out[k >> 3]! |= bit << (k & 7)));
   return out;
+}
+
+/** Why `name` can't be written into the game with `codes`, or null if it can. */
+export function nameProblem(codes: HuffmanCodes, name: string): string | null {
+  try {
+    encodeTextBytes(codes, [...name.trim()].map((c) => c.charCodeAt(0)));
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
 }

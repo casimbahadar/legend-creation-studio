@@ -163,7 +163,7 @@ describe('FE8 builder', () => {
     // Another unit's character is untouched, and a name the tree can't write is refused.
     expect(out.u32(TEXT.table + 0x11 * 4)).toBe(ROM_BASE + 0x252000);
     c.units[1]!.name = 'Franz';
-    expect(() => buildFe8Rom(readRom(clean), TEXT, c)).toThrow('can\'t show "F"');
+    expect(() => buildFe8Rom(readRom(clean), TEXT, c)).toThrow("can't spell this name");
   });
 
   it('refuses slots whose next chapter it cannot find', () => {

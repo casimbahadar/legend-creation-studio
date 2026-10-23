@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react';
 import { mapEntry, mapRef, toName, type Project, type ProjectChapter } from '../core/project';
 import { buildFe8Rom, characterIds, patchNotes } from '../rom/fe8-build';
+import { nameProblem } from '../rom/text-encode';
 import { createUps } from '../rom/ups';
 import { download, type EditorRom } from './project-io';
 
@@ -18,6 +19,13 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
       return [(e as Error).message];
     }
   }, [chapter, data.rom]);
+
+  // Names the game can't spell would stop the build, so they block the downloads and are listed here.
+  const nameProblems = chapter.units.flatMap((u) => {
+    const problem = u.team === 'player' && u.name?.trim() ? nameProblem(data.textCodes, u.name) : null;
+    return problem ? [`${u.name}: ${problem}`] : [];
+  });
+  const blocked = !chapter.units.length || nameProblems.length > 0;
 
   function save(kind: 'patch' | 'rom') {
     setError(null);
@@ -61,11 +69,21 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
           </ul>
         </div>
       )}
+      {nameProblems.length > 0 && (
+        <div className="bad">
+          <p>Change these names to download:</p>
+          <ul className="problems">
+            {nameProblems.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="stepper">
-        <button type="button" className="button" disabled={!chapter.units.length} onClick={() => save('patch')}>
+        <button type="button" className="button" disabled={blocked} onClick={() => save('patch')}>
           Download patch
         </button>
-        <button type="button" className="button button-secondary" disabled={!chapter.units.length} onClick={() => save('rom')}>
+        <button type="button" className="button button-secondary" disabled={blocked} onClick={() => save('rom')}>
           Download patched ROM
         </button>
       </div>

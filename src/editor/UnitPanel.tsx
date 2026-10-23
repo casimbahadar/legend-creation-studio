@@ -7,7 +7,7 @@ import { BEHAVIOURS, DEFAULT_BEHAVIOUR, MAX_ITEMS, MAX_LEVEL, MAX_STAT, STAT_KEY
 import { itemStats, unitStats, usable, type ClassArt, type GameItem } from '../play/catalog';
 import { FE8_CHARACTER_NAMES } from '../rom/fe8-character-names';
 import type { RomCharacter } from '../rom/fe8-characters';
-import { encodeTextBytes, type HuffmanCodes } from '../rom/text-encode';
+import { nameProblem as checkName, type HuffmanCodes } from '../rom/text-encode';
 
 /** Longest name the editor takes; FE8's own longest is L'Arachel's nine letters. */
 const MAX_NAME = 10;
@@ -52,14 +52,7 @@ export function UnitPanel({
   const shownName = unit.name ?? character?.name ?? art?.entry.label ?? unit.class;
   const title = `${shownName} (${TEAM_LABELS[unit.team].toLowerCase()})`;
   // A name the game's text can't write (a letter outside its font) is flagged as it is typed.
-  let nameProblem: string | null = null;
-  if (unit.name?.trim() && unit.team === 'player') {
-    try {
-      encodeTextBytes(textCodes, [...unit.name.trim()].map((c) => c.charCodeAt(0)));
-    } catch (e) {
-      nameProblem = (e as Error).message;
-    }
-  }
+  const nameProblem = unit.name?.trim() && unit.team === 'player' ? checkName(textCodes, unit.name) : null;
   // The class's stats, or its character's for a player unit (decision 29); custom stats change these.
   const baseSt = unitStats(art, character, unit.level);
   const baseName = character ? character.name : 'class';
