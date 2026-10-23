@@ -6,11 +6,14 @@ import { useMemo, useState } from 'react';
 import { mapEntry, mapRef, toName, type Project, type ProjectChapter } from '../core/project';
 import { buildFe8Rom, characterIds, patchNotes } from '../rom/fe8-build';
 import { nameProblem } from '../rom/text-encode';
+import { crc32 } from '../rom/crc32';
 import { createUps } from '../rom/ups';
 import { download, type EditorRom } from './project-io';
 
 export function PatchExport({ data, project, chapter, onChange }: { data: EditorRom; project: Project; chapter: ProjectChapter; onChange: (replaces: string) => void }) {
   const [error, setError] = useState<string | null>(null);
+  /** The last file downloaded, with its CRC32 to compare against Developer checks. */
+  const [saved, setSaved] = useState<string | null>(null);
   const slot = mapEntry(chapter.replaces ?? mapRef(0)) ?? 0;
   const notes = useMemo(() => {
     try {
@@ -29,11 +32,19 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
 
   function save(kind: 'patch' | 'rom') {
     setError(null);
+    setSaved(null);
     try {
       const built = buildFe8Rom(data.rom, data.text, chapter).bytes;
       const name = toName(project.name);
-      if (kind === 'patch') download(new Blob([createUps(data.rom.bytes, built)]), `${name}.ups`);
-      else download(new Blob([built]), `${name}.gba`);
+      const file = kind === 'patch' ? createUps(data.rom.bytes, built) : built;
+      const fileName = `${name}.${kind === 'patch' ? 'ups' : 'gba'}`;
+      download(new Blob([file]), fileName);
+      const code = (n: Uint8Array) => crc32(n).toString(16).toUpperCase().padStart(8, '0');
+      setSaved(
+        kind === 'patch'
+          ? `Downloaded ${fileName}. The ROM it makes has CRC32 ${code(built)}.`
+          : `Downloaded ${fileName}, CRC32 ${code(built)}. Developer checks › Patched ROM shows this code for the same file.`,
+      );
     } catch (e) {
       setError((e as Error).message);
     }
@@ -91,6 +102,7 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
         Share the patch (.ups): others apply it to their own clean ROM with a patcher. The patched ROM is for playing yourself in an
         emulator; don't share it.
       </p>
+      {saved && <p className="note">{saved}</p>}
       {error && (
         <p className="bad" role="status">
           {error}
