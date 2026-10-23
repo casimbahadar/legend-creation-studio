@@ -6,8 +6,12 @@ import type { GbaRom } from './gba-rom';
 import { decodeTextBytes, type TextTable } from './text';
 
 export const CHARACTER_STRIDE = 0x34;
-/** FE8 US keeps it here; findCharacterTable doesn't rely on it. */
-export const FE8_US_CHARACTER_TABLE = 0x803d30;
+/**
+ * Character 1's record in FE8 US, as found on a real ROM by numbering. The often-quoted 0x803D30 is
+ * the empty record 0 just before it; writing there put every change one character too early.
+ * Nothing relies on this address: characterRecord finds the table.
+ */
+export const FE8_US_CHARACTER_TABLE = 0x803d64;
 const MIN_CHARACTERS = 0x40;
 /** Offsets in a character record. */
 export const BASE_LEVEL = 0x0b;
@@ -47,6 +51,16 @@ export function readCharacterStats(rom: GbaRom, a: number): Pick<RomCharacter, '
     base: { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: b(6), con: b(7) },
     growths: { hp: g(0), str: g(1), skl: g(2), spd: g(3), def: g(4), res: g(5), lck: g(6), con: 0 },
   };
+}
+
+const tables = new WeakMap<GbaRom, number | null>();
+
+/** Offset of character `id`'s record, finding the table once per ROM. Throws if there is none. */
+export function characterRecord(rom: GbaRom, id: number): number {
+  if (!tables.has(rom)) tables.set(rom, findCharacterTable(rom));
+  const table = tables.get(rom);
+  if (table === null || table === undefined) throw new Error("Couldn't find the character table in this ROM.");
+  return table + (id - 1) * CHARACTER_STRIDE;
 }
 
 export function readCharacters(rom: GbaRom, text: TextTable, table: number): RomCharacter[] {

@@ -53,6 +53,8 @@ function fakeClean(): Uint8Array {
   u32(NODES + 20, 2 | (3 << 16));
   u32(ROOT, 4 | (5 << 16));
   for (let i = 0; i < TEXT.count; i++) u32(TEXT.table + i * 4, ROM_BASE + 0x252000);
+  // The character table as on the real ROM: an empty record 0, then characters numbered from 1.
+  for (let k = 0; k < 0x50; k++) bytes[FE8_US_CHARACTER_TABLE + k * CHARACTER_STRIDE + 4] = k + 1;
   view.setUint16(FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE, 0x10, true);
   bytes.set([1, 2, 0, 0, 0, 0, 3, 0], FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x0c); // Franz's personal bases
   bytes[FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x1c] = 100; // and HP growth

@@ -17,7 +17,7 @@ import { characterStatsAtLevel, withBonus } from '../core/combat';
 import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectUnit, type StatKey, type Team } from '../core/project';
 import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
 import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
-import { BASE_LEVEL, BASE_STATS, CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE, readCharacterStats } from './fe8-characters';
+import { BASE_LEVEL, BASE_STATS, characterRecord, readCharacterStats } from './fe8-characters';
 import { readClassStats } from './fe8-classes';
 import { FE8_ITEM_NAMES } from './fe8-item-names';
 import { FE8_CLASS_NAMES } from './fe8-names';
@@ -123,7 +123,7 @@ function idOf<T extends { name: string; id: number }>(list: readonly T[], name: 
 
 /** The FE8 character id each unit will be: its own, one picked for it, or a generic Soldier or Frelian. */
 export function characterIds(rom: GbaRom, units: readonly ProjectUnit[]): Map<string, number> {
-  const defaultClassOf = (id: number) => rom.u8(FE8_US_CHARACTER_TABLE + (id - 1) * CHARACTER_STRIDE + 5);
+  const defaultClassOf = (id: number) => rom.u8(characterRecord(rom, id) + 5);
   const taken = new Set(units.flatMap((u) => (u.team === 'player' && u.character ? [u.character] : [])));
   const out = new Map<string, number>();
   for (const u of units) {
@@ -163,7 +163,7 @@ export function unitDefinition(u: ProjectUnit, character: number): number[] {
  */
 export function playerStats(rom: GbaRom, u: ProjectUnit, character: number): Record<StatKey, number> {
   const cls = readClassStats(rom, idOf(FE8_CLASS_NAMES, u.class, 'class'));
-  const own = readCharacterStats(rom, FE8_US_CHARACTER_TABLE + (character - 1) * CHARACTER_STRIDE);
+  const own = readCharacterStats(rom, characterRecord(rom, character));
   const target = withBonus(characterStatsAtLevel(cls.base, own.base, own.growths, own.baseLevel, u.level), u.statBonus);
   return Object.fromEntries(STAT_KEYS.map((k) => [k, target[k] - cls.base[k]])) as Record<StatKey, number>;
 }
@@ -258,7 +258,7 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const names = playerUnits.flatMap((u) => {
     const name = u.name?.trim();
     if (!name || !codes) return [];
-    const record = FE8_US_CHARACTER_TABLE + (characters.get(u.id)! - 1) * CHARACTER_STRIDE;
+    const record = characterRecord(clean, characters.get(u.id)!);
     const encoded = encodeTextBytes(codes, [...name].map((c) => c.charCodeAt(0)));
     return [{ textId: clean.u16(record), pointer: w.bytes(Array.from(encoded)) }];
   });
@@ -292,7 +292,7 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   // from the clean ROM, since only the character's record changes.
   for (const u of playerUnits) {
     const id = characters.get(u.id)!;
-    const record = FE8_US_CHARACTER_TABLE + (id - 1) * CHARACTER_STRIDE;
+    const record = characterRecord(clean, id);
     const personal = playerStats(clean, u, id);
     for (const k of STAT_KEYS) view.setInt8(record + BASE_STATS + PERSONAL_ORDER[k], Math.max(-128, Math.min(127, personal[k])));
     bytes[record + BASE_LEVEL] = u.level;
