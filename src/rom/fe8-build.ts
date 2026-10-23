@@ -4,18 +4,21 @@
 // fe8-chapters. Everything new goes in an area added after the clean ROM's 16 MB; inside the ROM only
 // the slot's chapter record and its event-group pointer change.
 //
-// Player units' names and custom stats are written into their FE8 characters (decision 30): the
+// Player units' names and stats are written into their FE8 characters (decisions 30 and 31): the
 // character's name text is repointed to the unit's name, encoded with the ROM's own Huffman tree, and
-// the custom stats are added to the character's personal bases.
+// its personal bases and base level are set so the unit loads with exactly the stats test play shows
+// (custom stats included) and no random level-ups on loading.
 //
 // The chapter's events are FE's own building blocks: a beginning scene that loads the player,
 // enemy and ally units, a misc list with vanilla's Rout check (DefeatAll) and game over check, and
 // an ending scene that moves on to the chapter the slot's vanilla ending moves on to.
 
+import { characterStatsAtLevel, withBonus } from '../core/combat';
 import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectUnit, type StatKey, type Team } from '../core/project';
 import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
 import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
-import { CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE } from './fe8-characters';
+import { BASE_LEVEL, BASE_STATS, CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE, readCharacterStats } from './fe8-characters';
+import { readClassStats } from './fe8-classes';
 import { FE8_ITEM_NAMES } from './fe8-item-names';
 import { FE8_CLASS_NAMES } from './fe8-names';
 import { ROM_BASE, type GbaRom } from './gba-rom';
@@ -79,8 +82,7 @@ const GAME_OVER_CHARACTERS = new Set(['eirika', 'ephraim']);
 
 const ALLEGIANCE: Record<Team, number> = { player: 0, ally: 1, enemy: 2 };
 
-/** Where each stat sits among a character's personal bases (HP, Str, Skl, Spd, Def, Res, Lck, Con from +0x0C). */
-const PERSONAL_BASE = 0x0c;
+/** Where each stat sits among a character's personal bases (HP, Str, Skl, Spd, Def, Res, Lck, Con). */
 const PERSONAL_ORDER: Record<StatKey, number> = { hp: 0, str: 1, skl: 2, spd: 3, def: 4, res: 5, lck: 6, con: 7 };
 
 export interface BuiltRom {
@@ -142,14 +144,28 @@ export function unitDefinition(u: ProjectUnit, character: number): number[] {
   const d = new Array<number>(UNIT_DEFINITION_SIZE).fill(0);
   d[0] = character;
   d[1] = idOf(FE8_CLASS_NAMES, u.class, 'class');
-  // Autolevel raises the unit from level 1 (or the character's base level) to its level, as test play does.
-  d[3] = 1 | (ALLEGIANCE[u.team] << 1) | (u.level << 3);
+  // Enemies and allies autolevel: FE8 raises them from level 1 by their class's growths. Player units
+  // don't, since their characters already hold their stats at this level (see playerStats).
+  d[3] = (u.team === 'player' ? 0 : 1) | (ALLEGIANCE[u.team] << 1) | (u.level << 3);
   const pos = (u.at[0] & 0x3f) | ((u.at[1] & 0x3f) << 6);
   d[4] = pos & 0xff;
   d[5] = pos >> 8;
   (u.items ?? []).slice(0, MAX_ITEMS).forEach((item, i) => (d[12 + i] = idOf(FE8_ITEM_NAMES, item, 'item')));
   if (u.team !== 'player') AI_BYTES[u.ai ?? 'attack-in-range'].forEach((b, i) => (d[16 + i] = b));
   return d;
+}
+
+/**
+ * The personal bases that make a player unit load at exactly its test-play stats (decision 31): its
+ * class's bases plus its character's, grown by the character's growths to its level, with its custom
+ * stats added, minus the class's bases. Written with the unit's level as the character's base level,
+ * so FE8 adds nothing on loading.
+ */
+export function playerStats(rom: GbaRom, u: ProjectUnit, character: number): Record<StatKey, number> {
+  const cls = readClassStats(rom, idOf(FE8_CLASS_NAMES, u.class, 'class'));
+  const own = readCharacterStats(rom, FE8_US_CHARACTER_TABLE + (character - 1) * CHARACTER_STRIDE);
+  const target = withBonus(characterStatsAtLevel(cls.base, own.base, own.growths, own.baseLevel, u.level), u.statBonus);
+  return Object.fromEntries(STAT_KEYS.map((k) => [k, target[k] - cls.base[k]])) as Record<StatKey, number>;
 }
 
 /** The first "change chapter" command in a vanilla script, or null if none is found in its first words. */
@@ -272,15 +288,14 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
     if (n.textId >= text.count) throw new Error("A character's name isn't where this tool expects it.");
     view.setUint32(text.table + n.textId * 4, n.pointer, true);
   }
-  // Player units' custom stats, added to their characters' personal bases (signed bytes).
+  // Player units' stats, as their characters' personal bases at their level (signed bytes). Read
+  // from the clean ROM, since only the character's record changes.
   for (const u of playerUnits) {
-    const record = FE8_US_CHARACTER_TABLE + (characters.get(u.id)! - 1) * CHARACTER_STRIDE;
-    for (const k of STAT_KEYS) {
-      const bonus = u.statBonus?.[k];
-      if (!bonus) continue;
-      const at = record + PERSONAL_BASE + PERSONAL_ORDER[k];
-      view.setInt8(at, Math.max(-128, Math.min(127, view.getInt8(at) + bonus)));
-    }
+    const id = characters.get(u.id)!;
+    const record = FE8_US_CHARACTER_TABLE + (id - 1) * CHARACTER_STRIDE;
+    const personal = playerStats(clean, u, id);
+    for (const k of STAT_KEYS) view.setInt8(record + BASE_STATS + PERSONAL_ORDER[k], Math.max(-128, Math.min(127, personal[k])));
+    bytes[record + BASE_LEVEL] = u.level;
   }
 
   // The slot's chapter record: the map's own fields when it comes from another chapter (keeping the

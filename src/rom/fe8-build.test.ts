@@ -55,6 +55,10 @@ function fakeClean(): Uint8Array {
   for (let i = 0; i < TEXT.count; i++) u32(TEXT.table + i * 4, ROM_BASE + 0x252000);
   view.setUint16(FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE, 0x10, true);
   bytes.set([1, 2, 0, 0, 0, 0, 3, 0], FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x0c); // Franz's personal bases
+  bytes[FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x1c] = 100; // and HP growth
+  // The Cavalier class (5): base HP 20 and Con 9.
+  bytes[0x807110 + 5 * 0x54 + 0x0b] = 20;
+  bytes[0x807110 + 5 * 0x54 + 0x0b + 6] = 9;
 
   // Default classes: Seth a Paladin (7), Franz a Cavalier (5).
   bytes[FE8_US_CHARACTER_TABLE + 1 * CHARACTER_STRIDE + 5] = 7;
@@ -90,18 +94,21 @@ describe('FE8 builder', () => {
     expect(built.bytes.length % 0x10000).toBe(0);
     expect(built.bytes.length).toBeGreaterThan(EXPANSION);
     expect(group).toBeGreaterThanOrEqual(EXPANSION);
-    // Inside the clean ROM, only the asset-table entry and the Prologue's objective fields changed.
+    // Inside the clean ROM, only the asset-table entry, the Prologue's objective fields and the
+    // player characters' base levels and personal bases (Eirika, Franz) changed.
     const changed: number[] = [];
     for (let i = 0; i < EXPANSION; i++) if (built.bytes[i] !== clean[i]) changed.push(i);
-    const allowed = (i: number) => (i >= ASSET_TABLE + 0x80 && i < ASSET_TABLE + 0x84) || (i >= CHAPTER_TABLE + 0x88 && i < CHAPTER_TABLE + 0x91);
+    const stats = (id: number, i: number) => i >= FE8_US_CHARACTER_TABLE + (id - 1) * CHARACTER_STRIDE + 0x0b && i < FE8_US_CHARACTER_TABLE + (id - 1) * CHARACTER_STRIDE + 0x14;
+    const allowed = (i: number) =>
+      (i >= ASSET_TABLE + 0x80 && i < ASSET_TABLE + 0x84) || (i >= CHAPTER_TABLE + 0x88 && i < CHAPTER_TABLE + 0x91) || stats(1, i) || stats(4, i);
     expect(changed.filter((i) => !allowed(i))).toEqual([]);
   });
 
   it('writes the units as FE8 unit definitions', () => {
     const players = readUnitList(rom, rom.offsetOf(rom.u32(group + EVENT_GROUP.playerUnits)));
     expect(players.map((u) => [u.character, u.classId, u.allegiance, u.level, u.autolevel, u.x, u.y, u.items])).toEqual([
-      [0x01, 0x02, 'player', 1, true, 3, 4, [0x09]],
-      [0x04, 0x05, 'player', 3, true, 5, 6, []],
+      [0x01, 0x02, 'player', 1, false, 3, 4, [0x09]],
+      [0x04, 0x05, 'player', 3, false, 5, 6, []],
     ]);
     const beginning = words(rom, rom.u32(group + EVENT_GROUP.beginningScene), 8);
     expect(beginning[0]).toBe(0x00012c40); // LOAD1(1, ...)
@@ -151,15 +158,18 @@ describe('FE8 builder', () => {
     ]);
   });
 
-  it("writes a player unit's name and custom stats into its character", () => {
+  it("writes a player unit's name and its exact stats at its level into its character", () => {
     const c = chapter();
     c.units[1]!.name = 'ABBA';
     c.units[1]!.statBonus = { hp: -1, str: 2, lck: -5 };
     const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
     expect(out.u32(TEXT.table + 0x10 * 4)).toBeGreaterThanOrEqual(ROM_BASE + EXPANSION);
     expect(String.fromCharCode(...decodeTextBytes(out, TEXT, 0x10))).toBe('ABBA');
-    const franz = FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x0c;
-    expect(Array.from(out.bytes.subarray(franz, franz + 8)).map((b) => (b << 24) >> 24)).toEqual([0, 4, 0, 0, 0, 0, -2, 0]);
+    // Level 3 Cavalier: HP 20 + 1 + 2 level-ups at 100% - 1 custom = 22, so personal HP 2. Str 2 + 2 = 4.
+    // Luck 3 - 5 stays at 0. Con stays the class's 9, so personal Con 0. Base level becomes 3.
+    const franz = FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE;
+    expect(Array.from(out.bytes.subarray(franz + 0x0c, franz + 0x14)).map((b) => (b << 24) >> 24)).toEqual([2, 4, 0, 0, 0, 0, 0, 0]);
+    expect(out.u8(franz + 0x0b)).toBe(3);
     // Another unit's character is untouched, and a name the tree can't write is refused.
     expect(out.u32(TEXT.table + 0x11 * 4)).toBe(ROM_BASE + 0x252000);
     c.units[1]!.name = 'Franz';
