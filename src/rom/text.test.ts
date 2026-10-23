@@ -71,6 +71,7 @@ describe('FE text', () => {
     put32(FE8U_ROOT_POINTER_LITERAL, ROM_BASE + rootVar);
     put32(FE8U_TREE_LITERAL, ROM_BASE + tree);
     put32(0xa2a0, ROM_BASE + table);
+    r.set([...'BE8E'].map((c) => c.charCodeAt(0)), 0xac); // FE8 US's game code
     const moved = readRom(r);
     expect(findTextTable(moved)).toEqual({ root: tree + 16, nodes: tree, table, count: ENTRIES });
     expect(decodeText(moved, findTextTable(moved)!, 0)).toBe('AB');

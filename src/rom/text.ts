@@ -38,15 +38,22 @@ function countEntries(rom: GbaRom, table: number): number {
   return m;
 }
 
-/** Finds the Huffman tree and text table by their shape, so hacks and other GBA FE games work too. */
+/**
+ * Finds the Huffman tree and text table: on FE8 US through the game's own pointers to them, which stay
+ * right when a patch moves the tree; otherwise by their shape, so hacks and other GBA FE games work too.
+ */
 export function findTextTable(rom: GbaRom): TextTable | null {
+  if (rom.gameCode === 'BE8E') {
+    const own = fe8uTextTable(rom);
+    if (own) return own;
+  }
   let best: { x: number; count: number } | null = null;
   for (let x = 4; x + 8 <= rom.size; x += 4) {
     if (rom.u32(x) !== 0x08000000 + x - 4) continue;
     const count = countEntries(rom, x + 4);
     if (count >= MIN_TABLE_ENTRIES && (!best || count > best.count)) best = { x, count };
   }
-  if (!best) return fe8uTextTable(rom);
+  if (!best) return null;
 
   const root = best.x - 4;
   const nodes = root - (Math.max(rom.u16(root), rom.u16(root + 2)) + 1) * 4;
@@ -72,7 +79,7 @@ function fe8uTextTable(rom: GbaRom): TextTable | null {
   const [rootVar, tree, table] = [FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, FE8U_TEXT_TABLE_POINTER].map((o) => rom.u32(o));
   if (!rom.isPointer(rootVar!) || !rom.isPointer(tree!) || !rom.isPointer(table!)) return null;
   const root = rom.u32(rom.offsetOf(rootVar!));
-  if (!rom.isPointer(root)) return null;
+  if (!rom.isPointer(root) || rom.u32(rom.offsetOf(root)) & 0x80000000) return null;
   const count = countEntries(rom, rom.offsetOf(table!));
   return count >= MIN_TABLE_ENTRIES ? { root: rom.offsetOf(root), nodes: rom.offsetOf(tree!), table: rom.offsetOf(table!), count } : null;
 }
