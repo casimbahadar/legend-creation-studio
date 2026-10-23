@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ROM_BASE, readRom } from './gba-rom';
-import { decodeText, decodeTextBytes, findTextTable, textBytesToString } from './text';
+import { decodeText, decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, findTextTable, textBytesToString } from './text';
 
 // A tiny synthetic ROM with the FE text layout. Tree: leaves A, B, end; then (A|B); root = ((A|B) | end).
 // Codes from the root, bit 0 = left: A = 0,0  B = 0,1  end = 1.
@@ -55,5 +55,24 @@ describe('FE text', () => {
 
   it('formats bytes losslessly', () => {
     expect(textBytesToString(Uint8Array.from([0x45, 0x00, 0xff]))).toBe('E[0x00][0xFF]');
+  });
+
+  it("finds a moved tree through FE8's own pointers to it", () => {
+    // The same tree and "AB", with the tree away from its root pointer, as a patch that moves it leaves it.
+    const r = new Uint8Array(0x20000);
+    const put32 = (o: number, v: number) => new DataView(r.buffer).setUint32(o, v >>> 0, true);
+    const tree = 0x10000;
+    [0xffff0041, 0xffff0042, 0xffff0000, 1 << 16, 3 | (2 << 16)].forEach((w, i) => put32(tree + i * 4, w));
+    const rootVar = 0x10100;
+    put32(rootVar, ROM_BASE + tree + 16);
+    const table = 0x11000;
+    r[0x12000] = 0x18;
+    for (let i = 0; i < ENTRIES; i++) put32(table + i * 4, ROM_BASE + 0x12000);
+    put32(FE8U_ROOT_POINTER_LITERAL, ROM_BASE + rootVar);
+    put32(FE8U_TREE_LITERAL, ROM_BASE + tree);
+    put32(0xa2a0, ROM_BASE + table);
+    const moved = readRom(r);
+    expect(findTextTable(moved)).toEqual({ root: tree + 16, nodes: tree, table, count: ENTRIES });
+    expect(decodeText(moved, findTextTable(moved)!, 0)).toBe('AB');
   });
 });

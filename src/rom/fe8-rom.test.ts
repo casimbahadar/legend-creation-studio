@@ -14,7 +14,7 @@ import { checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-characte
 import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
-import { decodeText, decodeTextBytes, findTextTable } from './text';
+import { decodeText, decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, findTextTable } from './text';
 import { encodeTextBytes, readHuffmanCodes } from './text-encode';
 
 const romPath = process.env.LCS_FE8_ROM;
@@ -165,5 +165,11 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     });
     const out = readRom(copy);
     expect(names.map((_, i) => String.fromCharCode(...decodeTextBytes(out, text, i)).replace(/\x1f+$/, ''))).toEqual(names);
+  });
+
+  it("has the text decoder's pointers to the tree where the decompilation puts them", () => {
+    const text = findTextTable(rom)!;
+    expect(rom.u32(FE8U_TREE_LITERAL)).toBe(0x08000000 + text.nodes);
+    expect(rom.u32(rom.offsetOf(rom.u32(FE8U_ROOT_POINTER_LITERAL)))).toBe(0x08000000 + text.root);
   });
 });

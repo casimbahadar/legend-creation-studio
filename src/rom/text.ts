@@ -10,6 +10,13 @@ import type { GbaRom } from './gba-rom';
 
 /** FE8 US: the game's text routine holds the text table address here. Hacks that move the table update it. */
 const FE8U_TEXT_TABLE_POINTER = 0xa2a0;
+/**
+ * FE8 US: the text decoder (DecodeString, an ARM routine copied to RAM at start-up) holds the address
+ * of the root pointer and of the tree's node 0 here (asm/arm.s in the decompilation). A patch that
+ * moves the tree updates them.
+ */
+export const FE8U_ROOT_POINTER_LITERAL = 0x6dc;
+export const FE8U_TREE_LITERAL = 0x6e0;
 const MIN_TABLE_ENTRIES = 500;
 const MAX_TABLE_ENTRIES = 12000;
 const MAX_TEXT_BYTES = 0x4000;
@@ -39,7 +46,7 @@ export function findTextTable(rom: GbaRom): TextTable | null {
     const count = countEntries(rom, x + 4);
     if (count >= MIN_TABLE_ENTRIES && (!best || count > best.count)) best = { x, count };
   }
-  if (!best) return null;
+  if (!best) return fe8uTextTable(rom);
 
   const root = best.x - 4;
   const nodes = root - (Math.max(rom.u16(root), rom.u16(root + 2)) + 1) * 4;
@@ -57,6 +64,17 @@ export function findTextTable(rom: GbaRom): TextTable | null {
     }
   }
   return { root, nodes, table, count };
+}
+
+/** The tree and text table where FE8 US's own code points, for a ROM whose tree was moved. */
+function fe8uTextTable(rom: GbaRom): TextTable | null {
+  if (rom.size < FE8U_TEXT_TABLE_POINTER + 4) return null;
+  const [rootVar, tree, table] = [FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, FE8U_TEXT_TABLE_POINTER].map((o) => rom.u32(o));
+  if (!rom.isPointer(rootVar!) || !rom.isPointer(tree!) || !rom.isPointer(table!)) return null;
+  const root = rom.u32(rom.offsetOf(rootVar!));
+  if (!rom.isPointer(root)) return null;
+  const count = countEntries(rom, rom.offsetOf(table!));
+  return count >= MIN_TABLE_ENTRIES ? { root: rom.offsetOf(root), nodes: rom.offsetOf(tree!), table: rom.offsetOf(table!), count } : null;
 }
 
 /** Raw bytes of one text entry, without the terminating 0. Empty if the id has no valid pointer. */
