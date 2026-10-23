@@ -605,3 +605,21 @@ h3 {
 .developer h3 {
   margin-top: 1rem;
 }
+
+/* The Play link: the whole of it selectable, at a size iPhone Safari won't zoom into. */
+.share-link {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+a.button {
+  text-decoration: none;
+}

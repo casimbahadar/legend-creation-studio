@@ -12,6 +12,7 @@ import { deviceStore, readAutosave, writeAutosave } from './autosave';
 import { TEAM_LABELS } from './labels';
 import { PatchExport } from './PatchExport';
 import { PlayScreen } from './PlayScreen';
+import { ShareGame } from './ShareGame';
 import { findMap, loadProject, nextUnitId, saveFile, startingLevel, unitCharacters, type EditorRom } from './project-io';
 import { UnitPanel } from './UnitPanel';
 
@@ -314,6 +315,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
               : 'No units yet.'}
           </p>
           {!playing && <PatchExport data={data} project={project} chapter={chapter} onChange={(replaces) => updateChapter({ replaces })} />}
+          {!playing && <ShareGame project={project} />}
         </>
       ) : (
         <p className="bad">Couldn't find any chapter maps in this ROM.</p>
