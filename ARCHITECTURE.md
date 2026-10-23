@@ -8,7 +8,7 @@
 | `src/rom` | Reading and writing FE8 ROMs, UPS patches. |
 | `src/play` | The game renderer (canvas), and what play needs from the ROM: the class and item catalog and the rules for a chapter's map. |
 | `src/editor` | The React app: the editor, test play's screens and controls, project files. |
-| `src/export` | Web game export (desktop builds later). |
+| `src/export` | Web game export: Play links that carry a chapter, and the Play page they open (decision 33; desktop builds later). |
 
 ## Data flow
 
