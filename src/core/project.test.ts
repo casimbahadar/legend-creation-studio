@@ -120,9 +120,19 @@ describe('characters and chapter slots', () => {
     p.chapters[0]!.units.push({ id: 'eirika-2', class: 'lord-eirika', team: 'player', level: 1, at: [4, 8], character: 'eirika' });
     p.chapters[0]!.units[1]!.character = 'seth';
     expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual([
-      '"brigand-1" isn\'t a player unit, so it can\'t be an FE8 character yet.',
-      'Two player units are both "eirika".',
+      'Two units are both "eirika".',
     ]);
+  });
+
+  it('lets enemies be bosses but not allies be characters', () => {
+    const p = sample();
+    p.chapters[0]!.units[1]!.character = 'oneill';
+    expect(checkProject(roundTrip(p), { bosses: new Set(['oneill']) }).problems).toEqual([]);
+    expect(checkProject(roundTrip(p), { bosses: new Set(['breguet']) }).problems.map((x) => x.message)).toEqual([
+      '"brigand-1" is a boss this tool doesn\'t know: "oneill".',
+    ]);
+    p.chapters[0]!.units.push({ id: 'ally-1', class: 'brigand', team: 'ally', level: 1, at: [5, 5], character: 'breguet' });
+    expect(checkProject(roundTrip(p)).problems.map((x) => x.message)).toEqual(['"ally-1" is an ally, so it can\'t be an FE8 character yet.']);
   });
 
   it('accepts a vanilla chapter slot in map-reference form', () => {

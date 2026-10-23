@@ -45,7 +45,10 @@ export interface ProjectUnit {
   statBonus?: StatBonus;
   /** The chapter is lost if this unit falls (decision 26). Player and ally units only. */
   mustSurvive?: boolean;
-  /** For player units: an FE8 character from the name list, e.g. "seth" (decision 28). */
+  /**
+   * An FE8 character from the name lists: for player units one of the cast, e.g. "seth" (decision 28);
+   * for enemies a boss, e.g. "oneill" (decision 34). Allies have none yet.
+   */
   character?: string;
 }
 
@@ -82,6 +85,7 @@ export interface Catalog {
   classes?: ReadonlySet<string>;
   items?: ReadonlySet<string>;
   characters?: ReadonlySet<string>;
+  bosses?: ReadonlySet<string>;
 }
 
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -210,9 +214,10 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
         }
         if (u.character !== undefined) {
           if (typeof u.character !== 'string' || !NAME.test(u.character)) problem(`${up}.character`, `${who} has an unreadable character.`);
-          else if (u.team !== 'player') problem(`${up}.character`, `${who} isn't a player unit, so it can't be an FE8 character yet.`);
-          else if (catalog.characters && !catalog.characters.has(u.character)) problem(`${up}.character`, `${who} is a character this tool doesn't know: "${u.character}".`);
-          else if (characters.has(u.character)) problem(`${up}.character`, `Two player units are both "${u.character}".`);
+          else if (u.team === 'ally') problem(`${up}.character`, `${who} is an ally, so it can't be an FE8 character yet.`);
+          else if (u.team === 'player' && catalog.characters && !catalog.characters.has(u.character)) problem(`${up}.character`, `${who} is a character this tool doesn't know: "${u.character}".`);
+          else if (u.team === 'enemy' && catalog.bosses && !catalog.bosses.has(u.character)) problem(`${up}.character`, `${who} is a boss this tool doesn't know: "${u.character}".`);
+          else if (characters.has(u.character)) problem(`${up}.character`, `Two units are both "${u.character}".`);
           else characters.add(u.character);
         }
         if (u.ai !== undefined && !BEHAVIOURS.includes(u.ai as Behaviour)) {

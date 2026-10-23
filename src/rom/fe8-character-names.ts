@@ -49,6 +49,53 @@ export const FE8_CHARACTER_NAMES: readonly CharacterName[] = [
   { name: 'tana', id: 0x22, gameName: 'Tana' },
 ];
 
+export interface BossName extends CharacterName {
+  /** What the editor shows, telling apart bosses that share a name. */
+  readonly label: string;
+}
+
+/**
+ * FE8 US bosses with their own portraits, which named enemies take over (decision 34). Ids and names
+ * from the fireemblem8u decompilation; some bosses appear twice, as different records.
+ */
+export const FE8_BOSS_NAMES: readonly BossName[] = [
+  { name: 'oneill', id: 0x68, gameName: "O'Neill", label: "O'Neill" },
+  { name: 'breguet', id: 0x46, gameName: 'Breguet', label: 'Breguet' },
+  { name: 'bone', id: 0x47, gameName: 'Bone', label: 'Bone' },
+  { name: 'bazba', id: 0x48, gameName: 'Bazba', label: 'Bazba' },
+  { name: 'saar', id: 0x4a, gameName: 'Saar', label: 'Saar' },
+  { name: 'novala', id: 0x4b, gameName: 'Novala', label: 'Novala' },
+  { name: 'murray', id: 0x4c, gameName: 'Murray', label: 'Murray' },
+  { name: 'tirado', id: 0x4d, gameName: 'Tirado', label: 'Tirado' },
+  { name: 'binks', id: 0x4e, gameName: 'Binks', label: 'Binks' },
+  { name: 'pablo', id: 0x4f, gameName: 'Pablo', label: 'Pablo' },
+  { name: 'pablo-2', id: 0x54, gameName: 'Pablo', label: 'Pablo (second)' },
+  { name: 'aias', id: 0x51, gameName: 'Aias', label: 'Aias' },
+  { name: 'carlyle', id: 0x52, gameName: 'Carlyle', label: 'Carlyle' },
+  { name: 'caellach', id: 0x53, gameName: 'Caellach', label: 'Caellach' },
+  { name: 'riev', id: 0x57, gameName: 'Riev', label: 'Riev' },
+  { name: 'gheb', id: 0x5a, gameName: 'Gheb', label: 'Gheb' },
+  { name: 'beran', id: 0x5b, gameName: 'Beran', label: 'Beran' },
+  { name: 'glen', id: 0x69, gameName: 'Glen', label: 'Glen' },
+  { name: 'zonta', id: 0x6a, gameName: 'Zonta', label: 'Zonta' },
+  { name: 'vigarde', id: 0x6b, gameName: 'Vigarde', label: 'Vigarde' },
+  { name: 'selena', id: 0x44, gameName: 'Selena', label: 'Selena' },
+  { name: 'valter', id: 0x43, gameName: 'Valter', label: 'Valter' },
+  { name: 'valter-prologue', id: 0x45, gameName: 'Valter', label: 'Valter (Prologue)' },
+  { name: 'orson', id: 0x6d, gameName: 'Orson', label: 'Orson' },
+  { name: 'orson-5x', id: 0x42, gameName: 'Orson', label: 'Orson (chapter 5x)' },
+  { name: 'lyon', id: 0x40, gameName: 'Lyon', label: 'Lyon' },
+  { name: 'lyon-final', id: 0x6c, gameName: 'Lyon', label: 'Lyon (final)' },
+];
+
+/** The cast and the bosses together, for checks against the ROM and looking up ids by name. */
+export const ALL_CHARACTER_NAMES: readonly CharacterName[] = [...FE8_CHARACTER_NAMES, ...FE8_BOSS_NAMES];
+
+/** The FE8 character id for a name from either list, or undefined. */
+export function characterIdOf(name: string | undefined): number | undefined {
+  return ALL_CHARACTER_NAMES.find((c) => c.name === name)?.id;
+}
+
 /** Generic characters for units without one of the cast: the "Soldier" vanilla's Prologue enemies use, and a "Frelian". */
 export const GENERIC_ENEMY = 0x80;
 export const GENERIC_ALLY = 0xc0;

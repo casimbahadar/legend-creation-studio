@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkCharacterNames, FE8_CHARACTER_NAMES, pickCharacter } from './fe8-character-names';
+import { checkCharacterNames, FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, pickCharacter } from './fe8-character-names';
 
 describe('FE8 character name list', () => {
   it('has unique names and ids', () => {
@@ -22,6 +22,15 @@ describe('FE8 character name list', () => {
       ['seth', 'Gilliam'],
       ['tana', null],
     ]);
+  });
+});
+
+describe('FE8 boss list', () => {
+  it('has unique names and ids, none shared with the cast', () => {
+    const all = [...FE8_CHARACTER_NAMES, ...FE8_BOSS_NAMES];
+    expect(new Set(all.map((c) => c.name)).size).toBe(all.length);
+    expect(new Set(all.map((c) => c.id)).size).toBe(all.length);
+    for (const b of FE8_BOSS_NAMES) expect(b.name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
   });
 });
 

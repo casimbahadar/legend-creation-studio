@@ -6,7 +6,7 @@
 import { useState, type ChangeEvent } from 'react';
 import { STAT_KEYS } from '../core/project';
 import { crc32 } from '../rom/crc32';
-import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY } from '../rom/fe8-character-names';
+import { ALL_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY } from '../rom/fe8-character-names';
 import { FE8_ITEM_NAMES } from '../rom/fe8-item-names';
 import { FE8_CLASS_NAMES } from '../rom/fe8-names';
 import { readRom, type GbaRom } from '../rom/gba-rom';
@@ -87,7 +87,7 @@ export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTa
             {data.characterMismatches.length ? (
               <details className="note bad">
                 <summary>
-                  Character list check: {data.characterMismatches.length} of {FE8_CHARACTER_NAMES.length} character names don't match your
+                  Character list check: {data.characterMismatches.length} of {ALL_CHARACTER_NAMES.length} character and boss names don't match your
                   ROM. Tap to see them.
                 </summary>
                 <ul className="problems">
@@ -101,7 +101,7 @@ export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTa
               </details>
             ) : (
               <p className="note">
-                Character list check: all {FE8_CHARACTER_NAMES.length} character names match your ROM. Enemies will be "
+                Character list check: all {ALL_CHARACTER_NAMES.length} character and boss names match your ROM. Enemies will be "
                 {data.characters[GENERIC_ENEMY - 1]?.name ?? '?'}" and allies "{data.characters[GENERIC_ALLY - 1]?.name ?? '?'}" (expected Soldier and Frelian).
               </p>
             )}

@@ -10,7 +10,7 @@ import { FE8_US_ITEM_TABLE, findItemTable, readItems } from './fe8-items';
 import { checkItemNames } from './fe8-item-names';
 import { CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readChapter, readPlayerUnits } from './fe8-chapters';
 import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe8-characters';
-import { checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
+import { ALL_CHARACTER_NAMES, checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
 import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
@@ -107,7 +107,7 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
       base: { hp: 7, str: 7, skl: 9, spd: 5, def: 3, res: 5, lck: 13, con: 0 },
       growths: { hp: 90, str: 50, skl: 45, spd: 45, def: 40, res: 30, lck: 25 },
     });
-    expect(checkCharacterNames(characters)).toEqual([]);
+    expect(checkCharacterNames(characters, ALL_CHARACTER_NAMES)).toEqual([]);
     // The generic characters the patch uses for enemies and allies.
     expect(characters[GENERIC_ENEMY - 1]?.name).toBe('Soldier');
     expect(characters[GENERIC_ALLY - 1]?.name).toBe('Frelian');

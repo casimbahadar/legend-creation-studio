@@ -4,7 +4,7 @@
 import { checkProject, mapEntry, MAX_ITEMS, MAX_LEVEL, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
 import { characterIds } from '../rom/fe8-build';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
-import { checkCharacterNames, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
+import { ALL_CHARACTER_NAMES, characterIdOf, checkCharacterNames, FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
 import { findCharacterTable, readCharacters, type RomCharacter } from '../rom/fe8-characters';
 import { readChapterMap, type ChapterMap } from '../rom/fe8-maps';
 import type { ItemMismatch } from '../rom/fe8-item-names';
@@ -31,7 +31,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     itemMismatches: c.itemMismatches,
     chapterTitles,
     characters,
-    characterMismatches: checkCharacterNames(characters),
+    characterMismatches: checkCharacterNames(characters, ALL_CHARACTER_NAMES),
   };
 }
 
@@ -85,7 +85,7 @@ export function playerCharacters(data: EditorRom, units: readonly ProjectUnit[])
 
 /** The level an FE8 character joins at in the vanilla game (Moulder 3, Gilliam 4), as a new unit's default; 1 without one. */
 export function startingLevel(data: EditorRom, character: string | undefined): number {
-  const id = FE8_CHARACTER_NAMES.find((c) => c.name === character)?.id;
+  const id = characterIdOf(character);
   const level = id === undefined ? 1 : (data.characters[id - 1]?.baseLevel ?? 1);
   return Math.min(MAX_LEVEL, Math.max(1, level));
 }
@@ -152,6 +152,7 @@ export function loadProject(data: EditorRom, raw: unknown): { project: Project |
     classes: new Set(data.art.map((a) => a.entry.name)),
     items: new Set(data.items.map((i) => i.entry.name)),
     characters: new Set(FE8_CHARACTER_NAMES.map((c) => c.name)),
+    bosses: new Set(FE8_BOSS_NAMES.map((c) => c.name)),
   });
   if (project) {
     project.chapters.forEach((c, ci) => {
