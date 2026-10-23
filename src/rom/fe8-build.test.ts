@@ -199,16 +199,25 @@ describe('FE8 builder', () => {
   });
 
   it("adds letters to the game's text for a name its pairs can't spell, leaving other text unchanged", () => {
+    // Franz's own name text (0x10) is the only one using the single "A", so "A" is the leaf pushed down
+    // and text 0x10 is re-encoded too; the new name must still win. Texts 0x11 and 0x12 are "B".
+    const bytes = clean.slice();
+    const view = new DataView(bytes.buffer);
+    bytes.set([0x0c, 0, 0, 0, 0x0e], 0x252010); // "A" (0, 0, end) and "B" (0, 1, end)
+    view.setUint32(TEXT.table + 0x10 * 4, ROM_BASE + 0x252010, true);
+    view.setUint32(TEXT.table + 0x11 * 4, ROM_BASE + 0x252014, true);
+    view.setUint32(TEXT.table + 0x12 * 4, ROM_BASE + 0x252014, true);
     const c = chapter();
     c.units[1]!.name = 'Franz B.';
-    const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
+    const out = readRom(buildFe8Rom(readRom(bytes), TEXT, c).bytes);
     // The decoder's pointers now lead to a tree in the added area.
     const nodes = out.offsetOf(out.u32(FE8U_TREE_LITERAL));
     const root = out.offsetOf(out.u32(out.offsetOf(out.u32(FE8U_ROOT_POINTER_LITERAL))));
     expect(nodes).toBeGreaterThanOrEqual(EXPANSION);
     const moved: TextTable = { ...TEXT, nodes, root };
     expect(String.fromCharCode(...decodeTextBytes(out, moved, 0x10))).toBe('Franz B.');
-    expect(String.fromCharCode(...decodeTextBytes(out, moved, 0x11))).toBe('AB');
+    expect(String.fromCharCode(...decodeTextBytes(out, moved, 0x11))).toBe('B');
+    expect(String.fromCharCode(...decodeTextBytes(out, moved, 0x13))).toBe('AB');
     // Without such a name the tree stays where it was.
     expect(readRom(buildFe8Rom(readRom(clean), TEXT, chapter()).bytes).u32(FE8U_TREE_LITERAL)).toBe(ROM_BASE + NODES);
   });

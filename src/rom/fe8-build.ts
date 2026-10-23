@@ -320,16 +320,17 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   bytes.set(w.out, EXPANSION);
   const view = new DataView(bytes.buffer);
   view.setUint32(groupEntry, newGroup, true);
-  for (const n of names) {
-    if (n.textId >= text.count) throw new Error("A character's name isn't where this tool expects it.");
-    view.setUint32(text.table + n.textId * 4, n.pointer, true);
-  }
+  // Re-encoded game texts first, then the names, which win where a name's text is one of them.
   if (moved) {
     for (const m of moved.texts) view.setUint32(text.table + m.id * 4, m.pointer, true);
     view.setUint32(FE8U_TREE_LITERAL, moved.base, true);
     view.setUint32(clean.offsetOf(clean.u32(FE8U_ROOT_POINTER_LITERAL)), moved.root, true);
-    checkText(clean, text, bytes, moved, new Set(names.map((n) => n.textId)));
   }
+  for (const n of names) {
+    if (n.textId >= text.count) throw new Error("A character's name isn't where this tool expects it.");
+    view.setUint32(text.table + n.textId * 4, n.pointer, true);
+  }
+  if (moved) checkText(clean, text, bytes, moved, new Set(names.map((n) => n.textId)));
   // Their stats, as their characters' personal bases at their level (signed bytes). Read from the
   // clean ROM, since only the character's record changes.
   for (const u of ownUnits) {
