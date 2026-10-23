@@ -22,6 +22,7 @@ export function UnitPanel({
   items,
   character,
   textCodes,
+  startingLevel,
   takenCharacters,
   onChange,
   onLevelStep,
@@ -36,6 +37,8 @@ export function UnitPanel({
   character: RomCharacter | undefined;
   /** The ROM's text codes, to check a name can be written into the game. */
   textCodes: HuffmanCodes;
+  /** The level a character joins at in vanilla. */
+  startingLevel: (character: string) => number;
   /** Characters other player units already are. */
   takenCharacters: ReadonlySet<string>;
   /** A change to the unit, or null to remove it. */
@@ -97,7 +100,16 @@ export function UnitPanel({
       {unit.team === 'player' && (
         <label className="field">
           Character <span className="note">(portrait, starting stats and growths in the patch)</span>
-          <select value={unit.character ?? ''} onChange={(e) => onChange({ character: e.target.value || undefined })}>
+          <select
+            value={unit.character ?? ''}
+            onChange={(e) => {
+              const next = e.target.value || undefined;
+              // A level still at the old character's starting level follows the new character's.
+              const current = unit.character ? startingLevel(unit.character) : 1;
+              const level = next && unit.level === current ? startingLevel(next) : unit.level;
+              onChange({ character: next, level });
+            }}
+          >
             <option value="">Picked for you</option>
             {FE8_CHARACTER_NAMES.map((c) => (
               <option key={c.name} value={c.name} disabled={takenCharacters.has(c.name)}>

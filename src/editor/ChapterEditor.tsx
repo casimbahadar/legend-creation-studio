@@ -34,7 +34,7 @@ import { renderMap } from '../rom/fe8-maps';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 import { GbaControls } from './controls';
 import { TEAM_LABELS } from './labels';
-import { findMap, loadProject, nextUnitId, playerCharacters, saveFile, type EditorRom } from './project-io';
+import { findMap, loadProject, nextUnitId, playerCharacters, saveFile, startingLevel, type EditorRom } from './project-io';
 import { PatchExport } from './PatchExport';
 import { BattleHud, BattlePopup, ForecastBox, PlayStatus } from './TestPlayPanels';
 import { UnitPanel } from './UnitPanel';
@@ -259,7 +259,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         id: nextUnitId(chapter.units, cls),
         class: cls,
         team,
-        level: 1,
+        // A character starts at the level it joins at in vanilla, as its stats are written for it.
+        level: startingLevel(data, character ?? undefined),
         at: [x, y],
         // Lords on the player's side must survive, as in FE (decision 26).
         ...(team === 'player' && isLordClass(cls) ? { mustSurvive: true } : {}),
@@ -526,6 +527,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   items={data.items}
                   character={characters.get(unit.id)}
                   textCodes={data.textCodes}
+                  startingLevel={(name) => startingLevel(data, name)}
                   takenCharacters={new Set(chapter.units.flatMap((u) => (u.id !== unit.id && u.character ? [u.character] : [])))}
                   onChange={(change) => updateUnit(unit.id, change)}
                   onLevelStep={(delta) => stepLevel(unit.id, delta)}
