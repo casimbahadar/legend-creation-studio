@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { withBonus } from '../core/combat';
 import { BEHAVIOURS, DEFAULT_BEHAVIOUR, MAX_ITEMS, MAX_LEVEL, MAX_STAT, STAT_KEYS, type Behaviour, type ProjectUnit, type StatKey } from '../core/project';
 import { itemStats, unitStats, usable, type ClassArt, type GameItem } from '../play/catalog';
-import { FE8_CHARACTER_NAMES } from '../rom/fe8-character-names';
+import { FE8_BOSS_NAMES, FE8_CHARACTER_NAMES } from '../rom/fe8-character-names';
 import type { RomCharacter } from '../rom/fe8-characters';
 import { nameProblem as checkName, type HuffmanCodes } from '../rom/text-encode';
 
@@ -55,7 +55,18 @@ export function UnitPanel({
   const shownName = unit.name ?? character?.name ?? art?.entry.label ?? unit.class;
   const title = `${shownName} (${TEAM_LABELS[unit.team].toLowerCase()})`;
   // A name the game's text can't write (a letter outside its font) is flagged as it is typed.
-  const nameProblem = unit.name?.trim() && unit.team === 'player' ? checkName(textCodes, unit.name) : null;
+  // Player units and boss enemies take over an FE8 character, which carries their name into the patch.
+  const isBoss = unit.team === 'enemy' && unit.character !== undefined;
+  const nameProblem = unit.name?.trim() && (unit.team === 'player' || isBoss) ? checkName(textCodes, unit.name) : null;
+  const nameNote =
+    unit.team === 'player'
+      ? "(in the patch, replaces the character's name)"
+      : isBoss
+        ? "(in the patch, replaces the boss's name)"
+        : unit.team === 'enemy'
+          ? '(pick a boss below to use it in the patch)'
+          : '(in the editor only, for now)';
+  const characterChoices = unit.team === 'player' ? FE8_CHARACTER_NAMES.map((c) => ({ name: c.name, label: c.gameName })) : FE8_BOSS_NAMES;
   // The class's stats, or its character's for a player unit (decision 29); custom stats change these.
   const baseSt = unitStats(art, character, unit.level);
   const baseName = character ? character.name : 'class';
@@ -77,7 +88,7 @@ export function UnitPanel({
       <h3>{title}</h3>
       <label className="field">
         Name{' '}
-        <span className="note">{unit.team === 'player' ? '(in the patch, replaces the character\'s name)' : '(in the editor only, for now)'}</span>
+        <span className="note">{nameNote}</span>
         <input
           type="text"
           value={unit.name ?? ''}
@@ -97,9 +108,9 @@ export function UnitPanel({
           ))}
         </select>
       </label>
-      {unit.team === 'player' && (
+      {unit.team !== 'ally' && (
         <label className="field">
-          Character <span className="note">(portrait, starting stats and growths in the patch)</span>
+          {unit.team === 'player' ? 'Character' : 'Boss'} <span className="note">(portrait, starting stats and growths in the patch)</span>
           <select
             value={unit.character ?? ''}
             onChange={(e) => {
@@ -110,10 +121,10 @@ export function UnitPanel({
               onChange({ character: next, level });
             }}
           >
-            <option value="">Picked for you</option>
-            {FE8_CHARACTER_NAMES.map((c) => (
+            <option value="">{unit.team === 'player' ? 'Picked for you' : 'None (a generic Soldier)'}</option>
+            {characterChoices.map((c) => (
               <option key={c.name} value={c.name} disabled={takenCharacters.has(c.name)}>
-                {c.gameName}
+                {c.label}
                 {takenCharacters.has(c.name) ? ' (already placed)' : ''}
               </option>
             ))}

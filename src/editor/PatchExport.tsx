@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import { mapEntry, mapRef, toName, type Project, type ProjectChapter } from '../core/project';
-import { buildFe8Rom, characterIds, patchNotes } from '../rom/fe8-build';
+import { buildFe8Rom, characterIds, ownsCharacter, patchNotes } from '../rom/fe8-build';
 import { nameProblem } from '../rom/text-encode';
 import { crc32 } from '../rom/crc32';
 import { createUps } from '../rom/ups';
@@ -25,7 +25,7 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
 
   // Names the game can't spell would stop the build, so they block the downloads and are listed here.
   const nameProblems = chapter.units.flatMap((u) => {
-    const problem = u.team === 'player' && u.name?.trim() ? nameProblem(data.textCodes, u.name) : null;
+    const problem = ownsCharacter(u) && u.name?.trim() ? nameProblem(data.textCodes, u.name) : null;
     return problem ? [`${u.name}: ${problem}`] : [];
   });
   const blocked = !chapter.units.length || nameProblems.length > 0;

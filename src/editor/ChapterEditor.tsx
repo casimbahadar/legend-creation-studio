@@ -34,7 +34,7 @@ import { renderMap } from '../rom/fe8-maps';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
 import { GbaControls } from './controls';
 import { TEAM_LABELS } from './labels';
-import { findMap, loadProject, nextUnitId, playerCharacters, saveFile, startingLevel, type EditorRom } from './project-io';
+import { findMap, loadProject, nextUnitId, saveFile, startingLevel, unitCharacters, type EditorRom } from './project-io';
 import { PatchExport } from './PatchExport';
 import { BattleHud, BattlePopup, ForecastBox, PlayStatus } from './TestPlayPanels';
 import { UnitPanel } from './UnitPanel';
@@ -100,7 +100,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   },
     [play, selectedUnit, showRange, map, artByName, rules],
   );
-  const characters = useMemo(() => playerCharacters(data, chapter.units), [data, chapter.units]);
+  const characters = useMemo(() => unitCharacters(data, chapter.units), [data, chapter.units]);
   /** A unit's name in test play: its own, its character's, or its class's. */
   const unitLabel = (u: { id: string; class: string }) =>
     chapter.units.find((x) => x.id === u.id)?.name ?? characters.get(u.id)?.name ?? artByName.get(u.class)?.entry.label ?? u.class;
@@ -292,7 +292,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   function setMode(playing: boolean) {
     setEditing(null);
     rng.current = randomNumbers(Date.now());
-    const characters = playerCharacters(data, chapter.units);
+    const characters = unitCharacters(data, chapter.units);
     setView(playing ? startView(startPlay(chapter, (u) => withBonus(unitStats(artByName.get(u.class), characters.get(u.id), u.level), u.statBonus))) : null);
   }
 

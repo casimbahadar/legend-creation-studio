@@ -2,7 +2,7 @@
 // against this ROM, older forms converted), and saving one.
 
 import { checkProject, mapEntry, MAX_ITEMS, MAX_LEVEL, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
-import { characterIds } from '../rom/fe8-build';
+import { characterIds, ownsCharacter } from '../rom/fe8-build';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
 import { ALL_CHARACTER_NAMES, characterIdOf, checkCharacterNames, FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
 import { findCharacterTable, readCharacters, type RomCharacter } from '../rom/fe8-characters';
@@ -65,10 +65,11 @@ export function findMap(data: EditorRom, ref: string): number {
 }
 
 /**
- * The FE8 character each player unit plays as, as the patch will have it (decision 29): its own or the
- * one the builder picks. Enemies and allies have none, since FE8 levels them by their class.
+ * The FE8 character each player unit and boss enemy is, as the patch will have it (decisions 29 and
+ * 34): its own or, for a player unit, the one the builder picks. Other units have none, since FE8
+ * levels them by their class.
  */
-export function playerCharacters(data: EditorRom, units: readonly ProjectUnit[]): Map<string, RomCharacter> {
+export function unitCharacters(data: EditorRom, units: readonly ProjectUnit[]): Map<string, RomCharacter> {
   const out = new Map<string, RomCharacter>();
   let ids: Map<string, number>;
   try {
@@ -77,7 +78,7 @@ export function playerCharacters(data: EditorRom, units: readonly ProjectUnit[])
     return out;
   }
   for (const u of units) {
-    const c = u.team === 'player' ? data.characters[(ids.get(u.id) ?? 0) - 1] : undefined;
+    const c = ownsCharacter(u) ? data.characters[(ids.get(u.id) ?? 0) - 1] : undefined;
     if (c) out.set(u.id, c);
   }
   return out;
