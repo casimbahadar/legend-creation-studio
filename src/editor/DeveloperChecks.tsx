@@ -1,17 +1,20 @@
 // Checks for whoever is building the tool rather than making a chapter: reading any text entry from
 // the ROM, and whether the hand-written class, item and character name lists (decision 18) match it. Collapsed
 // at the bottom of the page; a mismatch still shows a warning outside it, since the editor relies on
-// those lists.
+// those lists. A patched ROM can be opened here too, to see what a downloaded patch put in it.
 
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
+import { STAT_KEYS } from '../core/project';
+import { crc32 } from '../rom/crc32';
 import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY } from '../rom/fe8-character-names';
 import { FE8_ITEM_NAMES } from '../rom/fe8-item-names';
 import { FE8_CLASS_NAMES } from '../rom/fe8-names';
-import type { GbaRom } from '../rom/gba-rom';
+import { readRom, type GbaRom } from '../rom/gba-rom';
 import { readChapter, readPlayerUnits } from '../rom/fe8-chapters';
 import { findCharacterTable, readCharacters } from '../rom/fe8-characters';
 import { FE8_CLASS_NAMES as CLASS_LIST } from '../rom/fe8-names';
-import { decodeText, type TextTable } from '../rom/text';
+import { decodeText, findTextTable, type TextTable } from '../rom/text';
+import { STAT_LABELS } from './labels';
 import type { EditorRom } from './project-io';
 
 export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTable | null; data: EditorRom | null }) {
@@ -40,6 +43,9 @@ export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTa
         <h3>Prologue units</h3>
         <p className="note">The Prologue's player units as your ROM stores them. In the game: Seth, a Paladin, and Eirika, a Lord, both level 1.</p>
         {text && <PrologueUnits rom={rom} text={text} />}
+        <h3>Patched ROM</h3>
+        <p className="note">Open a patched ROM you downloaded to see the Prologue's player units as it stores them, with each character's name and personal stats.</p>
+        <PatchedRomCheck />
         <h3>Name lists</h3>
         {data && (
           <>
@@ -106,9 +112,37 @@ export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTa
   );
 }
 
-function PrologueUnits({ rom, text }: { rom: GbaRom; text: TextTable }) {
+function PatchedRomCheck() {
+  const [result, setResult] = useState<{ name: string; rom: GbaRom; text: TextTable | null } | null>(null);
+  async function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const rom = readRom(new Uint8Array(await file.arrayBuffer()));
+    setResult({ name: file.name, rom, text: findTextTable(rom) });
+  }
+  return (
+    <>
+      <label className="button button-secondary">
+        Open a patched ROM
+        <input type="file" className="visually-hidden" onChange={onFile} />
+      </label>
+      {result && (
+        <>
+          <p className="note">
+            {result.name}: {(result.rom.size / 0x100000).toFixed(2)} MB, CRC32 {crc32(result.rom.bytes).toString(16).toUpperCase().padStart(8, '0')}
+          </p>
+          {result.text ? <PrologueUnits rom={result.rom} text={result.text} withBases /> : <p className="bad">Couldn't find the text table in this ROM.</p>}
+        </>
+      )}
+    </>
+  );
+}
+
+function PrologueUnits({ rom, text, withBases = false }: { rom: GbaRom; text: TextTable; withBases?: boolean }) {
   const table = findCharacterTable(rom);
-  const names = new Map((table === null ? [] : readCharacters(rom, text, table)).map((c) => [c.id, c.name]));
+  const characters = table === null ? [] : readCharacters(rom, text, table);
+  const names = new Map(characters.map((c) => [c.id, c.name]));
   const itemName = (id: number) => FE8_ITEM_NAMES.find((i) => i.id === id)?.gameName ?? `item 0x${id.toString(16)}`;
   const units = readPlayerUnits(rom, readChapter(rom, text, 0));
   if (!units.length) return <p className="bad">Couldn't find the Prologue's units.</p>;
@@ -118,6 +152,11 @@ function PrologueUnits({ rom, text }: { rom: GbaRom; text: TextTable }) {
         <li key={i}>
           {names.get(u.character) ?? `character 0x${u.character.toString(16)}`} ({CLASS_LIST.find((c) => c.id === u.classId)?.label ?? `class 0x${u.classId.toString(16)}`}), {u.allegiance}, level{' '}
           {u.level} at ({u.x}, {u.y}){u.items.length ? `: ${u.items.map(itemName).join(', ')}` : ''}
+          {withBases &&
+            (() => {
+              const c = characters[u.character - 1];
+              return c ? ` · base level ${c.baseLevel}, personal ${STAT_KEYS.map((k) => `${STAT_LABELS[k]} ${c.base[k]}`).join(' ')}` : '';
+            })()}
         </li>
       ))}
     </ul>
