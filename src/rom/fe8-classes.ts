@@ -62,14 +62,23 @@ function terrainTable(rom: GbaRom, at: number): Uint8Array | null {
   return rom.bytes.slice(rom.offsetOf(p), rom.offsetOf(p) + TERRAIN_COUNT);
 }
 
+/** A class's base stats and growths, by class id. */
+export function readClassStats(rom: GbaRom, id: number): Pick<RomClass, 'base' | 'growths'> {
+  const a = CLASS_TABLE + id * CLASS_STRIDE;
+  const b = (k: number) => rom.u8(a + BASE_STATS + k);
+  const g = (k: number) => rom.u8(a + GROWTHS + k);
+  return {
+    base: { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: 0, con: b(6) },
+    growths: { hp: g(0), str: g(1), skl: g(2), spd: g(3), def: g(4), res: g(5), lck: g(6), con: 0 },
+  };
+}
+
 export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
   const out: RomClass[] = [];
   for (let id = 1; id <= LAST_CLASS_ID; id++) {
     const a = CLASS_TABLE + id * CLASS_STRIDE;
     // Like EC, keep printable characters only: some names end in control codes such as 0x1F.
     const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
-    const b = (k: number) => rom.u8(a + BASE_STATS + k);
-    const g = (k: number) => rom.u8(a + GROWTHS + k);
     out.push({
       id,
       name,
@@ -77,8 +86,7 @@ export function readClasses(rom: GbaRom, text: TextTable): RomClass[] {
       mov: rom.u8(a + BASE_MOV),
       moveCosts: terrainTable(rom, a + MOVE_COST_POINTER),
       weaponRanks: rom.bytes.slice(a + WEAPON_RANKS, a + WEAPON_RANKS + 8),
-      base: { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: 0, con: b(6) },
-      growths: { hp: g(0), str: g(1), skl: g(2), spd: g(3), def: g(4), res: g(5), lck: g(6), con: 0 },
+      ...readClassStats(rom, id),
       terrainAvoid: terrainTable(rom, a + TERRAIN_AVOID_POINTER),
       terrainDef: terrainTable(rom, a + TERRAIN_DEF_POINTER),
       terrainRes: terrainTable(rom, a + TERRAIN_RES_POINTER),

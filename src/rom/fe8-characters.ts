@@ -10,8 +10,8 @@ export const CHARACTER_STRIDE = 0x34;
 export const FE8_US_CHARACTER_TABLE = 0x803d30;
 const MIN_CHARACTERS = 0x40;
 /** Offsets in a character record. */
-const BASE_LEVEL = 0x0b;
-const BASE_STATS = 0x0c;
+export const BASE_LEVEL = 0x0b;
+export const BASE_STATS = 0x0c;
 const GROWTHS = 0x1c;
 
 export interface RomCharacter {
@@ -38,21 +38,23 @@ export function findCharacterTable(rom: GbaRom): number | null {
   return best ? best.start : null;
 }
 
+/** A character's base level, personal bases and growths, from its record at `a`. */
+export function readCharacterStats(rom: GbaRom, a: number): Pick<RomCharacter, 'baseLevel' | 'base' | 'growths'> {
+  const b = (i: number) => (rom.u8(a + BASE_STATS + i) << 24) >> 24;
+  const g = (i: number) => rom.u8(a + GROWTHS + i);
+  return {
+    baseLevel: (rom.u8(a + BASE_LEVEL) << 24) >> 24,
+    base: { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: b(6), con: b(7) },
+    growths: { hp: g(0), str: g(1), skl: g(2), spd: g(3), def: g(4), res: g(5), lck: g(6), con: 0 },
+  };
+}
+
 export function readCharacters(rom: GbaRom, text: TextTable, table: number): RomCharacter[] {
   const out: RomCharacter[] = [];
   for (let k = 0; table + (k + 1) * CHARACTER_STRIDE <= rom.size && rom.u8(table + k * CHARACTER_STRIDE + 4) === k + 1; k++) {
     const a = table + k * CHARACTER_STRIDE;
     const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
-    const b = (i: number) => (rom.u8(a + BASE_STATS + i) << 24) >> 24;
-    const g = (i: number) => rom.u8(a + GROWTHS + i);
-    out.push({
-      id: k + 1,
-      name,
-      defaultClass: rom.u8(a + 5),
-      baseLevel: (rom.u8(a + BASE_LEVEL) << 24) >> 24,
-      base: { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: b(6), con: b(7) },
-      growths: { hp: g(0), str: g(1), skl: g(2), spd: g(3), def: g(4), res: g(5), lck: g(6), con: 0 },
-    });
+    out.push({ id: k + 1, name, defaultClass: rom.u8(a + 5), ...readCharacterStats(rom, a) });
   }
   return out;
 }
