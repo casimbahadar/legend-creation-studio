@@ -1,19 +1,9 @@
 import { useState, type ChangeEvent } from 'react';
-import { crc32, formatCrc32 } from '../rom/crc32';
-import { FE8_US_CRC32 } from '../rom/fe8';
-import { readAllChapterMaps } from '../rom/fe8-maps';
-import { readRom, type GbaRom } from '../rom/gba-rom';
-import { findTextTable, type TextTable } from '../rom/text';
 import { ChapterEditor } from './ChapterEditor';
 import { DeveloperChecks } from './DeveloperChecks';
-import { readEditorRom, type EditorRom } from './project-io';
+import { readChosenRom, type ChosenRom } from './project-io';
 
-type RomCheck =
-  | { state: 'idle' }
-  | { state: 'checking' }
-  | { state: 'clean'; rom: GbaRom; text: TextTable | null; editor: EditorRom | null }
-  | { state: 'other'; crc: string }
-  | { state: 'error' };
+type RomCheck = { state: 'idle' } | { state: 'checking' } | ChosenRom | { state: 'error' };
 
 export function App() {
   const [check, setCheck] = useState<RomCheck>({ state: 'idle' });
@@ -26,15 +16,7 @@ export function App() {
 
     setCheck({ state: 'checking' });
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const crc = crc32(bytes);
-      if (crc === FE8_US_CRC32) {
-        const rom = readRom(bytes);
-        const text = findTextTable(rom);
-        setCheck({ state: 'clean', rom, text, editor: text ? readEditorRom(rom, text, readAllChapterMaps(rom)) : null });
-      } else {
-        setCheck({ state: 'other', crc: formatCrc32(crc) });
-      }
+      setCheck(readChosenRom(new Uint8Array(await file.arrayBuffer())));
     } catch {
       setCheck({ state: 'error' });
     }

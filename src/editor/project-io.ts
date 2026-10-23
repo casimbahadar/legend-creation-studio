@@ -6,13 +6,27 @@ import { characterIds, ownsCharacter } from '../rom/fe8-build';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
 import { ALL_CHARACTER_NAMES, characterIdOf, checkCharacterNames, FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
 import { findCharacterTable, readCharacters, type RomCharacter } from '../rom/fe8-characters';
-import { readChapterMap, type ChapterMap } from '../rom/fe8-maps';
+import { readAllChapterMaps, readChapterMap, type ChapterMap } from '../rom/fe8-maps';
+import { crc32, formatCrc32 } from '../rom/crc32';
+import { FE8_US_CRC32 } from '../rom/fe8';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
-import type { GbaRom } from '../rom/gba-rom';
-import type { TextTable } from '../rom/text';
+import { readRom, type GbaRom } from '../rom/gba-rom';
+import { findTextTable, type TextTable } from '../rom/text';
 import { readHuffmanCodes, type HuffmanCodes } from '../rom/text-encode';
 import { classStats, readCatalog, type ClassArt, type GameItem } from '../play/catalog';
+
+/** A chosen file: the clean ROM, read for the editor, or another file and its CRC32. */
+export type ChosenRom = { state: 'clean'; rom: GbaRom; text: TextTable | null; editor: EditorRom | null } | { state: 'other'; crc: string };
+
+/** Checks a chosen file is the clean FE8 US ROM and, if it is, reads what the editor and play need. */
+export function readChosenRom(bytes: Uint8Array): ChosenRom {
+  const crc = crc32(bytes);
+  if (crc !== FE8_US_CRC32) return { state: 'other', crc: formatCrc32(crc) };
+  const rom = readRom(bytes);
+  const text = findTextTable(rom);
+  return { state: 'clean', rom, text, editor: text ? readEditorRom(rom, text, readAllChapterMaps(rom)) : null };
+}
 
 /** Everything the editor needs from the ROM, read once when the ROM is chosen. */
 export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]): EditorRom {
