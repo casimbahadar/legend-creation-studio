@@ -39,7 +39,24 @@ export function useHoldRepeat(every = REPEAT_EVERY) {
   });
 }
 
-export function GbaControls({ onDirection, onA, onB }: { onDirection: (dx: number, dy: number) => void; onA: () => void; onB: () => void }) {
+/** A small pill button under the pad, like the GBA's Start and Select. */
+export interface ExtraButton {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}
+
+export function GbaControls({
+  onDirection,
+  onA,
+  onB,
+  extra = [],
+}: {
+  onDirection: (dx: number, dy: number) => void;
+  onA: () => void;
+  onB: () => void;
+  extra?: readonly ExtraButton[];
+}) {
   const repeat = useHoldRepeat();
   const hold = (dx: number, dy: number) => repeat(() => onDirection(dx, dy));
   const press = (action: () => void) => ({
@@ -61,6 +78,15 @@ export function GbaControls({ onDirection, onA, onB }: { onDirection: (dx: numbe
         <button type="button" className="ab-b" aria-label="B" {...press(onB)}>B</button>
         <button type="button" className="ab-a" aria-label="A" {...press(onA)}>A</button>
       </div>
+      {extra.length > 0 && (
+        <div className="pills">
+          {extra.map((b) => (
+            <button key={b.label} type="button" className="pill" disabled={b.disabled} onClick={b.onPress}>
+              {b.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

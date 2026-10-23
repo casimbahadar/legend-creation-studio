@@ -231,14 +231,6 @@ details.note summary {
   cursor: pointer;
 }
 
-.play-status {
-  margin: 0.75rem 0;
-}
-
-.play-status p {
-  margin: 0 0 0.5rem;
-}
-
 .segmented button:disabled {
   opacity: 0.4;
   cursor: default;
@@ -347,67 +339,114 @@ h3 {
   position: relative;
 }
 
-.action-menu {
-  position: absolute;
-  top: 8px;
-  display: flex;
-  flex-direction: column;
-  min-width: 7.5rem;
-  border: 2px solid #f0e6c8;
-  border-radius: 6px;
+.fe-window.action-menu {
+  top: 6%;
+  min-width: 34%;
+  padding: 2px;
   overflow: hidden;
-  background: rgba(20, 32, 80, 0.92);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
 }
 
-.action-menu.right { right: 8px; }
-.action-menu.left { left: 8px; }
+.fe-window.action-menu.right { right: 2%; left: auto; }
+.fe-window.action-menu.left { left: 2%; right: auto; }
 
 .action-menu button {
-  min-height: 44px;
-  padding: 0 1rem;
+  min-height: 40px;
+  padding: 0 0.8em;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: #fff;
   font: inherit;
-  font-weight: 600;
+  font-size: 1.15em;
   text-align: left;
+  text-shadow: inherit;
   cursor: pointer;
 }
 
 .action-menu button[aria-current='true'] {
-  background: rgba(255, 230, 128, 0.3);
+  background: rgba(255, 236, 160, 0.35);
 }
 
-/* FE's info window, above the map: the unit under the cursor, the forecast, or HP during a battle.
-   Its height is fixed so the map doesn't jump as it changes. One unit spans both columns. */
-.play-window {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-auto-flow: dense;
-  gap: 6px;
-  min-height: 4.6rem;
-  margin-bottom: 6px;
-}
-
-.play-window > .window-side:only-child {
-  grid-column: 1 / -1;
-}
-
-.window-side {
+/* FE's windows over the game screen (decision 35): blue panels with a light border and a pixel-style
+   font, red for enemies and green for allies, set in a corner away from the cursor. */
+.fe-window {
+  position: absolute;
+  z-index: 2;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 4px 8px;
+  gap: 1px;
+  padding: 4px 8px 5px;
+  border: 2px solid #f4ecd0;
   border-radius: 6px;
+  outline: 2px solid #1a2350;
+  background: linear-gradient(180deg, #5878e0 0%, #3050c0 55%, #2440a8 100%);
   color: #fff;
-  font-size: 0.85rem;
-  line-height: 1.35;
+  font-family: 'Pixelify Sans', ui-monospace, monospace;
+  font-size: clamp(0.62rem, 2.6vw, 0.85rem);
+  line-height: 1.2;
+  text-shadow: 1px 1px 0 #101838;
+  pointer-events: none;
 }
 
-.team-player { background: rgba(32, 64, 168, 0.92); }
-.team-enemy { background: rgba(160, 32, 32, 0.92); }
-.team-ally { background: rgba(32, 128, 64, 0.92); }
+.fe-window.team-enemy { background: linear-gradient(180deg, #e06868 0%, #c03838 55%, #a02828 100%); outline-color: #4a1414; }
+.fe-window.team-ally { background: linear-gradient(180deg, #60c078 0%, #349850 55%, #26803e 100%); outline-color: #10381c; }
+
+.fe-window strong { font-size: 1.15em; font-weight: 600; }
+.fe-window b { font-weight: 600; color: #fff6c8; }
+.fe-window .small { font-size: 0.85em; opacity: 0.95; }
+
+.at-top-left { top: 4%; left: 2%; }
+.at-top-right { top: 4%; right: 2%; }
+.at-bottom-left { bottom: 4%; left: 2%; }
+.at-bottom-right { bottom: 4%; right: 2%; }
+
+.unit-window { max-width: 58%; }
+.goal-window { text-align: right; }
+
+.forecast-window {
+  flex-direction: column;
+  gap: 4px;
+  min-width: 34%;
+}
+
+.forecast-side {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.forecast-side.team-player { background: rgba(32, 64, 168, 0.55); }
+.forecast-side.team-enemy { background: rgba(160, 32, 32, 0.55); }
+.forecast-side.team-ally { background: rgba(32, 128, 64, 0.55); }
+
+.forecast-side dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 0.6em;
+  margin: 2px 0 0;
+}
+
+.forecast-side dt { opacity: 0.85; }
+.forecast-side dd { margin: 0; text-align: right; font-weight: 600; color: #fff6c8; }
+
+/* HP along the bottom during a battle, as in FE's map battles. */
+.battle-hud {
+  position: absolute;
+  z-index: 2;
+  left: 2%;
+  right: 2%;
+  bottom: 3%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4%;
+  pointer-events: none;
+}
+
+.battle-hud .fe-window {
+  position: static;
+}
 
 .hp-bar {
   height: 6px;
@@ -622,4 +661,78 @@ h3 {
 
 a.button {
   text-decoration: none;
+}
+
+/* The game: a dark console around a 3:2 game screen, with the controls below, as in Delta. */
+.game {
+  margin: 0.75rem 0;
+  padding: 10px 10px 4px;
+  border-radius: 14px;
+  background: #1b1d2a;
+  color: #e8e6f0;
+}
+
+.game .note,
+.game .play-hint {
+  color: #b9b6c8;
+}
+
+.game-screen {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #000;
+}
+
+.game-screen .map {
+  width: 100%;
+  height: 100%;
+}
+
+.game .gba-controls button {
+  background: #3a3d52;
+  color: #e8e6f0;
+}
+
+.game .gba-controls button:active {
+  background: #6e9fd0;
+  color: #0e1114;
+}
+
+.gba-controls {
+  flex-wrap: wrap;
+}
+
+.pills {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.gba-controls .pill {
+  min-height: 36px;
+  padding: 0 1.1rem;
+  border-radius: 18px;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gba-controls .pill:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.play-hint {
+  min-height: 3em;
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.phase-banner,
+.result-screen strong,
+.popup {
+  font-family: 'Pixelify Sans', ui-monospace, monospace;
 }

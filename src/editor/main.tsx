@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { PlayPage } from '../export/PlayPage';
 import { PLAY_PREFIX } from '../export/share';
 import { App } from './App';
+import '@fontsource/pixelify-sans/400.css';
+import '@fontsource/pixelify-sans/600.css';
 import './app.css';
 
 const root = document.getElementById('root');

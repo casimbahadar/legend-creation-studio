@@ -1,5 +1,6 @@
-// Playing a chapter: the map with units, cursor, ranges and walking, battles, the computer's phases,
-// the windows around them and the GBA controls. Shared by the editor's test play and the web game's
+// Playing a chapter on an FE8-style game screen (decision 35): 15 x 10 squares of the map that scroll
+// with the cursor, with units, ranges and walking, battles, the computer's phases and FE's windows
+// over it, and the GBA controls below. Shared by the editor's test play and the web game's
 // Play page (decision 33). Play's rules, drawing and the ROM catalog live in src/play.
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
@@ -28,12 +29,13 @@ import {
 import type { ProjectChapter } from '../core/project';
 import { unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
 import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } from '../play/draw';
+import { followCamera, VIEW_HEIGHT, VIEW_WIDTH } from '../play/camera';
 import { chapterRules } from '../play/rules';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { GbaControls } from './controls';
 import { unitCharacters, type EditorRom } from './project-io';
-import { BattleHud, BattlePopup, ForecastBox, PlayStatus } from './TestPlayPanels';
+import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
 /** How long a phase banner shows, and the pause between computer units' actions. */
 const BANNER_MS = 1000;
@@ -88,6 +90,24 @@ export function PlayScreen({
   const unitLabel = (u: { id: string; class: string }) =>
     chapter.units.find((x) => x.id === u.id)?.name ?? characters.get(u.id)?.name ?? artByName.get(u.class)?.entry.label ?? u.class;
 
+  // The view follows a unit on the move, the unit being hit, or else the cursor. It is worked out here
+  // so the windows can sit away from what it follows; the draw loop scrolls to it smoothly.
+  const viewW = Math.min(VIEW_WIDTH, map.width);
+  const viewH = Math.min(VIEW_HEIGHT, map.height);
+  const followed: readonly [number, number] = view.walking
+    ? [view.walking.route[view.walking.route.length - 1]! % map.width, Math.floor(view.walking.route[view.walking.route.length - 1]! / map.width)]
+    : (view.battle && play.units.find((u) => u.id === view.battle!.defender)?.at) || view.cursor;
+  const camera = useRef<[number, number]>(followCamera([0, 0], view.cursor, map.width, map.height));
+  camera.current = followCamera(camera.current, followed, map.width, map.height);
+  const cam = camera.current;
+  const shown = useRef<[number, number]>([cam[0] * 16, cam[1] * 16]);
+  /** Which side of the screen the cursor is on, to put windows on the other. */
+  const cursorRight = view.cursor[0] - cam[0] >= viewW / 2;
+  const cursorLow = view.cursor[1] - cam[1] >= viewH / 2;
+  const side = cursorRight ? 'left' : 'right';
+  const unitCorner: Corner = `${cursorLow ? 'top' : 'bottom'}-${side}`;
+  const goalCorner: Corner = `${cursorLow ? 'bottom' : 'top'}-${side}`;
+
   const arrow = visibleRoute(view, rules);
   // When a walk starts, note the time; the draw loop moves the unit along its route from then on.
   const walk = view.walking;
@@ -133,18 +153,22 @@ export function PlayScreen({
     const c = canvas.current;
     const g = c?.getContext('2d');
     if (!c || !g) return;
-    c.width = mapImage.width;
-    c.height = mapImage.height;
+    c.width = viewW * 16;
+    c.height = viewH * 16;
     g.imageSmoothingEnabled = false;
     let raf = 0;
     const draw = (now: number) => {
+      // Scroll toward the camera a few pixels a frame, as FE does.
+      const step = (from: number, to: number) => from + Math.sign(to - from) * Math.min(Math.abs(to - from), 6);
+      shown.current = [step(shown.current[0], camera.current[0] * 16), step(shown.current[1], camera.current[1] * 16)];
+      g.setTransform(1, 0, 0, 1, -shown.current[0], -shown.current[1]);
       g.drawImage(mapImage, 0, 0);
       if (range) {
-        const w = c.width / 16;
+        const w = map.width;
         for (const k of range.stops.keys()) drawRangeSquare(g, k % w, Math.floor(k / w), MOVE_COLOURS);
         for (const k of range.attack) drawRangeSquare(g, k % w, Math.floor(k / w), ATTACK_COLOURS);
       }
-      if (arrow) drawArrow(g, arrow, c.width / 16);
+      if (arrow) drawArrow(g, arrow, map.width);
       const frame = idleFrame(now);
       let walkDone = false;
       const bf = battle ? battleFrame(battle.strikes, battleFrom.current, now - battleStart.current) : null;
@@ -162,7 +186,7 @@ export function PlayScreen({
           }
         }
         if (!walk || walk.id !== u.id) return { u, x: u.at[0], y: u.at[1], walking: false };
-        const pos = walkPosition(walk.route, c.width / 16, now - walkStart.current);
+        const pos = walkPosition(walk.route, map.width, now - walkStart.current);
         walkDone = pos.done;
         return { u, x: pos.x, y: pos.y, walking: !pos.done };
       });
@@ -185,11 +209,12 @@ export function PlayScreen({
         if (bf.done) setView((v) => finishBattle(v));
       }
       if (!battle) drawCursor(g, view.cursor[0], view.cursor[1], now);
+      g.setTransform(1, 0, 0, 1, 0, 0);
       raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules]);
+  }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH]);
 
   // The computer's phases: a pause on each phase banner, then one unit at a time.
   const aiTurn = (view.phase !== 'player' || !!view.banner) && !view.walking && !view.battle;
@@ -202,68 +227,58 @@ export function PlayScreen({
   function onMapTap(event: MouseEvent<HTMLCanvasElement>) {
     const c = event.currentTarget;
     const rect = c.getBoundingClientRect();
-    const x = Math.floor(((event.clientX - rect.left) / rect.width) * (c.width / 16));
-    const y = Math.floor(((event.clientY - rect.top) / rect.height) * (c.height / 16));
+    const x = cam[0] + Math.floor(((event.clientX - rect.left) / rect.width) * viewW);
+    const y = cam[1] + Math.floor(((event.clientY - rect.top) / rect.height) * viewH);
     // A tap moves the cursor there and presses A.
     setView(tapAt(view, x, y, rules));
   }
 
+  const phase: PlayPhase = view.outcome ? 'over' : view.phase !== 'player' ? view.phase : view.battle ? 'battle' : view.walking ? 'walk' : (view.action?.kind ?? null);
+  /** The screen position, in percent, of the top middle of a map square. */
+  const position = (at: readonly [number, number]) => ({ left: `${((at[0] - cam[0] + 0.5) / viewW) * 100}%`, top: `${((at[1] - cam[1]) / viewH) * 100}%` });
+  const under = unitAt(play, view.cursor[0], view.cursor[1]);
+  const a = view.action;
+
   return (
-    <>
-      <PlayStatus
-        play={play}
-        selected={selectedUnit}
-        canMove={canMove}
-        phase={view.outcome ? 'over' : view.phase !== 'player' ? view.phase : view.battle ? 'battle' : view.walking ? 'walk' : (view.action?.kind ?? null)}
-        label={(u) => artByName.get(u.class)?.entry.label ?? u.class}
-        onEndTurn={() => setView((v) => endPlayerTurn(v))}
-      />
-      <div className="play-window" aria-live="polite">
-        {(() => {
-          const a = view.action;
-          if (a?.kind === 'target') {
+    <div className="game">
+      <div className="game-screen" style={{ aspectRatio: `${viewW} / ${viewH}` }}>
+        <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+        {!battle && !view.banner && !view.outcome && a?.kind !== 'target' && a?.kind !== 'menu' && (
+          <>
+            {under && <UnitWindow unit={under} label={unitLabel(under)} weapon={weaponsOf(artByName.get(under.class), under.items, data.items)[0]?.entry.gameName} corner={unitCorner} />}
+            {!view.walking && <GoalWindow play={play} corner={goalCorner} />}
+          </>
+        )}
+        {a?.kind === 'target' &&
+          (() => {
             const atk = play.units.find((u) => u.id === a.unit);
             const def = play.units.find((u) => u.id === a.targets[a.index]);
             if (!atk || !def) return null;
             const f = chapterPlay.preview(atk, def);
-            return <ForecastBox a={atk} d={def} f={f.forecast} aWeapon={f.attackerWeapon?.entry.gameName} dWeapon={f.defenderWeapon?.entry.gameName} label={unitLabel} />;
-          }
-          if (battle && hud) {
-            return <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />;
-          }
-          const u = unitAt(play, view.cursor[0], view.cursor[1]);
-          if (!u) return null;
-          const w = weaponsOf(artByName.get(u.class), u.items, data.items)[0];
-          return (
-            <div className={`window-side team-${u.team}`}>
-              <strong>{unitLabel(u)}</strong>
-              <span>
-                Lv {u.level} · HP {u.hp}/{u.stats.hp} · {w ? w.entry.gameName : 'No weapon'}
-              </span>
-              <span>
-                Str {u.stats.str} · Skl {u.stats.skl} · Spd {u.stats.spd} · Lck {u.stats.lck} · Def {u.stats.def} · Res {u.stats.res}
-              </span>
-            </div>
-          );
-        })()}
-      </div>
-      <div className="map-wrap">
-        <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
-        {view.action?.kind === 'menu' &&
+            return <ForecastWindow a={atk} d={def} f={f.forecast} aWeapon={f.attackerWeapon?.entry.gameName} dWeapon={f.defenderWeapon?.entry.gameName} label={unitLabel} corner={`top-${side}`} />;
+          })()}
+        {a?.kind === 'menu' &&
           (() => {
-            const u = play.units.find((x) => x.id === view.action!.unit);
-            // The menu opens on the side of the map away from the unit, as in FE.
-            const side = u && u.at[0] >= rules.width / 2 ? 'left' : 'right';
+            const u = play.units.find((x) => x.id === a.unit);
+            // The menu opens on the side of the screen away from the unit, as in FE.
+            const menuSide = u && u.at[0] - cam[0] >= viewW / 2 ? 'left' : 'right';
             return (
-              <div className={`action-menu ${side}`} role="menu">
+              <div className={`fe-window action-menu ${menuSide}`} role="menu">
                 {menuOptions(view, rules).map((o, i) => (
-                  <button key={o} type="button" role="menuitem" aria-current={view.action?.index === i} onClick={() => setView((v) => chooseOption(v, o, rules))}>
+                  <button key={o} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseOption(v, o, rules))}>
                     {o === 'attack' ? 'Attack' : 'Wait'}
                   </button>
                 ))}
               </div>
             );
           })()}
+        {battle && hud && <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />}
+        {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
+        {view.banner && (
+          <div className={`phase-banner phase-${view.banner}`} role="status">
+            {view.banner === 'player' ? 'Player Phase' : view.banner === 'enemy' ? 'Enemy Phase' : 'Ally Phase'}
+          </div>
+        )}
         {view.outcome && (
           <div className={`result-screen ${view.outcome.result}`} role="alertdialog" aria-label={view.outcome.result === 'victory' ? 'Chapter clear' : 'Defeat'}>
             <strong>{view.outcome.result === 'victory' ? 'Chapter Clear!' : 'Defeat'}</strong>
@@ -287,19 +302,19 @@ export function PlayScreen({
             </div>
           </div>
         )}
-        {view.banner && (
-          <div className={`phase-banner phase-${view.banner}`} role="status">
-            {view.banner === 'player' ? 'Player Phase' : view.banner === 'enemy' ? 'Enemy Phase' : 'Ally Phase'}
-          </div>
-        )}
-        {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} width={map.width} height={map.height} />}
       </div>
-      <GbaControls onDirection={(dx, dy) => setView((v) => moveCursor(v, dx, dy, rules))} onA={() => setView((v) => pressA(v, rules))} onB={() => setView((v) => pressB(v, rules))} />
+      <GbaControls
+        onDirection={(dx, dy) => setView((v) => moveCursor(v, dx, dy, rules))}
+        onA={() => setView((v) => pressA(v, rules))}
+        onB={() => setView((v) => pressB(v, rules))}
+        extra={[{ label: 'End turn', onPress: () => setView((v) => endPlayerTurn(v)), disabled: phase !== null }]}
+      />
+      <PlayHint play={play} selected={selectedUnit} canMove={canMove} phase={phase} label={(u) => artByName.get(u.class)?.entry.label ?? u.class} />
       <p className="note">
         You can also tap a square: that moves the cursor there and presses A. On a computer, use the arrow keys, Z for A and X for B.
         {note ? ` ${note}` : ''}
       </p>
-    </>
+    </div>
   );
 }
 
