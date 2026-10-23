@@ -12,19 +12,25 @@ export type HuffmanCodes = ReadonlyMap<number, readonly number[]>;
 const MAX_DEPTH = 64;
 
 export function readHuffmanCodes(rom: GbaRom, t: TextTable): HuffmanCodes {
+  const count = Math.floor((rom.size - t.nodes) / 4);
+  return codesOfNodes((i) => (i >= 0 && i < count ? rom.u32(t.nodes + i * 4) : undefined), (t.root - t.nodes) / 4);
+}
+
+/** The codes of a tree given as its node words (by index) and its root's index. */
+export function codesOfNodes(node: (index: number) => number | undefined, root: number): HuffmanCodes {
   const codes = new Map<number, number[]>();
-  const walk = (node: number, path: number[]) => {
-    if (path.length > MAX_DEPTH || node < 0 || node + 4 > rom.size) return;
-    const w = rom.u32(node);
+  const walk = (index: number, path: number[]) => {
+    const w = node(index);
+    if (path.length > MAX_DEPTH || w === undefined) return;
     if (w & 0x80000000) {
       const v = w & 0xffff;
       if (!codes.has(v)) codes.set(v, path);
       return;
     }
-    walk(t.nodes + rom.u16(node) * 4, [...path, 0]);
-    walk(t.nodes + rom.u16(node + 2) * 4, [...path, 1]);
+    walk(w & 0xffff, [...path, 0]);
+    walk(w >>> 16, [...path, 1]);
   };
-  walk(t.root, []);
+  walk(root, []);
   return codes;
 }
 
@@ -37,19 +43,19 @@ export const TEXT_FILLER = 0x1f;
 /**
  * `text` (bytes, without a terminator) compressed with `codes`, ending with the terminator. FE8's
  * tree holds letters only in pairs, so a lone last letter is paired with the filler, as the game
- * does; otherwise the shortest split into the pairs and single bytes the tree has is used. Throws
- * when no split works.
+ * does (unless `filler` is false, for text that must decode to exactly these bytes); otherwise the
+ * shortest split into the pairs and single bytes the tree has is used. Throws when no split works.
  */
-export function encodeTextBytes(codes: HuffmanCodes, text: readonly number[]): Uint8Array {
+export function encodeTextBytes(codes: HuffmanCodes, text: readonly number[], filler = true): Uint8Array {
   const n = text.length;
   // best[i]: the shortest code for text[i..]; null if there is none.
   const best: ({ bits: number; symbol: number; next: number } | null)[] = new Array(n + 1).fill(null);
   best[n] = { bits: 0, symbol: -1, next: n };
   for (let i = n - 1; i >= 0; i--) {
-    if (text[i] === 0) continue;
-    const options: [number, number][] = [[text[i]!, i + 1]];
+    // A 0 on its own would end the text, so an inner 0 can only start a pair.
+    const options: [number, number][] = text[i] === 0 ? [] : [[text[i]!, i + 1]];
     if (i + 1 < n && text[i + 1] !== 0) options.push([text[i]! | (text[i + 1]! << 8), i + 2]);
-    if (i + 1 === n) options.push([text[i]! | (TEXT_FILLER << 8), n]);
+    if (filler && i + 1 === n && text[i] !== 0) options.push([text[i]! | (TEXT_FILLER << 8), n]);
     for (const [symbol, next] of options) {
       const code = codes.get(symbol);
       const rest = best[next];
