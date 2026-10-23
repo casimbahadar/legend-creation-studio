@@ -5,7 +5,7 @@ import { ASSET_TABLE, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readUnitList }
 import { GENERIC_ENEMY } from './fe8-character-names';
 import { CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE } from './fe8-characters';
 import { readRom, ROM_BASE, type GbaRom } from './gba-rom';
-import { decodeTextBytes, type TextTable } from './text';
+import { decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, type TextTable } from './text';
 import { crc32 } from './crc32';
 import { applyUps, createUps } from './ups';
 
@@ -53,6 +53,11 @@ function fakeClean(): Uint8Array {
   u32(NODES + 20, 2 | (3 << 16));
   u32(ROOT, 4 | (5 << 16));
   for (let i = 0; i < TEXT.count; i++) u32(TEXT.table + i * 4, ROM_BASE + 0x252000);
+  bytes[0x252000] = 0x0d; // "AB": the pair AB (1, 0), then the end (1, 1)
+  // The text decoder's pointers to the tree and to the root pointer, which sits after the root.
+  u32(ROOT + 4, ROM_BASE + ROOT);
+  u32(FE8U_ROOT_POINTER_LITERAL, ROM_BASE + ROOT + 4);
+  u32(FE8U_TREE_LITERAL, ROM_BASE + NODES);
   // The character table as on the real ROM: an empty record 0, then characters numbered from 1.
   for (let k = 0; k < 0x50; k++) bytes[FE8_US_CHARACTER_TABLE + k * CHARACTER_STRIDE + 4] = k + 1;
   view.setUint16(FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE, 0x10, true);
@@ -174,8 +179,21 @@ describe('FE8 builder', () => {
     expect(out.u8(franz + 0x0b)).toBe(3);
     // Another unit's character is untouched, and a name the tree can't write is refused.
     expect(out.u32(TEXT.table + 0x11 * 4)).toBe(ROM_BASE + 0x252000);
-    c.units[1]!.name = 'Franz';
-    expect(() => buildFe8Rom(readRom(clean), TEXT, c)).toThrow("can't spell this name");
+  });
+
+  it("adds letters to the game's text for a name its pairs can't spell, leaving other text unchanged", () => {
+    const c = chapter();
+    c.units[1]!.name = 'Franz B.';
+    const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
+    // The decoder's pointers now lead to a tree in the added area.
+    const nodes = out.offsetOf(out.u32(FE8U_TREE_LITERAL));
+    const root = out.offsetOf(out.u32(out.offsetOf(out.u32(FE8U_ROOT_POINTER_LITERAL))));
+    expect(nodes).toBeGreaterThanOrEqual(EXPANSION);
+    const moved: TextTable = { ...TEXT, nodes, root };
+    expect(String.fromCharCode(...decodeTextBytes(out, moved, 0x10))).toBe('Franz B.');
+    expect(String.fromCharCode(...decodeTextBytes(out, moved, 0x11))).toBe('AB');
+    // Without such a name the tree stays where it was.
+    expect(readRom(buildFe8Rom(readRom(clean), TEXT, chapter()).bytes).u32(FE8U_TREE_LITERAL)).toBe(ROM_BASE + NODES);
   });
 
   it('refuses slots whose next chapter it cannot find', () => {

@@ -21,9 +21,10 @@ import { BASE_LEVEL, BASE_STATS, characterRecord, readCharacterStats } from './f
 import { readClassStats } from './fe8-classes';
 import { FE8_ITEM_NAMES } from './fe8-item-names';
 import { FE8_CLASS_NAMES } from './fe8-names';
-import { ROM_BASE, type GbaRom } from './gba-rom';
-import type { TextTable } from './text';
+import { readRom, ROM_BASE, type GbaRom } from './gba-rom';
+import { decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, type TextTable } from './text';
 import { encodeTextBytes, readHuffmanCodes } from './text-encode';
+import { changedTexts, extendTree } from './text-extend';
 
 /** Where the added area starts: just past the clean ROM. */
 export const EXPANSION = 0x1000000;
@@ -208,6 +209,18 @@ export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, n
   return notes;
 }
 
+/** Throws unless every text entry but the renamed ones decodes the same with the moved, extended tree. */
+function checkText(clean: GbaRom, text: TextTable, bytes: Uint8Array, moved: { base: number; root: number }, renamed: ReadonlySet<number>) {
+  const built = readRom(bytes);
+  const after: TextTable = { ...text, nodes: built.offsetOf(moved.base), root: built.offsetOf(moved.root) };
+  for (let id = 0; id < text.count; id++) {
+    if (renamed.has(id)) continue;
+    const a = decodeTextBytes(clean, text, id);
+    const b = decodeTextBytes(built, after, id);
+    if (a.length !== b.length || a.some((x, k) => x !== b[k])) throw new Error(`Adding letters for the names changed the game's text ${id}, so the patch wasn't made.`);
+  }
+}
+
 /**
  * The clean ROM with `chapter` in place of the vanilla chapter it replaces (the Prologue by default).
  * Throws with a plain-words message when the chapter can't be built.
@@ -252,16 +265,35 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const noTutorial = w.words([0]);
   const noTraps = w.bytes([0]);
 
-  // Player units' names, encoded with the ROM's tree; each replaces its character's name text.
+  // Player units' names, encoded with the ROM's tree; each replaces its character's name text. When
+  // a name needs letters the tree lacks, the tree is extended (text-extend) and moved here too, and
+  // the few game texts whose code that changes are re-encoded with it.
   const playerUnits = chapter.units.filter((u) => u.team === 'player');
-  const codes = playerUnits.some((u) => u.name) ? readHuffmanCodes(clean, text) : null;
-  const names = playerUnits.flatMap((u) => {
+  const wanted = playerUnits.flatMap((u) => {
     const name = u.name?.trim();
-    if (!name || !codes) return [];
-    const record = characterRecord(clean, characters.get(u.id)!);
-    const encoded = encodeTextBytes(codes, [...name].map((c) => c.charCodeAt(0)));
-    return [{ textId: clean.u16(record), pointer: w.bytes(Array.from(encoded)) }];
+    return name ? [{ textId: clean.u16(characterRecord(clean, characters.get(u.id)!)), bytes: [...name].map((c) => c.charCodeAt(0)) }] : [];
   });
+  const vanillaCodes = wanted.length ? readHuffmanCodes(clean, text) : null;
+  const spellable = (b: number[]) => {
+    try {
+      encodeTextBytes(vanillaCodes!, b);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const tree = wanted.some((n) => !spellable(n.bytes)) ? extendTree(clean, text) : null;
+  let moved: { base: number; root: number; texts: { id: number; pointer: number }[] } | null = null;
+  if (tree) {
+    if (clean.u32(FE8U_TREE_LITERAL) !== ROM_BASE + text.nodes || clean.u32(clean.offsetOf(clean.u32(FE8U_ROOT_POINTER_LITERAL))) !== ROM_BASE + text.root) {
+      throw new Error("This ROM's text isn't where this tool expects it, so it can't add letters for these names.");
+    }
+    const base = w.words(tree.words);
+    const texts = changedTexts(clean, text, tree).map((c) => ({ id: c.id, pointer: w.bytes(Array.from(encodeTextBytes(tree.codes, c.bytes, false))) }));
+    moved = { base, root: base + tree.root * 4, texts };
+  }
+  const codes = tree?.codes ?? vanillaCodes;
+  const names = wanted.map((n) => ({ textId: n.textId, pointer: w.bytes(Array.from(encodeTextBytes(codes!, n.bytes))) }));
 
   // The new event group starts as a copy of vanilla's, which keeps its skirmish lists.
   const group = Array.from({ length: EVENT_GROUP.size / 4 }, (_, k) => clean.u32(vanillaGroup + 4 * k));
@@ -287,6 +319,12 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   for (const n of names) {
     if (n.textId >= text.count) throw new Error("A character's name isn't where this tool expects it.");
     view.setUint32(text.table + n.textId * 4, n.pointer, true);
+  }
+  if (moved) {
+    for (const m of moved.texts) view.setUint32(text.table + m.id * 4, m.pointer, true);
+    view.setUint32(FE8U_TREE_LITERAL, moved.base, true);
+    view.setUint32(clean.offsetOf(clean.u32(FE8U_ROOT_POINTER_LITERAL)), moved.root, true);
+    checkText(clean, text, bytes, moved, new Set(names.map((n) => n.textId)));
   }
   // Player units' stats, as their characters' personal bases at their level (signed bytes). Read
   // from the clean ROM, since only the character's record changes.
