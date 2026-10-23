@@ -689,6 +689,11 @@ a.button {
   height: 100%;
 }
 
+/* A clear gap under the game screen, so a tap meant for the up button can't land on the map. */
+.game .gba-controls {
+  margin-top: 2.5rem;
+}
+
 .game .gba-controls button {
   background: #3a3d52;
   color: #e8e6f0;
