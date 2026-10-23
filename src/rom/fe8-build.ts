@@ -16,7 +16,7 @@
 import { characterStatsAtLevel, withBonus } from '../core/combat';
 import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectUnit, type StatKey, type Team } from '../core/project';
 import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
-import { FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
+import { FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
 import { BASE_LEVEL, BASE_STATS, characterRecord, readCharacterStats } from './fe8-characters';
 import { readClassStats } from './fe8-classes';
 import { FE8_ITEM_NAMES } from './fe8-item-names';
@@ -123,12 +123,15 @@ function idOf<T extends { name: string; id: number }>(list: readonly T[], name: 
 }
 
 /** The FE8 character id each unit will be: its own, one picked for it, or a generic Soldier or Frelian. */
+/** Player units and boss enemies: units whose FE8 character takes their name and stats (decisions 30, 31, 34). */
+export const ownsCharacter = (u: ProjectUnit) => u.team === 'player' || (u.team === 'enemy' && u.character !== undefined);
+
 export function characterIds(rom: GbaRom, units: readonly ProjectUnit[]): Map<string, number> {
   const defaultClassOf = (id: number) => rom.u8(characterRecord(rom, id) + 5);
   const taken = new Set(units.flatMap((u) => (u.team === 'player' && u.character ? [u.character] : [])));
   const out = new Map<string, number>();
   for (const u of units) {
-    if (u.team === 'enemy') out.set(u.id, GENERIC_ENEMY);
+    if (u.team === 'enemy') out.set(u.id, u.character ? idOf(FE8_BOSS_NAMES, u.character, 'boss') : GENERIC_ENEMY);
     else if (u.team === 'ally') out.set(u.id, GENERIC_ALLY);
     else {
       let name = u.character ?? pickCharacter(u.class, idOf(FE8_CLASS_NAMES, u.class, 'class'), taken, defaultClassOf);
@@ -145,9 +148,9 @@ export function unitDefinition(u: ProjectUnit, character: number): number[] {
   const d = new Array<number>(UNIT_DEFINITION_SIZE).fill(0);
   d[0] = character;
   d[1] = idOf(FE8_CLASS_NAMES, u.class, 'class');
-  // Enemies and allies autolevel: FE8 raises them from level 1 by their class's growths. Player units
-  // don't, since their characters already hold their stats at this level (see playerStats).
-  d[3] = (u.team === 'player' ? 0 : 1) | (ALLEGIANCE[u.team] << 1) | (u.level << 3);
+  // Generic enemies and allies autolevel: FE8 raises them from level 1 by their class's growths. Units
+  // with their own character don't, since it already holds their stats at this level (see ownStats).
+  d[3] = (ownsCharacter(u) ? 0 : 1) | (ALLEGIANCE[u.team] << 1) | (u.level << 3);
   const pos = (u.at[0] & 0x3f) | ((u.at[1] & 0x3f) << 6);
   d[4] = pos & 0xff;
   d[5] = pos >> 8;
@@ -157,12 +160,12 @@ export function unitDefinition(u: ProjectUnit, character: number): number[] {
 }
 
 /**
- * The personal bases that make a player unit load at exactly its test-play stats (decision 31): its
+ * The personal bases that make a unit with its own character load at exactly its test-play stats (decision 31): its
  * class's bases plus its character's, grown by the character's growths to its level, with its custom
  * stats added, minus the class's bases. Written with the unit's level as the character's base level,
  * so FE8 adds nothing on loading.
  */
-export function playerStats(rom: GbaRom, u: ProjectUnit, character: number): Record<StatKey, number> {
+export function ownStats(rom: GbaRom, u: ProjectUnit, character: number): Record<StatKey, number> {
   const cls = readClassStats(rom, idOf(FE8_CLASS_NAMES, u.class, 'class'));
   const own = readCharacterStats(rom, characterRecord(rom, character));
   const target = withBonus(characterStatsAtLevel(cls.base, own.base, own.growths, own.baseLevel, u.level), u.statBonus);
@@ -195,9 +198,10 @@ export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, n
   for (const u of chapter.units) {
     const who = u.name ?? u.id;
     const character = FE8_CHARACTER_NAMES.find((c) => c.id === names.get(u.id))?.name;
-    if (u.team !== 'player') {
-      if (u.statBonus && Object.values(u.statBonus).some((v) => v !== 0)) notes.push(`${who}: custom stats for enemies and allies aren't in the patch yet.`);
-      if (u.name) notes.push(`${who}: names for enemies and allies aren't in the patch yet.`);
+    if (!ownsCharacter(u)) {
+      const fix = u.team === 'enemy' ? ' Pick a boss for this enemy to keep them.' : '';
+      if (u.statBonus && Object.values(u.statBonus).some((v) => v !== 0)) notes.push(`${who}: custom stats need an FE8 character in the patch.${fix}`);
+      if (u.name) notes.push(`${who}: names need an FE8 character in the patch.${fix}`);
     }
     if (u.team === 'player') {
       const lord = character !== undefined && GAME_OVER_CHARACTERS.has(character);
@@ -265,11 +269,11 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const noTutorial = w.words([0]);
   const noTraps = w.bytes([0]);
 
-  // Player units' names, encoded with the ROM's tree; each replaces its character's name text. When
+  // Names of units with their own character, encoded with the ROM's tree; each replaces its character's name text. When
   // a name needs letters the tree lacks, the tree is extended (text-extend) and moved here too, and
   // the few game texts whose code that changes are re-encoded with it.
-  const playerUnits = chapter.units.filter((u) => u.team === 'player');
-  const wanted = playerUnits.flatMap((u) => {
+  const ownUnits = chapter.units.filter(ownsCharacter);
+  const wanted = ownUnits.flatMap((u) => {
     const name = u.name?.trim();
     return name ? [{ textId: clean.u16(characterRecord(clean, characters.get(u.id)!)), bytes: [...name].map((c) => c.charCodeAt(0)) }] : [];
   });
@@ -326,12 +330,12 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
     view.setUint32(clean.offsetOf(clean.u32(FE8U_ROOT_POINTER_LITERAL)), moved.root, true);
     checkText(clean, text, bytes, moved, new Set(names.map((n) => n.textId)));
   }
-  // Player units' stats, as their characters' personal bases at their level (signed bytes). Read
-  // from the clean ROM, since only the character's record changes.
-  for (const u of playerUnits) {
+  // Their stats, as their characters' personal bases at their level (signed bytes). Read from the
+  // clean ROM, since only the character's record changes.
+  for (const u of ownUnits) {
     const id = characters.get(u.id)!;
     const record = characterRecord(clean, id);
-    const personal = playerStats(clean, u, id);
+    const personal = ownStats(clean, u, id);
     for (const k of STAT_KEYS) view.setInt8(record + BASE_STATS + PERSONAL_ORDER[k], Math.max(-128, Math.min(127, personal[k])));
     bytes[record + BASE_LEVEL] = u.level;
   }

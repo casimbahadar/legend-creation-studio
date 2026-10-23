@@ -59,7 +59,7 @@ function fakeClean(): Uint8Array {
   u32(FE8U_ROOT_POINTER_LITERAL, ROM_BASE + ROOT + 4);
   u32(FE8U_TREE_LITERAL, ROM_BASE + NODES);
   // The character table as on the real ROM: an empty record 0, then characters numbered from 1.
-  for (let k = 0; k < 0x50; k++) bytes[FE8_US_CHARACTER_TABLE + k * CHARACTER_STRIDE + 4] = k + 1;
+  for (let k = 0; k < 0x70; k++) bytes[FE8_US_CHARACTER_TABLE + k * CHARACTER_STRIDE + 4] = k + 1;
   view.setUint16(FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE, 0x10, true);
   bytes.set([1, 2, 0, 0, 0, 0, 3, 0], FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x0c); // Franz's personal bases
   bytes[FE8_US_CHARACTER_TABLE + 3 * CHARACTER_STRIDE + 0x1c] = 100; // and HP growth
@@ -160,9 +160,26 @@ describe('FE8 builder', () => {
     c.units[2]!.name = 'Brute';
     c.units[2]!.statBonus = { def: 1 };
     expect(buildFe8Rom(readRom(clean), TEXT, c).notes.slice(2)).toEqual([
-      "Brute: custom stats for enemies and allies aren't in the patch yet.",
-      "Brute: names for enemies and allies aren't in the patch yet.",
+      'Brute: custom stats need an FE8 character in the patch. Pick a boss for this enemy to keep them.',
+      'Brute: names need an FE8 character in the patch. Pick a boss for this enemy to keep them.',
     ]);
+    c.units[2]!.character = 'oneill';
+    expect(buildFe8Rom(readRom(clean), TEXT, c).notes.slice(2)).toEqual([]);
+  });
+
+  it("gives a boss enemy its boss's record, with its name and exact stats", () => {
+    const c = chapter();
+    Object.assign(c.units[2]!, { character: 'oneill', name: 'BABA', statBonus: { def: 2 } });
+    const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
+    const enemies = readUnitList(out, out.offsetOf(words(out, out.u32(groupOf(out) + EVENT_GROUP.beginningScene), 5)[4]!));
+    expect(enemies.map((u) => [u.character, u.autolevel, u.level])).toEqual([
+      [0x68, false, 2],
+      [GENERIC_ENEMY, true, 4],
+    ]);
+    const oneill = FE8_US_CHARACTER_TABLE + (0x68 - 1) * CHARACTER_STRIDE;
+    expect(out.u8(oneill + 0x0b)).toBe(2);
+    expect(out.u8(oneill + 0x0c + 4)).toBe(2); // Def: the class's 0 plus 2
+    expect(String.fromCharCode(...decodeTextBytes(out, TEXT, out.u16(oneill)))).toBe('BABA');
   });
 
   it("writes a player unit's name and its exact stats at its level into its character", () => {
