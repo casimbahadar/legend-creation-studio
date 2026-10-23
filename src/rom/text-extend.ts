@@ -8,11 +8,7 @@
 
 import type { GbaRom } from './gba-rom';
 import { decodeTextBytes, type TextTable } from './text';
-import { codesOfNodes, type HuffmanCodes } from './text-encode';
-
-/** Characters a name can use: printable ASCII. */
-export const FIRST_PRINTABLE = 0x20;
-export const LAST_PRINTABLE = 0x7e;
+import { codesOfNodes, FIRST_PRINTABLE, LAST_PRINTABLE, type HuffmanCodes } from './text-encode';
 
 const LEAF = 0x80000000;
 /** Leaves as the game writes them: 0xFFFF in the top half. */

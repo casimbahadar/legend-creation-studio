@@ -172,4 +172,22 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(rom.u32(FE8U_TREE_LITERAL)).toBe(0x08000000 + text.nodes);
     expect(rom.u32(rom.offsetOf(rom.u32(FE8U_ROOT_POINTER_LITERAL)))).toBe(0x08000000 + text.root);
   });
+
+  it('adds letters for a name the game can\'t spell, keeping every other text entry', () => {
+    const text = findTextTable(rom)!;
+    // The builder refuses to finish unless every other entry decodes as before.
+    const built = readRom(
+      buildFe8Rom(rom, text, {
+        id: 'c',
+        name: 'C',
+        map: 'fe8-us/chapter-entry-0',
+        goal: 'rout',
+        units: [{ id: 'x', class: 'lord-eirika', team: 'player', level: 1, at: [8, 5], name: 'Xavier', character: 'eirika' }],
+      }).bytes,
+    );
+    const moved = findTextTable(built)!;
+    expect(moved.nodes).toBeGreaterThanOrEqual(rom.size);
+    const eirikaName = rom.u16(findCharacterTable(rom)!);
+    expect(String.fromCharCode(...decodeTextBytes(built, moved, eirikaName)).replace(/\x1f+$/, '')).toBe('Xavier');
+  });
 });

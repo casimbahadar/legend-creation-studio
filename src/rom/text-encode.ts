@@ -75,12 +75,22 @@ export function encodeTextBytes(codes: HuffmanCodes, text: readonly number[], fi
   return out;
 }
 
-/** Why `name` can't be written into the game with `codes`, or null if it can. */
+/** Characters any name can use: printable ASCII, which the patch adds to the text when needed (text-extend). */
+export const FIRST_PRINTABLE = 0x20;
+export const LAST_PRINTABLE = 0x7e;
+
+/**
+ * Why `name` can't be written into the game, or null if it can: with the ROM's own `codes`, or, for
+ * printable characters, once the patch has added letters to the game's text.
+ */
 export function nameProblem(codes: HuffmanCodes, name: string): string | null {
+  const bytes = [...name.trim()].map((c) => c.charCodeAt(0));
   try {
-    encodeTextBytes(codes, [...name.trim()].map((c) => c.charCodeAt(0)));
+    encodeTextBytes(codes, bytes);
     return null;
-  } catch (e) {
-    return (e as Error).message;
+  } catch {
+    // Otherwise each character needs a code of its own once letters are added: printable, or one the ROM has alone (such as é).
+    const bad = bytes.find((b) => (b < FIRST_PRINTABLE || b > LAST_PRINTABLE) && !codes.has(b));
+    return bad === undefined ? null : `The game's text can't show "${String.fromCharCode(bad)}". Use letters, numbers and common punctuation.`;
   }
 }

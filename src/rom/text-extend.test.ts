@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readRom, ROM_BASE } from './gba-rom';
 import { decodeTextBytes, type TextTable } from './text';
-import { encodeTextBytes, readHuffmanCodes } from './text-encode';
-import { changedTexts, extendTree, FIRST_PRINTABLE, LAST_PRINTABLE } from './text-extend';
+import { encodeTextBytes, FIRST_PRINTABLE, LAST_PRINTABLE, readHuffmanCodes } from './text-encode';
+import { changedTexts, extendTree } from './text-extend';
 
 // A tree like FE8's, with letters only in pairs: "ab", "cd", "ef" and the end marker. Text 0 is
 // "abab", text 1 "cd", text 2 "ef" (the least used pair along with "cd"), text 3 "abcd".

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readRom, ROM_BASE } from './gba-rom';
 import { decodeTextBytes, type TextTable } from './text';
-import { encodeTextBytes, readHuffmanCodes } from './text-encode';
+import { encodeTextBytes, nameProblem, readHuffmanCodes } from './text-encode';
 
 describe('encoding FE text', () => {
   // A tree with leaves "A", "B", the pair "AB" and the end marker.
@@ -51,5 +51,17 @@ describe('encoding FE text', () => {
     v2.setUint32(TABLE, ROM_BASE + 0x300, true);
     expect(String.fromCharCode(...decodeTextBytes(rom2, t, 0))).toBe('abc');
     expect(() => encodeTextBytes(readHuffmanCodes(rom2, t), [...'abcc'].map((c) => c.charCodeAt(0)))).toThrow("can't spell this name");
+  });
+});
+
+describe('checking names', () => {
+  // Codes for the end marker and "é" only: printable names are fine, as the patch adds letters.
+  const codes = new Map([[0, [0]], [0xe9, [1]]]);
+  it('accepts printable names and characters the ROM can already write', () => {
+    expect(nameProblem(codes, 'Xavier')).toBeNull();
+    expect(nameProblem(codes, 'Ren é')).toBeNull();
+  });
+  it('flags characters outside both', () => {
+    expect(nameProblem(codes, 'Zoë')).toMatch('can\'t show "ë"');
   });
 });
