@@ -9,6 +9,8 @@ import { findCharacterTable, readCharacters, type RomCharacter } from '../rom/fe
 import { readAllChapterMaps, readChapterMap, type ChapterMap } from '../rom/fe8-maps';
 import { crc32, formatCrc32 } from '../rom/crc32';
 import { FE8_US_CRC32 } from '../rom/fe8';
+import { FE8U_SYSTEM_GLYPHS, readFont, readTextPalette, type Font } from '../rom/fe8-font';
+import type { Palette } from '../rom/gba-graphics';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
 import { readRom, type GbaRom } from '../rom/gba-rom';
@@ -46,6 +48,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     chapterTitles,
     characters,
     characterMismatches: checkCharacterNames(characters, ALL_CHARACTER_NAMES),
+    font: readGameFont(rom),
   };
 }
 
@@ -64,6 +67,18 @@ export interface EditorRom {
   /** FE8's character table by id - 1, or [] if it wasn't found. */
   readonly characters: RomCharacter[];
   readonly characterMismatches: CharacterMismatch[];
+  /** FE8's system font and text palette, for drawing play's windows in the game's own text (decision 35); null if not found. */
+  readonly font: GameFont | null;
+}
+
+export interface GameFont {
+  readonly glyphs: Font;
+  readonly palette: Palette;
+}
+
+function readGameFont(rom: GbaRom): GameFont | null {
+  const glyphs = readFont(rom, FE8U_SYSTEM_GLYPHS);
+  return glyphs ? { glyphs, palette: readTextPalette(rom) } : null;
 }
 
 export const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;

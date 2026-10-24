@@ -5,6 +5,7 @@ import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import type { PlayState, PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
+import { FeText } from './FeText';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
@@ -56,16 +57,25 @@ function HpBar({ hp, max }: { hp: number; max: number }) {
 export function UnitWindow({ unit, label, weapon, corner }: { unit: PlayUnit; label: string; weapon: string | undefined; corner: Corner }) {
   return (
     <div className={`fe-window unit-window team-${unit.team} at-${corner}`}>
-      <strong>{label}</strong>
-      <span className="hp-line">
-        HP <b>{unit.hp}</b>/{unit.stats.hp}
+      <span className="fe-line">
+        <FeText text={label} />
+      </span>
+      <span className="fe-line">
+        <FeText text="HP" colour="gold" />
+        <FeText text={` ${unit.hp}/${unit.stats.hp}`} />
       </span>
       <HpBar hp={unit.hp} max={unit.stats.hp} />
-      <span className="small">
-        Lv {unit.level} · {weapon ?? 'No weapon'}
+      <span className="fe-line">
+        <FeText text="Lv" colour="gold" />
+        <FeText text={` ${unit.level}  ${weapon ?? 'No weapon'}`} />
       </span>
-      <span className="small">
-        Str {unit.stats.str} Skl {unit.stats.skl} Spd {unit.stats.spd} Lck {unit.stats.lck} Def {unit.stats.def} Res {unit.stats.res}
+      <span className="fe-line">
+        {(['str', 'skl', 'spd', 'lck', 'def', 'res'] as const).map((k) => (
+          <span key={k} className="fe-stat">
+            <FeText text={k[0]!.toUpperCase() + k.slice(1)} colour="gold" />
+            <FeText text={` ${unit.stats[k]} `} />
+          </span>
+        ))}
       </span>
     </div>
   );
@@ -76,15 +86,24 @@ export function GoalWindow({ play, corner }: { play: PlayState; corner: Corner }
   const left = play.units.filter((u) => u.team === 'enemy').length;
   return (
     <div className={`fe-window goal-window at-${corner}`}>
-      <span>Defeat enemy</span>
-      <span>
-        Left <b>{left}</b> · Turn <b>{play.turn}</b>
+      <span className="fe-line">
+        <FeText text="Defeat enemy" />
+      </span>
+      <span className="fe-line">
+        <FeText text="Left" colour="gold" />
+        <FeText text={` ${left}  `} />
+        <FeText text="Turn" colour="gold" />
+        <FeText text={` ${play.turn}`} />
       </span>
     </div>
   );
 }
 
-/** FE's battle forecast: each side's name, weapon, HP, damage (×2 if it strikes twice), hit and crit. */
+/**
+ * FE8's battle forecast: the unit attacked on top and the attacker below, each with its weapon, and
+ * between them a row per stat, the label in the middle and each side's value beside it (damage ×2 if
+ * it strikes twice).
+ */
 export function ForecastWindow({
   a,
   d,
@@ -102,26 +121,32 @@ export function ForecastWindow({
   label: (u: PlayUnit) => string;
   corner: Corner;
 }) {
-  const side = (u: PlayUnit, s: Forecast['attacker'], weapon: string | undefined) => (
-    <div className={`forecast-side team-${u.team}`}>
-      <strong>{label(u)}</strong>
-      <span className="small">{weapon ?? 'No weapon'}</span>
-      <dl>
-        <dt>HP</dt>
-        <dd>{u.hp}</dd>
-        <dt>Mt</dt>
-        <dd>{s.canAttack ? `${s.damage}${s.doubles ? ' ×2' : ''}` : '--'}</dd>
-        <dt>Hit</dt>
-        <dd>{s.canAttack ? s.hit : '--'}</dd>
-        <dt>Crit</dt>
-        <dd>{s.canAttack ? s.crit : '--'}</dd>
-      </dl>
-    </div>
-  );
+  const value = (s: Forecast['attacker'], v: number | string) => (s.canAttack ? String(v) : '--');
+  const rows: [string, string, string][] = [
+    ['HP', String(d.hp), String(a.hp)],
+    ['Mt', value(f.defender, `${f.defender.damage}${f.defender.doubles ? 'x2' : ''}`), value(f.attacker, `${f.attacker.damage}${f.attacker.doubles ? 'x2' : ''}`)],
+    ['Hit', value(f.defender, f.defender.hit), value(f.attacker, f.attacker.hit)],
+    ['Crit', value(f.defender, f.defender.crit), value(f.attacker, f.attacker.crit)],
+  ];
   return (
     <div className={`fe-window forecast-window at-${corner}`}>
-      {side(d, f.defender, dWeapon)}
-      {side(a, f.attacker, aWeapon)}
+      <div className={`forecast-head team-${d.team}`}>
+        <FeText text={label(d)} />
+        <FeText text={dWeapon ?? 'No weapon'} />
+      </div>
+      <div className="forecast-rows">
+        {rows.map(([k, dv, av]) => (
+          <div key={k} className="forecast-row">
+            <FeText text={dv} />
+            <FeText text={k} colour="gold" />
+            <FeText text={av} />
+          </div>
+        ))}
+      </div>
+      <div className={`forecast-head team-${a.team}`}>
+        <FeText text={aWeapon ?? 'No weapon'} />
+        <FeText text={label(a)} />
+      </div>
     </div>
   );
 }
@@ -145,9 +170,12 @@ export function BattleHud({
   if (!attacker || !defender) return null;
   const bar = (u: PlayUnit, hp: number) => (
     <div className={`fe-window battle-side team-${u.team}`}>
-      <strong>{label(u)}</strong>
-      <span className="hp-line">
-        HP <b>{Math.max(0, hp)}</b>
+      <span className="fe-line">
+        <FeText text={label(u)} />
+      </span>
+      <span className="fe-line">
+        <FeText text="HP" colour="gold" />
+        <FeText text={` ${Math.max(0, hp)}`} />
       </span>
       <HpBar hp={hp} max={maxHp(u.id)} />
     </div>

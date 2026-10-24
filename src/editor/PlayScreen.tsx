@@ -34,6 +34,7 @@ import { chapterRules } from '../play/rules';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { GbaControls } from './controls';
+import { FeText, FontContext } from './FeText';
 import { unitCharacters, type EditorRom } from './project-io';
 import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
@@ -63,6 +64,9 @@ export function PlayScreen({
   note?: string;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  // How many CSS pixels one GBA pixel takes on this screen, for windows sized as in the game.
+  const screen = useRef<HTMLDivElement>(null);
+  const [gbaPx, setGbaPx] = useState(1.5);
   // One stream of random numbers per play session.
   const rng = useRef(randomNumbers(Date.now()));
   const characters = useMemo(() => unitCharacters(data, chapter.units), [data, chapter.units]);
@@ -73,6 +77,16 @@ export function PlayScreen({
   const [view, setView] = useState<PlayView>(start);
   const play = view.state;
   const selectedUnit = selectedOf(view);
+
+  useEffect(() => {
+    const el = screen.current;
+    if (!el) return;
+    const measure = () => setGbaPx(el.clientWidth / (Math.min(VIEW_WIDTH, map.width) * 16));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [map.width]);
 
   // The rules change only with the map or the ROM data.
   const chapterPlay = useMemo(() => chapterRules(map, artByName, data.items, () => rng.current()), [map, artByName, data.items]);
@@ -240,8 +254,9 @@ export function PlayScreen({
   const a = view.action;
 
   return (
+    <FontContext.Provider value={data.font}>
     <div className="game">
-      <div className="game-screen" style={{ aspectRatio: `${viewW} / ${viewH}` }}>
+      <div className="game-screen" ref={screen} style={{ aspectRatio: `${viewW} / ${viewH}`, ['--gba-px' as string]: `${gbaPx}px` }}>
         <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
         {!battle && !view.banner && !view.outcome && a?.kind !== 'target' && a?.kind !== 'menu' && (
           <>
@@ -266,7 +281,7 @@ export function PlayScreen({
               <div className={`fe-window action-menu ${menuSide}`} role="menu">
                 {menuOptions(view, rules).map((o, i) => (
                   <button key={o} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseOption(v, o, rules))}>
-                    {o === 'attack' ? 'Attack' : 'Wait'}
+                    <FeText text={o === 'attack' ? 'Attack' : 'Wait'} />
                   </button>
                 ))}
               </div>
@@ -315,6 +330,7 @@ export function PlayScreen({
         {note ? ` ${note}` : ''}
       </p>
     </div>
+    </FontContext.Provider>
   );
 }
 
