@@ -1,12 +1,13 @@
 // The windows on the game screen, in FE8's style (decision 35): the unit under the cursor, the goal,
 // the battle forecast, HP during a battle, and the damage popup; and the hint line under the controls.
 
-import type { ReactNode } from 'react';
+import { useContext, type ReactNode } from 'react';
 import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import type { PlayState, PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
 import { FeText } from './FeText';
+import { goalBox, MapBox, Place, unitBox, WindowArtContext } from './FeWindow';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
@@ -54,8 +55,34 @@ function HpBar({ hp, max }: { hp: number; max: number }) {
   );
 }
 
-/** FE's unit window: the unit under the cursor, its portrait (when it has one), name and HP. */
+/**
+ * FE's unit window: the unit under the cursor, its portrait (when it has one), name and HP. With the
+ * ROM's art, laid out as DrawUnitMapUi lays it out: the portrait at tile (1, 1), the name in black
+ * centred in 56 pixels at tile (5, 1), HP on tile row 3 and its bar on row 4.
+ */
 export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; label: string; corner: Corner; portrait?: ReactNode }) {
+  const art = useContext(WindowArtContext);
+  const b = art && unitBox(art, unit.team);
+  if (b)
+    return (
+      <MapBox box={b} className={`unit-box at-${corner}`}>
+        <Place box={b} x={8} y={8}>
+          {portrait}
+        </Place>
+        <Place box={b} x={40} y={8} width={56}>
+          <FeText text={label} colour="black" />
+        </Place>
+        <Place box={b} x={40} y={20}>
+          <span className="fe-line">
+            <FeText text="HP" colour="gold" />
+            <FeText text={` ${unit.hp}/${unit.stats.hp}`} />
+          </span>
+        </Place>
+        <Place box={b} x={40} y={33} width={56}>
+          <HpBar hp={unit.hp} max={unit.stats.hp} />
+        </Place>
+      </MapBox>
+    );
   return (
     <div className={`fe-window unit-window team-${unit.team} at-${corner}`}>
       {portrait}
@@ -93,9 +120,31 @@ export function UnitStrip({ unit, weapon }: { unit: PlayUnit | undefined; weapon
   );
 }
 
-/** FE's goal window: the objective, enemies left and the turn. */
+/**
+ * FE's goal window: the objective, enemies left and (in the look-alike) the turn. With the ROM's art, as GoalDisplay_Init
+ * draws a rout goal: the objective centred in 64 pixels at tile (1, 1) of the box (its text buffer is
+ * copied two rows above the box's), and below it "Left" at 16 pixels and the count in blue ending in
+ * the 8 pixels from 48.
+ */
 export function GoalWindow({ play, corner }: { play: PlayState; corner: Corner }) {
   const left = play.units.filter((u) => u.team === 'enemy').length;
+  const art = useContext(WindowArtContext);
+  const b = art && goalBox(art, 2);
+  if (b)
+    return (
+      <MapBox box={b} className={`goal-box at-${corner}`}>
+        <Place box={b} x={8} y={8} width={64}>
+          <FeText text="Defeat enemy" />
+        </Place>
+        <Place box={b} x={24} y={24}>
+          <FeText text="Left" />
+        </Place>
+        {/* Text_DrawNumber puts the last digit at 48 and each earlier one 8 pixels to its left. */}
+        <Place box={b} x={40} y={24} width={16} align="right">
+          <FeText text={left} colour="blue" />
+        </Place>
+      </MapBox>
+    );
   return (
     <div className={`fe-window goal-window at-${corner}`}>
       <span className="fe-line">

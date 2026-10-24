@@ -10,6 +10,7 @@ import { readAllChapterMaps, readChapterMap, type ChapterMap } from '../rom/fe8-
 import { crc32, formatCrc32 } from '../rom/crc32';
 import { FE8_US_CRC32 } from '../rom/fe8';
 import { FE8U_SYSTEM_GLYPHS, readFont, readTextPalette, type Font } from '../rom/fe8-font';
+import { readWindowArt, type WindowArt } from '../rom/fe8-windows';
 import type { Palette } from '../rom/gba-graphics';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
@@ -49,6 +50,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     characters,
     characterMismatches: checkCharacterNames(characters, ALL_CHARACTER_NAMES),
     font: readGameFont(rom),
+    windows: readWindowArt(rom),
   };
 }
 
@@ -69,6 +71,8 @@ export interface EditorRom {
   readonly characterMismatches: CharacterMismatch[];
   /** FE8's system font and text palette, for drawing play's windows in the game's own text (decision 35); null if not found. */
   readonly font: GameFont | null;
+  /** FE8's window frames and map window boxes, for drawing play's windows as the game does (decision 35); null if not found. */
+  readonly windows: WindowArt | null;
 }
 
 export interface GameFont {

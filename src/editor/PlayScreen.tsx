@@ -35,6 +35,7 @@ import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { GbaControls } from './controls';
 import { FeText, FontContext } from './FeText';
+import { frameStyle, WindowArtContext } from './FeWindow';
 import { Chibi } from './Portrait';
 import { unitCharacters, type EditorRom } from './project-io';
 import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
@@ -256,7 +257,8 @@ export function PlayScreen({
 
   return (
     <FontContext.Provider value={data.font}>
-    <div className="game" style={{ ['--gba-px' as string]: `${gbaPx}px` }}>
+    <WindowArtContext.Provider value={data.windows}>
+    <div className={data.windows ? 'game real-frames' : 'game'} style={{ ['--gba-px' as string]: `${gbaPx}px`, ...(data.windows ? frameStyle(data.windows) : {}) }}>
       <div className="game-screen" ref={screen} style={{ aspectRatio: `${viewW} / ${viewH}` }}>
         <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
         {!battle && !view.banner && !view.outcome && a?.kind !== 'target' && a?.kind !== 'menu' && (
@@ -339,6 +341,7 @@ export function PlayScreen({
         {note ? ` ${note}` : ''}
       </p>
     </div>
+    </WindowArtContext.Provider>
     </FontContext.Provider>
   );
 }
