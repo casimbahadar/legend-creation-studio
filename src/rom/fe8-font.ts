@@ -26,8 +26,19 @@ export interface Glyph {
 /** Glyphs by byte value. */
 export type Font = ReadonlyMap<number, Glyph>;
 
-/** Colour sets in the text palette, as the game names them (TEXT_COLOR_SYSTEM_*): the first of three colours. */
-export const TEXT_COLOURS = { white: 1, gray: 4, blue: 7, gold: 10, green: 13 } as const;
+/**
+ * The game's text colours (TEXT_COLOR_SYSTEM_* in include/fontgrp.h): the palette colour each pixel value
+ * 1 to 3 takes, 0 for none. Each is named for its digits there: white is TEXT_COLOR_0123, black is
+ * TEXT_COLOR_0030 (only value 2 drawn, in colour 3).
+ */
+export const TEXT_COLOURS = {
+  white: [1, 2, 3],
+  gray: [4, 5, 6],
+  blue: [7, 8, 9],
+  gold: [10, 11, 12],
+  green: [13, 14, 15],
+  black: [0, 3, 0],
+} as const;
 export type TextColour = keyof typeof TEXT_COLOURS;
 
 /** The font whose glyph table is at `table`, or null if it doesn't look like one. */
@@ -67,7 +78,7 @@ export function textWidth(font: Font, text: string): number {
 /** `text` drawn in `colour` on a transparent 16-pixel-high strip, glyph by glyph as the game draws it. */
 export function drawText(font: Font, palette: Palette, text: string, colour: TextColour = 'white'): Image {
   const image = createImage(Math.max(1, textWidth(font, text)), GLYPH_SIZE);
-  const first = TEXT_COLOURS[colour];
+  const lut = TEXT_COLOURS[colour];
   let x0 = 0;
   for (const ch of text) {
     const glyph = font.get(ch.charCodeAt(0)) ?? font.get(0x3f);
@@ -76,8 +87,9 @@ export function drawText(font: Font, palette: Palette, text: string, colour: Tex
       for (let x = 0; x < GLYPH_SIZE; x++) {
         const v = glyph.pixels[y * GLYPH_SIZE + x]!;
         const dx = x0 + x;
-        if (v === 0 || dx >= image.width) continue;
-        const [r, g, b] = palette[first + v - 1] ?? [255, 255, 255];
+        const c = v === 0 ? 0 : lut[v - 1]!;
+        if (c === 0 || dx >= image.width) continue;
+        const [r, g, b] = palette[c] ?? [255, 255, 255];
         const i = (y * image.width + dx) * 4;
         image.rgba[i] = r;
         image.rgba[i + 1] = g;

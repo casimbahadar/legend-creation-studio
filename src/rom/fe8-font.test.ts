@@ -41,4 +41,15 @@ describe('the FE8 font', () => {
     expect(px(3, 4)).toEqual([30, 30, 30, 255]);
     expect(px(4, 4)[3]).toBe(0);
   });
+
+  it('draws gold from colour 10 and black as value 2 only, in colour 3', () => {
+    const at = (img: ReturnType<typeof drawText>, x: number, y: number) => Array.from(img.rgba.subarray((y * img.width + x) * 4, (y * img.width + x) * 4 + 4));
+    const gold = drawText(font, palette, 'aA', 'gold');
+    expect(at(gold, 0, 5)).toEqual([100, 100, 100, 255]);
+    expect(at(gold, 3, 4)).toEqual([120, 120, 120, 255]);
+    const black = drawText(font, palette, 'aA', 'black');
+    expect(at(black, 0, 5)[3]).toBe(0); // value 1: not drawn
+    expect(at(black, 2, 4)).toEqual([30, 30, 30, 255]); // value 2: colour 3
+    expect(at(black, 3, 4)[3]).toBe(0); // value 3: not drawn
+  });
 });

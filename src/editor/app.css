@@ -473,6 +473,7 @@ h3 {
 .fe-fallback.fe-gold { color: #ffe39a; }
 .fe-fallback.fe-blue { color: #a8c8ff; }
 .fe-fallback.fe-gray { color: #c8c8c8; }
+.fe-fallback.fe-black { color: #282828; text-shadow: none; }
 
 /* HP along the bottom during a battle, as in FE's map battles. */
 .battle-hud {
