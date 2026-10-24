@@ -1,6 +1,7 @@
 // The windows on the game screen, in FE8's style (decision 35): the unit under the cursor, the goal,
 // the battle forecast, HP during a battle, and the damage popup; and the hint line under the controls.
 
+import type { ReactNode } from 'react';
 import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import type { PlayState, PlayUnit } from '../core/play';
@@ -53,30 +54,41 @@ function HpBar({ hp, max }: { hp: number; max: number }) {
   );
 }
 
-/** FE's unit window: the unit under the cursor. */
-export function UnitWindow({ unit, label, weapon, corner }: { unit: PlayUnit; label: string; weapon: string | undefined; corner: Corner }) {
+/** FE's unit window: the unit under the cursor, its portrait (when it has one), name and HP. */
+export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; label: string; corner: Corner; portrait?: ReactNode }) {
   return (
     <div className={`fe-window unit-window team-${unit.team} at-${corner}`}>
-      <span className="fe-line">
-        <FeText text={label} />
-      </span>
-      <span className="fe-line">
-        <FeText text="HP" colour="gold" />
-        <FeText text={` ${unit.hp}/${unit.stats.hp}`} />
-      </span>
-      <HpBar hp={unit.hp} max={unit.stats.hp} />
-      <span className="fe-line">
-        <FeText text="Lv" colour="gold" />
-        <FeText text={` ${unit.level}  ${weapon ?? 'No weapon'}`} />
-      </span>
-      <span className="fe-line">
-        {(['str', 'skl', 'spd', 'lck', 'def', 'res'] as const).map((k) => (
-          <span key={k} className="fe-stat">
-            <FeText text={k[0]!.toUpperCase() + k.slice(1)} colour="gold" />
-            <FeText text={` ${unit.stats[k]} `} />
-          </span>
-        ))}
-      </span>
+      {portrait}
+      <div className="unit-window-text">
+        <span className="fe-line">
+          <FeText text={label} />
+        </span>
+        <span className="fe-line">
+          <FeText text="HP" colour="gold" />
+          <FeText text={` ${unit.hp}/${unit.stats.hp}`} />
+        </span>
+        <HpBar hp={unit.hp} max={unit.stats.hp} />
+      </div>
+    </div>
+  );
+}
+
+/** The rest of what FE shows on its status screen, in a strip under the game screen: level, weapon and stats. */
+export function UnitStrip({ unit, weapon }: { unit: PlayUnit | undefined; weapon: string | undefined }) {
+  return (
+    <div className={`unit-strip${unit ? ` team-${unit.team}` : ''}`} aria-live="polite">
+      {unit && (
+        <span className="fe-line">
+          <FeText text="Lv" colour="gold" />
+          <FeText text={` ${unit.level}  ${weapon ?? 'No weapon'}   `} />
+          {(['str', 'skl', 'spd', 'lck', 'def', 'res'] as const).map((k) => (
+            <span key={k} className="fe-stat">
+              <FeText text={k[0]!.toUpperCase() + k.slice(1)} colour="gold" />
+              <FeText text={` ${unit.stats[k]}  `} />
+            </span>
+          ))}
+        </span>
+      )}
     </div>
   );
 }

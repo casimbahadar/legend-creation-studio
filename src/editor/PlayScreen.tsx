@@ -35,8 +35,9 @@ import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { GbaControls } from './controls';
 import { FeText, FontContext } from './FeText';
+import { Chibi } from './Portrait';
 import { unitCharacters, type EditorRom } from './project-io';
-import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
+import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
 /** How long a phase banner shows, and the pause between computer units' actions. */
 const BANNER_MS = 1000;
@@ -255,12 +256,19 @@ export function PlayScreen({
 
   return (
     <FontContext.Provider value={data.font}>
-    <div className="game">
-      <div className="game-screen" ref={screen} style={{ aspectRatio: `${viewW} / ${viewH}`, ['--gba-px' as string]: `${gbaPx}px` }}>
+    <div className="game" style={{ ['--gba-px' as string]: `${gbaPx}px` }}>
+      <div className="game-screen" ref={screen} style={{ aspectRatio: `${viewW} / ${viewH}` }}>
         <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
         {!battle && !view.banner && !view.outcome && a?.kind !== 'target' && a?.kind !== 'menu' && (
           <>
-            {under && <UnitWindow unit={under} label={unitLabel(under)} weapon={weaponsOf(artByName.get(under.class), under.items, data.items)[0]?.entry.gameName} corner={unitCorner} />}
+            {under && (
+              <UnitWindow
+                unit={under}
+                label={unitLabel(under)}
+                corner={unitCorner}
+                portrait={characters.get(under.id)?.portrait ? <Chibi rom={data.rom} id={characters.get(under.id)!.portrait} /> : undefined}
+              />
+            )}
             {!view.walking && <GoalWindow play={play} corner={goalCorner} />}
           </>
         )}
@@ -318,6 +326,7 @@ export function PlayScreen({
           </div>
         )}
       </div>
+      <UnitStrip unit={under} weapon={under && weaponsOf(artByName.get(under.class), under.items, data.items)[0]?.entry.gameName} />
       <GbaControls
         onDirection={(dx, dy) => setView((v) => moveCursor(v, dx, dy, rules))}
         onA={() => setView((v) => pressA(v, rules))}

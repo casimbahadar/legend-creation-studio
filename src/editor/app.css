@@ -401,7 +401,26 @@ h3 {
 .at-bottom-left { bottom: 4%; left: 2%; }
 .at-bottom-right { bottom: 4%; right: 2%; }
 
-.unit-window { max-width: 58%; }
+.unit-window {
+  flex-direction: row;
+  align-items: center;
+  gap: calc(3 * var(--gba-px, 1.5px));
+}
+
+.unit-window-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/* The chibi portrait, 32 GBA pixels square, as in FE8's unit window. */
+.chibi {
+  flex: none;
+  width: calc(32 * var(--gba-px, 1.5px));
+  height: calc(32 * var(--gba-px, 1.5px));
+  image-rendering: pixelated;
+}
 .goal-window { text-align: right; }
 
 .forecast-window {
@@ -713,9 +732,27 @@ a.button {
   height: 100%;
 }
 
-/* A clear gap under the game screen, so a tap meant for the up button can't land on the map. */
+/* Level, weapon and stats of the unit under the cursor, under the game screen. It also keeps a clear
+   gap under the screen, so a tap meant for the up button can't land on the map. */
+.unit-strip {
+  display: flex;
+  align-items: center;
+  min-height: calc(16 * var(--gba-px, 1.5px) + 10px);
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #262a3c;
+  color: #fff;
+  font-family: 'Pixelify Sans', ui-monospace, monospace;
+  font-size: clamp(0.62rem, 2.6vw, 0.85rem);
+}
+
+.unit-strip.team-player { background: #22357a; }
+.unit-strip.team-enemy { background: #6e2020; }
+.unit-strip.team-ally { background: #1e5a30; }
+
 .game .gba-controls {
-  margin-top: 2.5rem;
+  margin-top: 1.5rem;
 }
 
 .game .gba-controls button {
