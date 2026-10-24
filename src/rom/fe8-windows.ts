@@ -159,14 +159,24 @@ export function drawFrame(art: WindowArt, width: number, height: number): Image 
   return drawTilemap(art.tiles, frameTilemap(width, height), (n) => (n === FRAME_PALETTE ? art.framePalette : undefined));
 }
 
-/** The map's unit window box in `team`'s colours. */
-export function drawUnitWindow(art: WindowArt, team: Team): Image {
-  return drawTilemap(art.tiles, art.unitWindow, (n) => (n === UNIT_WINDOW_PALETTE ? art.teamPalettes[team] : undefined), UNIT_WINDOW_PALETTE);
+/** The top left of `map`, at most `width` x `height` tiles. */
+export function clipTilemap(map: Tilemap, width: number, height: number): Tilemap {
+  const w = Math.min(width, map.width);
+  const h = Math.min(height, map.height);
+  const entries = new Uint16Array(w * h);
+  for (let y = 0; y < h; y++) entries.set(map.entries.subarray(y * map.width, y * map.width + w), y * w);
+  return { width: w, height: h, entries };
 }
 
-/** The map's goal window box, for one line of text or two. */
+/** The map's unit window box in `team`'s colours: the 13 x 6 tiles the game copies to the screen (MMB_Loop_SlideIn). */
+export function drawUnitWindow(art: WindowArt, team: Team): Image {
+  return drawTilemap(art.tiles, clipTilemap(art.unitWindow, 13, 6), (n) => (n === UNIT_WINDOW_PALETTE ? art.teamPalettes[team] : undefined), UNIT_WINDOW_PALETTE);
+}
+
+/** The map's goal window box, for one line of text or two: at most the 12 x 6 tiles the game copies to the screen. */
 export function drawGoalWindow(art: WindowArt, lines: 1 | 2): Image {
-  return drawTilemap(art.tiles, lines === 1 ? art.goalOneLine : art.goalTwoLines, (n) => (n === FRAME_PALETTE ? art.framePalette : undefined), FRAME_PALETTE);
+  const map = clipTilemap(lines === 1 ? art.goalOneLine : art.goalTwoLines, 12, 6);
+  return drawTilemap(art.tiles, map, (n) => (n === FRAME_PALETTE ? art.framePalette : undefined), FRAME_PALETTE);
 }
 
 /** The smallest rectangle holding every visible pixel of `image`, or null if it has none. */

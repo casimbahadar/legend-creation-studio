@@ -13,6 +13,7 @@ import {
   FE8U_UI_FRAME_IMAGE,
   FE8U_UI_FRAME_PALETTE,
   FE8U_UNIT_WINDOW_TILEMAP,
+  clipTilemap,
   frameTilemap,
   readTilemap,
   readWindowArt,
@@ -71,6 +72,8 @@ describe('FE8 window art', () => {
     const t = readTilemap(readRom(bytes), 0x10)!;
     expect([t.width, t.height, ...t.entries]).toEqual([3, 2, 1, 2, 3, 4, 5, 6]);
     expect(readTilemap(readRom(bytes), 0xfe)).toBeNull();
+    const c = clipTilemap(t, 2, 5);
+    expect([c.width, c.height, ...c.entries]).toEqual([2, 2, 1, 2, 4, 5]);
   });
 
   it('draws entries with flips and the palette base, colour 0 and unknown palettes transparent', () => {
