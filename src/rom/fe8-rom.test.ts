@@ -11,6 +11,7 @@ import { checkItemNames } from './fe8-item-names';
 import { CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readChapter, readPlayerUnits } from './fe8-chapters';
 import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe8-characters';
 import { ALL_CHARACTER_NAMES, checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
+import { FE8U_SYSTEM_GLYPHS, FE8U_TALK_GLYPHS, readFont } from './fe8-font';
 import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
@@ -189,5 +190,12 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(moved.nodes).toBeGreaterThanOrEqual(rom.size);
     const eirikaName = rom.u16(findCharacterTable(rom)!);
     expect(String.fromCharCode(...decodeTextBytes(built, moved, eirikaName)).replace(/\x1f+$/, '')).toBe('Xavier');
+  });
+
+  it('reads the system and talk fonts, with the "A" the decompilation shows', () => {
+    const system = readFont(rom, FE8U_SYSTEM_GLYPHS)!;
+    expect(system.get(0x41)!.width).toBe(5);
+    expect(Array.from(system.get(0x41)!.pixels.subarray(4 * 16, 4 * 16 + 6))).toEqual([0, 3, 2, 2, 3, 0]);
+    expect(readFont(rom, FE8U_TALK_GLYPHS)).not.toBeNull();
   });
 });
