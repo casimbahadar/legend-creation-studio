@@ -64,6 +64,7 @@ describe('FE8 characters', () => {
       id: 1,
       name: 'Eirika',
       defaultClass: 2,
+      portrait: 0,
       baseLevel: 1,
       base: { hp: 2, str: 0, skl: -1, spd: -3, def: 3, res: 0, lck: 5, con: 1 },
       growths: { hp: 70, str: 40, skl: 60, spd: 60, def: 30, res: 30, lck: 60, con: 0 },

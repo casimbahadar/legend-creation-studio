@@ -12,6 +12,7 @@ import { CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readChapter, readPlayerUnit
 import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe8-characters';
 import { ALL_CHARACTER_NAMES, checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
 import { FE8U_SYSTEM_GLYPHS, FE8U_TALK_GLYPHS, readFont } from './fe8-font';
+import { readChibi } from './fe8-portraits';
 import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
@@ -197,5 +198,16 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(system.get(0x41)!.width).toBe(5);
     expect(Array.from(system.get(0x41)!.pixels.subarray(4 * 16, 4 * 16 + 6))).toEqual([0, 3, 2, 2, 3, 0]);
     expect(readFont(rom, FE8U_TALK_GLYPHS)).not.toBeNull();
+  });
+
+  it("reads Eirika's chibi portrait through her character", () => {
+    const eirika = readCharacters(rom, findTextTable(rom)!, findCharacterTable(rom)!)[0]!;
+    expect(eirika.portrait).toBe(2); // portraitId 0x2 in the decompilation
+    const chibi = readChibi(rom, eirika.portrait)!;
+    expect([chibi.width, chibi.height]).toEqual([32, 32]);
+    // Most of it is drawn.
+    let opaque = 0;
+    for (let i = 3; i < chibi.rgba.length; i += 4) if (chibi.rgba[i]) opaque++;
+    expect(opaque).toBeGreaterThan(400);
   });
 });

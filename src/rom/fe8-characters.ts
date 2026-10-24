@@ -22,6 +22,8 @@ export interface RomCharacter {
   readonly id: number;
   readonly name: string;
   readonly defaultClass: number;
+  /** Portrait id (fe8-portraits), 0 for none. */
+  readonly portrait: number;
   readonly baseLevel: number;
   /** Personal bases, added to the class's (FE8 stores them signed; luck is personal only). */
   readonly base: ClassStats;
@@ -68,7 +70,7 @@ export function readCharacters(rom: GbaRom, text: TextTable, table: number): Rom
   for (let k = 0; table + (k + 1) * CHARACTER_STRIDE <= rom.size && rom.u8(table + k * CHARACTER_STRIDE + 4) === k + 1; k++) {
     const a = table + k * CHARACTER_STRIDE;
     const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
-    out.push({ id: k + 1, name, defaultClass: rom.u8(a + 5), ...readCharacterStats(rom, a) });
+    out.push({ id: k + 1, name, defaultClass: rom.u8(a + 5), portrait: rom.u16(a + 6), ...readCharacterStats(rom, a) });
   }
   return out;
 }
