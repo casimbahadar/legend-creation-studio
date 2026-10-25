@@ -37,6 +37,7 @@ import { GbaControls } from './controls';
 import { FeText, FontContext } from './FeText';
 import { frameStyle, WindowArtContext } from './FeWindow';
 import { Chibi } from './Portrait';
+import { shortClassLabel } from './labels';
 import { unitCharacters, type EditorRom } from './project-io';
 import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
@@ -104,7 +105,7 @@ export function PlayScreen({
   }, [play, selectedUnit, showRange, map, artByName, rules, data.items]);
   /** A unit's name: its own, its character's, or its class's. */
   const unitLabel = (u: { id: string; class: string }) =>
-    chapter.units.find((x) => x.id === u.id)?.name ?? characters.get(u.id)?.name ?? artByName.get(u.class)?.entry.label ?? u.class;
+    chapter.units.find((x) => x.id === u.id)?.name ?? characters.get(u.id)?.name ?? shortClassLabel(artByName.get(u.class)?.entry.label ?? u.class);
 
   // The view follows a unit on the move, the unit being hit, or else the cursor. It is worked out here
   // so the windows can sit away from what it follows; the draw loop scrolls to it smoothly.

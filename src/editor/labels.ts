@@ -4,6 +4,9 @@ import type { Behaviour, StatKey, Team } from '../core/project';
 
 export const TEAM_LABELS: Record<Team, string> = { player: 'Player', enemy: 'Enemy', ally: 'Ally' };
 
+/** A class label short enough for the game screen's windows: "Myrmidon (male)" becomes "Myrmidon (M)". */
+export const shortClassLabel = (label: string) => label.replace(/ \(male\)$/, ' (M)').replace(/ \(female\)$/, ' (F)');
+
 export const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 export const STAT_LABELS: Record<StatKey, string> = { hp: 'HP', str: 'Str', skl: 'Skl', spd: 'Spd', lck: 'Lck', def: 'Def', res: 'Res', con: 'Con' };
