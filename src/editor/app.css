@@ -663,7 +663,8 @@ h3 {
   pointer-events: none;
 }
 
-.phase-intro img {
+.phase-intro img,
+.phase-intro canvas {
   position: absolute;
   max-width: none;
   image-rendering: pixelated;
