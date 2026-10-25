@@ -436,9 +436,9 @@ h3 {
   border-radius: 4px;
 }
 
-.forecast-head.team-player { background: rgba(32, 64, 168, 0.55); }
-.forecast-head.team-enemy { background: rgba(160, 32, 32, 0.55); }
-.forecast-head.team-ally { background: rgba(32, 128, 64, 0.55); }
+.forecast-head.team-player, .forecast-value.team-player { background: rgba(40, 72, 184, 0.85); }
+.forecast-head.team-enemy, .forecast-value.team-enemy { background: rgba(176, 40, 40, 0.85); }
+.forecast-head.team-ally, .forecast-value.team-ally { background: rgba(32, 136, 64, 0.85); }
 
 /* Each stat row: the attacked unit's value, the label in the middle, the attacker's value. */
 .forecast-row {
@@ -448,8 +448,16 @@ h3 {
   column-gap: 0.5em;
 }
 
-.forecast-row > :first-child { justify-self: end; }
-.forecast-row > :last-child { justify-self: start; }
+/* Each side's values sit in a column of its team's colour, joined from row to row. */
+.forecast-value {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.forecast-row > :first-child { justify-content: flex-end; }
+.forecast-row > :last-child { justify-content: flex-start; }
 
 /* FE8's own window frame from the player's ROM (FeWindow.tsx): a 4 x 4 tile frame drawn 4 times
    size, used as each window's border image. Its top left corner is 2 tiles square and its other edges

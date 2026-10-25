@@ -160,7 +160,8 @@ export function GoalWindow({ play, corner }: { play: PlayState; corner: Corner }
 /**
  * FE8's battle forecast: the unit attacked on top and the attacker below, each with its weapon, and
  * between them a row per stat, the label in the middle and each side's value beside it (damage ×2 if
- * it strikes twice).
+ * it strikes twice). Each side's name and values are in its team's colour, so red and blue tell the
+ * two apart.
  */
 export function ForecastWindow({
   a,
@@ -195,9 +196,13 @@ export function ForecastWindow({
       <div className="forecast-rows">
         {rows.map(([k, dv, av]) => (
           <div key={k} className="forecast-row">
-            <FeText text={dv} />
+            <span className={`forecast-value team-${d.team}`}>
+              <FeText text={dv} />
+            </span>
             <FeText text={k} colour="gold" />
-            <FeText text={av} />
+            <span className={`forecast-value team-${a.team}`}>
+              <FeText text={av} />
+            </span>
           </div>
         ))}
       </div>
