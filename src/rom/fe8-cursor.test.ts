@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest';
+import { cursorSpread, FE8U_MISC_UI_GRAPHICS, FE8U_MISC_UI_PALETTE, readMapCursor } from './fe8-cursor';
+import { readRom } from './gba-rom';
+
+/** LZ77 with literal blocks only, which the GBA's decompressor reads like any other. */
+function lz77(data: Uint8Array): Uint8Array {
+  const out = [0x10, data.length & 0xff, (data.length >> 8) & 0xff, data.length >> 16];
+  for (let i = 0; i < data.length; i += 8) out.push(0, ...data.subarray(i, i + 8));
+  return Uint8Array.from(out);
+}
+
+describe('FE8 map cursor', () => {
+  it('reads sprite tile 2 in palette 0, colour 0 transparent', () => {
+    const bytes = new Uint8Array(FE8U_MISC_UI_PALETTE + 0x40);
+    const view = new DataView(bytes.buffer);
+    const tiles = new Uint8Array(4 * 32);
+    tiles.fill(0x11, 32, 64); // tile 1: colour 1 everywhere, not the cursor
+    tiles[2 * 32] = 0x02; // tile 2: its top left pixel colour 2, the next colour 0
+    bytes.set(lz77(tiles), FE8U_MISC_UI_GRAPHICS);
+    view.setUint16(FE8U_MISC_UI_PALETTE + 4, 31, true); // colour 2: red
+    const img = readMapCursor(readRom(bytes))!;
+    expect([img.width, img.height]).toEqual([8, 8]);
+    expect(Array.from(img.rgba.subarray(0, 8))).toEqual([248, 0, 0, 255, 0, 0, 0, 0]);
+    expect(readMapCursor(readRom(new Uint8Array(0x100)))).toBeNull();
+  });
+
+  it('breathes as sMapCursorSpriteLut does: wide for 10 frames, then in to tight and out again', () => {
+    const frame = 2000 / 60;
+    const spreads = Array.from({ length: 17 }, (_, i) => cursorSpread((i + 0.5) * frame).left);
+    expect(spreads).toEqual([-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -1, 0, 0, 0, 0, -1, -2]);
+    expect(cursorSpread(0)).toEqual({ left: -2, right: 10, top: -4, bottom: 9 });
+  });
+});

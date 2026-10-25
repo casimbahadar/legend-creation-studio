@@ -13,6 +13,7 @@ import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe
 import { ALL_CHARACTER_NAMES, checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
 import { FE8U_SYSTEM_GLYPHS, FE8U_TALK_GLYPHS, readFont } from './fe8-font';
 import { readChibi } from './fe8-portraits';
+import { readMapCursor } from './fe8-cursor';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
 import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
@@ -226,5 +227,13 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     // Every window draws something, and a frame is drawn all over.
     for (const img of [drawUnitWindow(art, 'player'), drawGoalWindow(art, 1), drawGoalWindow(art, 2)]) expect(contentBounds(img)).not.toBeNull();
     expect(contentBounds(drawFrame(art, 7, 6))).toEqual({ x: 0, y: 0, width: 56, height: 48 });
+  });
+
+  it('reads the map cursor corner', () => {
+    const corner = readMapCursor(rom)!;
+    expect([corner.width, corner.height]).toEqual([8, 8]);
+    let opaque = 0;
+    for (let i = 3; i < corner.rgba.length; i += 4) if (corner.rgba[i]) opaque++;
+    expect(opaque).toBeGreaterThan(4);
   });
 });
