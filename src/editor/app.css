@@ -477,12 +477,11 @@ h3 {
   image-rendering: pixelated;
 }
 
-/* FE8's unit menu: 7 tiles wide, the hand (MenuHand.tsx) reaching out past its left edge, and under
-   the chosen line's lower half the ROM's strip, its ends a tile each. Lines keep a finger-sized height. */
+/* FE8's unit menu: 7 tiles wide, and under the chosen line's lower half the ROM's strip, its ends a
+   tile each. Lines keep a finger-sized height. */
 .game.real-frames .fe-window.action-menu {
   min-width: 0;
   width: calc(56 * var(--gba-px, 1.5px));
-  overflow: visible;
 }
 
 .game.real-frames .action-menu button {
@@ -509,15 +508,6 @@ h3 {
 }
 
 .game.real-frames .action-menu button > .fe-text { position: relative; }
-
-.menu-hand {
-  position: absolute;
-  z-index: 1;
-  width: calc(16 * var(--gba-px, 1.5px));
-  height: calc(16 * var(--gba-px, 1.5px));
-  image-rendering: pixelated;
-  pointer-events: none;
-}
 
 /* The frame is the same for every team, so the battle HP windows mark the side on the name. */
 .game.real-frames .battle-side > .fe-line:first-child { border-radius: 2px; padding: 0 2px; }
