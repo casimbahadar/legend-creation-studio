@@ -37,6 +37,7 @@ import type { ChapterMap } from '../rom/fe8-maps';
 import { GbaControls } from './controls';
 import { FeText, FontContext } from './FeText';
 import { frameStyle, WindowArtContext } from './FeWindow';
+import { MenuHand } from './MenuHand';
 import { PhaseIntro } from './PhaseIntro';
 import { Chibi } from './Portrait';
 import { shortClassLabel } from './labels';
@@ -296,6 +297,7 @@ export function PlayScreen({
               <div className={`fe-window action-menu ${menuSide}`} role="menu">
                 {menuOptions(view, rules).map((o, i) => (
                   <button key={o} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseOption(v, o, rules))}>
+                    {data.windows && data.hand && a.index === i && <MenuHand hand={data.hand} />}
                     <FeText text={o === 'attack' ? 'Attack' : 'Wait'} />
                   </button>
                 ))}

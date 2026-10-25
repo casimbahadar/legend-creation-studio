@@ -5,7 +5,7 @@
 
 import { createContext, type CSSProperties, type ReactNode } from 'react';
 import { toCanvas } from '../play/catalog';
-import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, type Team, type WindowArt } from '../rom/fe8-windows';
+import { contentBounds, drawFrame, drawGoalWindow, drawMenuHover, drawUnitWindow, type Team, type WindowArt } from '../rom/fe8-windows';
 import type { Image } from '../rom/gba-graphics';
 
 export const WindowArtContext = createContext<WindowArt | null>(null);
@@ -64,13 +64,22 @@ function box(art: WindowArt, key: string, draw: () => Image): Box | null {
 export const unitBox = (art: WindowArt, team: Team) => box(art, `unit:${team}`, () => drawUnitWindow(art, team));
 export const goalBox = (art: WindowArt, lines: 1 | 2) => box(art, `goal:${lines}`, () => drawGoalWindow(art, lines));
 
-const frames = new WeakMap<WindowArt, string>();
+const frames = new WeakMap<WindowArt, CSSProperties>();
 
-/** The style that gives the game screen's windows FE8's frame (see .real-frames in app.css). */
+/**
+ * The style that gives the game screen's windows FE8's frame, and its menus the strip under the chosen
+ * line (3 tiles, its ends a tile each; see .real-frames in app.css).
+ */
 export function frameStyle(art: WindowArt): CSSProperties {
-  let url = frames.get(art);
-  if (!url) frames.set(art, (url = scaledUrl(drawFrame(art, FRAME_TILES, FRAME_TILES))));
-  return { ['--fe-frame' as string]: `url(${url})` };
+  let style = frames.get(art);
+  if (!style) {
+    style = {
+      ['--fe-frame' as string]: `url(${scaledUrl(drawFrame(art, FRAME_TILES, FRAME_TILES))})`,
+      ['--fe-hover' as string]: `url(${scaledUrl(drawMenuHover(art, 3))})`,
+    };
+    frames.set(art, style);
+  }
+  return style;
 }
 
 /** One of the map's boxes with its contents placed by GBA pixel from the box's top left, as the game places them. */
