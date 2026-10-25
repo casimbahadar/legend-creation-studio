@@ -17,7 +17,8 @@ const FRAME_TILES = 4;
 /** A length of `n` GBA pixels. */
 export const gbaPx = (n: number) => `calc(${n} * var(--gba-px, 1.5px))`;
 
-function scaledUrl(image: Image): string {
+/** `image` as a URL, enlarged pixel for pixel so it stays sharp when scaled. */
+export function scaledUrl(image: Image): string {
   const c = document.createElement('canvas');
   c.width = image.width * SCALE;
   c.height = image.height * SCALE;

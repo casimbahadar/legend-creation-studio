@@ -32,17 +32,20 @@ import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } 
 import { followCamera, VIEW_HEIGHT, VIEW_WIDTH } from '../play/camera';
 import { chapterRules } from '../play/rules';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
+import { PHASE_INTRO_FRAMES } from '../rom/fe8-phase';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { GbaControls } from './controls';
 import { FeText, FontContext } from './FeText';
 import { frameStyle, WindowArtContext } from './FeWindow';
+import { PhaseIntro } from './PhaseIntro';
 import { Chibi } from './Portrait';
 import { shortClassLabel } from './labels';
 import { unitCharacters, type EditorRom } from './project-io';
 import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
-/** How long a phase banner shows, and the pause between computer units' actions. */
-const BANNER_MS = 1000;
+/** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
+const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
+const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
 const AI_PAUSE_MS = 700;
 
 export function PlayScreen({
@@ -301,11 +304,14 @@ export function PlayScreen({
           })()}
         {battle && hud && <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
-        {view.banner && (
-          <div className={`phase-banner phase-${view.banner}`} role="status">
-            {view.banner === 'player' ? 'Player Phase' : view.banner === 'enemy' ? 'Enemy Phase' : 'Ally Phase'}
-          </div>
-        )}
+        {view.banner &&
+          (data.phaseBanners ? (
+            <PhaseIntro key={`${play.turn}:${view.banner}`} banner={data.phaseBanners[view.banner]} label={PHASE_NAMES[view.banner]} viewW={viewW} viewH={viewH} />
+          ) : (
+            <div className={`phase-banner phase-${view.banner}`} role="status">
+              {PHASE_NAMES[view.banner]}
+            </div>
+          ))}
         {view.outcome && (
           <div className={`result-screen ${view.outcome.result}`} role="alertdialog" aria-label={view.outcome.result === 'victory' ? 'Chapter clear' : 'Defeat'}>
             <strong>{view.outcome.result === 'victory' ? 'Chapter Clear!' : 'Defeat'}</strong>

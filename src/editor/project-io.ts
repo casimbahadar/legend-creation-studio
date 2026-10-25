@@ -12,6 +12,7 @@ import { FE8_US_CRC32 } from '../rom/fe8';
 import { FE8U_SYSTEM_GLYPHS, readFont, readTextPalette, type Font } from '../rom/fe8-font';
 import { readWindowArt, type WindowArt } from '../rom/fe8-windows';
 import { readMapCursor } from '../rom/fe8-cursor';
+import { readPhaseBanner, type PhaseBanner } from '../rom/fe8-phase';
 import type { Image, Palette } from '../rom/gba-graphics';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
@@ -53,6 +54,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     font: readGameFont(rom),
     windows: readWindowArt(rom),
     cursor: readMapCursor(rom),
+    phaseBanners: readPhaseBanners(rom),
   };
 }
 
@@ -77,11 +79,20 @@ export interface EditorRom {
   readonly windows: WindowArt | null;
   /** The top left corner of FE8's map cursor, for drawing the cursor as the game does (decision 35); null if not found. */
   readonly cursor: Image | null;
+  /** FE8's phase banners by team, for play's phase intros (decision 35); null if not found. */
+  readonly phaseBanners: Readonly<Record<'player' | 'enemy' | 'ally', PhaseBanner>> | null;
 }
 
 export interface GameFont {
   readonly glyphs: Font;
   readonly palette: Palette;
+}
+
+function readPhaseBanners(rom: GbaRom): EditorRom['phaseBanners'] {
+  const player = readPhaseBanner(rom, 'player');
+  const enemy = readPhaseBanner(rom, 'enemy');
+  const ally = readPhaseBanner(rom, 'ally');
+  return player && enemy && ally ? { player, enemy, ally } : null;
 }
 
 function readGameFont(rom: GbaRom): GameFont | null {

@@ -613,7 +613,21 @@ h3 {
   -webkit-user-select: text;
 }
 
-/* FE's phase banner across the middle of the map. */
+/* FE8's phase intro from the player's ROM (PhaseIntro.tsx): its images placed in GBA pixels. */
+.phase-intro {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.phase-intro img {
+  position: absolute;
+  max-width: none;
+  image-rendering: pixelated;
+}
+
+/* FE's phase banner across the middle of the map, when the ROM's isn't found. */
 .phase-banner {
   position: absolute;
   left: 0;
