@@ -76,7 +76,8 @@ export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; 
         <Place box={b} x={40} y={20}>
           <span className="fe-line">
             <FeText text="HP" colour="gold" />
-            <FeText text={` ${unit.hp}/${unit.stats.hp}`} />
+            {/* In black like the name: white text on the light box shows only its outline. */}
+            <FeText text={` ${unit.hp}/${unit.stats.hp}`} colour="black" />
           </span>
         </Place>
       </MapBox>
