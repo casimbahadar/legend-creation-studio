@@ -58,7 +58,8 @@ function HpBar({ hp, max }: { hp: number; max: number }) {
 /**
  * FE's unit window: the unit under the cursor, its portrait (when it has one), name and HP. With the
  * ROM's art, laid out as DrawUnitMapUi lays it out: the portrait at tile (1, 1), the name in black
- * centred in 56 pixels at tile (5, 1), HP on tile row 3 and its bar on row 4.
+ * centred in 56 pixels at tile (5, 1) and HP on tile row 3. The game's HP bar is left out: the
+ * numbers say the same.
  */
 export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; label: string; corner: Corner; portrait?: ReactNode }) {
   const art = useContext(WindowArtContext);
@@ -78,9 +79,6 @@ export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; 
             <FeText text={` ${unit.hp}/${unit.stats.hp}`} />
           </span>
         </Place>
-        <Place box={b} x={40} y={33} width={56}>
-          <HpBar hp={unit.hp} max={unit.stats.hp} />
-        </Place>
       </MapBox>
     );
   return (
@@ -94,7 +92,6 @@ export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; 
           <FeText text="HP" colour="gold" />
           <FeText text={` ${unit.hp}/${unit.stats.hp}`} />
         </span>
-        <HpBar hp={unit.hp} max={unit.stats.hp} />
       </div>
     </div>
   );

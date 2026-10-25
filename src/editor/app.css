@@ -497,7 +497,6 @@ h3 {
 
 .map-box-item.centre { justify-content: center; }
 .map-box-item.right { justify-content: flex-end; }
-.map-box-item .hp-bar { flex: 1; height: calc(3 * var(--gba-px, 1.5px)); margin: 0; }
 
 /* Text in the game's own font: images drawn from the ROM, sized in GBA pixels (--gba-px). Lines are
    the font's 16 pixels high, as in the game's windows. */
