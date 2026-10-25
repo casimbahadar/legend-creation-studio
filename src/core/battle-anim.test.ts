@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { battleFrame, END_PAUSE_MS, STRIKE_MS } from './battle-anim';
+import { battleFrame, END_PAUSE_MS, EXP_MS_PER_POINT, expBarEnd, expFrame, LEVEL_UP_MS, STRIKE_MS } from './battle-anim';
 import type { Strike } from './combat';
 
 const strikes: Strike[] = [
@@ -26,5 +26,21 @@ describe('battleFrame', () => {
     expect(battleFrame(strikes, start, end)).toMatchObject({ index: -1, done: false, defenderHp: 14 });
     expect(battleFrame(strikes, start, end + END_PAUSE_MS).done).toBe(true);
     expect(battleFrame([], start, END_PAUSE_MS)).toMatchObject({ done: true, attackerHp: 20, defenderHp: 20 });
+  });
+});
+
+describe('expFrame', () => {
+  it('fills the bar a point a frame, past 100 starting again, then shows the level-up', () => {
+    expect(expFrame(90, 30, true, 0)).toEqual({ phase: 'bar', exp: 90 });
+    expect(expFrame(90, 30, true, 250 + 5.5 * EXP_MS_PER_POINT)).toEqual({ phase: 'bar', exp: 95 });
+    expect(expFrame(90, 30, true, 250 + 15.5 * EXP_MS_PER_POINT)).toEqual({ phase: 'bar', exp: 5 });
+    expect(expFrame(90, 30, true, expBarEnd(30) - 1)).toEqual({ phase: 'bar', exp: 20 });
+    expect(expFrame(90, 30, true, expBarEnd(30))).toEqual({ phase: 'levelUp', exp: 20 });
+    expect(expFrame(90, 30, true, expBarEnd(30) + LEVEL_UP_MS)).toBeNull();
+  });
+
+  it('ends after the bar without a level-up', () => {
+    expect(expFrame(10, 20, false, expBarEnd(20) - 1)).toEqual({ phase: 'bar', exp: 30 });
+    expect(expFrame(10, 20, false, expBarEnd(20))).toBeNull();
   });
 });

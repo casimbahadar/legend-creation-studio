@@ -34,7 +34,8 @@ const chapterWith = (brigandAt: [number, number], extra: ProjectChapter['units']
     ...extra,
   ],
 });
-const start = (brigandAt: [number, number] = [4, 0], extra: ProjectChapter['units'] = []) => startView(startPlay(chapterWith(brigandAt, extra), () => STATS));
+const start = (brigandAt: [number, number] = [4, 0], extra: ProjectChapter['units'] = []) =>
+  startView(startPlay(chapterWith(brigandAt, extra), () => STATS, (u) => (u.team === 'player' ? 0 : null)));
 /** A second player unit out of everyone's reach, so losing Eirika doesn't end the chapter. */
 const SETH: ProjectChapter['units'][number] = { id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [0, 2] };
 
@@ -157,6 +158,18 @@ describe('attacking', () => {
     expect(after.battle).toBeNull();
     expect(after.state.units.map((u) => u.id)).toEqual(['eirika']);
     expect(eirika(after)).toMatchObject({ moved: true, hp: 18 });
+  });
+
+  it("applies the fight's experience: level, experience and the level-up's gains, current HP kept", () => {
+    const up = { hp: 1, str: 1, skl: 0, spd: 0, def: 0, res: 0, lck: 1 };
+    const withExp: PlayRules = {
+      ...rules,
+      experience: (a, _d, strikes) => (a.exp === null ? null : { unit: a.id, level: a.level, exp: a.exp, result: { gain: strikes.length * 40, exp: 20, level: 2, levelUp: up } }),
+    };
+    const fighting = pressA(pressA(menu(), withExp), withExp);
+    expect(fighting.battle?.exp).toMatchObject({ unit: 'eirika', level: 1, exp: 0, result: { gain: 40 } });
+    const after = finishBattle(fighting);
+    expect(eirika(after)).toMatchObject({ level: 2, exp: 20, hp: 18, stats: { ...STATS, hp: 19, str: 6, lck: 3 } });
   });
 
   it('chooses a target by tapping it, and attacks on a second tap', () => {

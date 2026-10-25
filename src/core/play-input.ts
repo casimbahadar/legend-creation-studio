@@ -6,8 +6,9 @@
 
 import { planAction, type AiRules } from './ai';
 import type { Strike } from './combat';
+import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, endTurn, finishAction, moveUnit, outcomeOf, readyAll, unitAt, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, endTurn, finishAction, moveUnit, outcomeOf, readyAll, unitAt, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -19,10 +20,20 @@ export type Action =
   /** Choosing which enemy to attack. */
   | { readonly kind: 'target'; readonly unit: string; readonly from: readonly [number, number]; readonly targets: readonly string[]; readonly index: number };
 
+/** Experience a unit earned in a fight: where it stood before, and the result. */
+export interface ExpAward {
+  readonly unit: string;
+  readonly level: number;
+  readonly exp: number;
+  readonly result: ExpResult;
+}
+
 export interface Battle {
   readonly attacker: string;
   readonly defender: string;
   readonly strikes: readonly Strike[];
+  /** The experience the fight gave, shown after it; null if nobody gained any. */
+  readonly exp: ExpAward | null;
 }
 
 export interface PlayView {
@@ -59,6 +70,14 @@ export interface PlayRules extends AiRules {
   targetsOf(unit: PlayUnit, state: PlayState): string[];
   /** The blows of a fight between two units where they stand. */
   fight(attacker: PlayUnit, defender: PlayUnit, state: PlayState): Strike[];
+  /** The experience a fight gives, if any (none if left out). */
+  experience?(attacker: PlayUnit, defender: PlayUnit, strikes: readonly Strike[]): ExpAward | null;
+}
+
+/** A fight between two units, with the experience it gives. */
+function startBattle(attacker: PlayUnit, defender: PlayUnit, state: PlayState, rules: PlayRules): Battle {
+  const strikes = rules.fight(attacker, defender, state);
+  return { attacker: attacker.id, defender: defender.id, strikes, exp: rules.experience?.(attacker, defender, strikes) ?? null };
 }
 
 /** The cursor starts on the first player unit, as FE starts it on the lord. */
@@ -175,7 +194,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     const attacker = unitById(view.state, a.unit);
     const defender = unitById(view.state, a.targets[a.index] ?? null);
     if (!attacker || !defender) return view;
-    return { ...view, action: null, battle: { attacker: attacker.id, defender: defender.id, strikes: rules.fight(attacker, defender, view.state) } };
+    return { ...view, action: null, battle: startBattle(attacker, defender, view.state, rules) };
   }
   const [x, y] = view.cursor;
   const here = unitAt(view.state, x, y);
@@ -231,7 +250,7 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   if (view.phase === 'player') return openMenu(done, w.id, w.from);
   const unit = unitById(view.state, w.id);
   const target = unitById(view.state, w.then ?? null);
-  if (unit && target) return { ...done, cursor: unit.at, battle: { attacker: unit.id, defender: target.id, strikes: rules.fight(unit, target, view.state) } };
+  if (unit && target) return { ...done, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
   return { ...done, state: finishAction(view.state, w.id), cursor: unit ? unit.at : view.cursor };
 }
 
@@ -272,18 +291,19 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
     return { ...view, queue: rest, cursor: unit.at, state: moveUnit(view.state, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack } };
   }
   const target = unitById(view.state, plan.attack);
-  if (target) return { ...view, queue: rest, cursor: unit.at, battle: { attacker: unit.id, defender: target.id, strikes: rules.fight(unit, target, view.state) } };
+  if (target) return { ...view, queue: rest, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
   return { ...view, queue: rest, cursor: unit.at, state: finishAction(view.state, unit.id) };
 }
 
-/** The battle has been shown: apply its result. */
+/** The battle has been shown: apply its result and the experience it gave. */
 export function finishBattle(view: PlayView): PlayView {
   const b = view.battle;
   if (!b) return view;
   const attacker = unitById(view.state, b.attacker);
   const defender = unitById(view.state, b.defender);
   const last = b.strikes[b.strikes.length - 1];
-  const state = applyBattle(view.state, b.attacker, b.defender, last?.attackerHp ?? attacker?.hp ?? 0, last?.defenderHp ?? defender?.hp ?? 0);
+  const fought = applyBattle(view.state, b.attacker, b.defender, last?.attackerHp ?? attacker?.hp ?? 0, last?.defenderHp ?? defender?.hp ?? 0);
+  const state = b.exp ? applyExp(fought, b.exp.unit, b.exp.result) : fought;
   const still = unitById(state, b.attacker);
   // The chapter can end with this fight; then the phase and its queue stop where they are.
   return { ...view, state, battle: null, cursor: still ? still.at : view.cursor, outcome: outcomeOf(state), banner: null };

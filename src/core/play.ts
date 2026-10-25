@@ -2,6 +2,7 @@
 // The project is never changed by playing; leaving play discards the session.
 
 import type { Stats } from './combat';
+import type { ExpResult } from './experience';
 import { DEFAULT_BEHAVIOUR, type Behaviour, type ProjectChapter, type ProjectUnit, type Team } from './project';
 
 export interface PlayUnit {
@@ -12,6 +13,8 @@ export interface PlayUnit {
   /** Item names, as in the project. */
   readonly items: readonly string[];
   readonly level: number;
+  /** Experience toward the next level, 0 to 99; null for a unit that gains none (not a player unit, or at its last level). */
+  readonly exp: number | null;
   readonly stats: Stats;
   /** Current HP; the unit falls at 0. */
   readonly hp: number;
@@ -37,8 +40,11 @@ export function areFoes(a: Team, b: Team): boolean {
   return (a === 'enemy') !== (b === 'enemy');
 }
 
-/** Starts a session from a chapter; `statsOf` gives each unit's stats (from its class and level). */
-export function startPlay(chapter: ProjectChapter, statsOf: (unit: ProjectUnit) => Stats): PlayState {
+/**
+ * Starts a session from a chapter; `statsOf` gives each unit's stats (from its class and level) and
+ * `expOf` its starting experience (none if left out).
+ */
+export function startPlay(chapter: ProjectChapter, statsOf: (unit: ProjectUnit) => Stats, expOf: (unit: ProjectUnit) => number | null = () => null): PlayState {
   return {
     turn: 1,
     units: chapter.units.map((u) => {
@@ -50,6 +56,7 @@ export function startPlay(chapter: ProjectChapter, statsOf: (unit: ProjectUnit) 
         at: [u.at[0], u.at[1]],
         items: [...(u.items ?? [])],
         level: u.level,
+        exp: expOf(u),
         stats,
         hp: stats.hp,
         ai: u.ai ?? DEFAULT_BEHAVIOUR,
@@ -79,6 +86,26 @@ export function finishAction(state: PlayState, id: string): PlayState {
 export function applyBattle(state: PlayState, attacker: string, defender: string, attackerHp: number, defenderHp: number): PlayState {
   const all = state.units.map((u) => (u.id === attacker ? { ...u, hp: attackerHp, moved: true } : u.id === defender ? { ...u, hp: defenderHp } : u));
   return { ...state, units: all.filter((u) => u.hp > 0), fallen: [...state.fallen, ...all.filter((u) => u.hp <= 0)] };
+}
+
+/** A unit's experience after a fight: its new level and experience, and any level-up's gains (max HP rises; current HP stays). */
+export function applyExp(state: PlayState, id: string, result: ExpResult): PlayState {
+  const up = result.levelUp;
+  return {
+    ...state,
+    units: state.units.map((u) =>
+      u.id !== id
+        ? u
+        : {
+            ...u,
+            level: result.level,
+            exp: result.exp,
+            stats: up
+              ? { ...u.stats, hp: u.stats.hp + up.hp, str: u.stats.str + up.str, skl: u.stats.skl + up.skl, spd: u.stats.spd + up.spd, def: u.stats.def + up.def, res: u.stats.res + up.res, lck: u.stats.lck + up.lck }
+              : u.stats,
+          },
+    ),
+  };
 }
 
 /**

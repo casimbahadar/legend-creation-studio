@@ -1,10 +1,13 @@
 // The game rules for one chapter map, built from the ROM catalog: movement from each class's move
-// costs, targets from the weapons units carry, forecasts with terrain bonuses, and fights.
+// costs, targets from the weapons units carry, forecasts with terrain bonuses, fights and experience.
 
-import { forecast, resolveBattle, type Combatant, type Forecast } from '../core/combat';
+import { forecast, resolveBattle, type Combatant, type Forecast, type Strike } from '../core/combat';
+import { addExp, expGain, rollLevelUp, type ExpProfile } from '../core/experience';
 import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, unitAt, type PlayState, type PlayUnit } from '../core/play';
-import type { PlayRules } from '../core/play-input';
+import type { ExpAward, PlayRules } from '../core/play-input';
+import type { RomCharacter } from '../rom/fe8-characters';
+import { CA_BOSS, CA_MAXLEVEL10, CA_PROMOTED, CA_THIEF } from '../rom/fe8-classes';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { distance, inReach, toWeapon, weaponsOf, type ClassArt, type GameItem } from './catalog';
 
@@ -26,8 +29,22 @@ export interface ChapterRules {
   preview(attacker: PlayUnit, defender: PlayUnit, at?: readonly [number, number]): FightPreview;
 }
 
-/** `rn` gives the random numbers for fights (0 to 99). */
-export function chapterRules(map: ChapterMap, artByName: ReadonlyMap<string, ClassArt>, items: GameItem[], rn: () => number): ChapterRules {
+/** A unit's last level: 10 for classes FE8 marks so (CA_MAXLEVEL10), otherwise 20. */
+export function maxLevel(art: ClassArt | undefined, character: RomCharacter | undefined): number {
+  return ((art?.attributes ?? 0) | (character?.attributes ?? 0)) & CA_MAXLEVEL10 ? 10 : 20;
+}
+
+/**
+ * `rn` gives the random numbers for fights and level-ups (0 to 99); `characterOf` the FE8 character
+ * a unit plays as, if any, whose growths and attributes then count.
+ */
+export function chapterRules(
+  map: ChapterMap,
+  artByName: ReadonlyMap<string, ClassArt>,
+  items: GameItem[],
+  rn: () => number,
+  characterOf: (u: PlayUnit) => RomCharacter | undefined = () => undefined,
+): ChapterRules {
   /** Where a unit could move this turn and how, from its class's ROM movement. */
   function searchOf(u: PlayUnit, state: PlayState, mov?: number): MoveSearch {
     const art = artByName.get(u.class);
@@ -69,6 +86,42 @@ export function chapterRules(map: ChapterMap, artByName: ReadonlyMap<string, Cla
       .sort((a, b) => distance(from, a) - distance(from, b));
   }
 
+  function profileOf(u: PlayUnit): ExpProfile {
+    const art = artByName.get(u.class);
+    const attributes = (art?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0);
+    return {
+      level: u.level,
+      promoted: (attributes & CA_PROMOTED) !== 0,
+      power: art?.power ?? 1,
+      promotionPower: art?.promotionPower ?? 0,
+      boss: (attributes & CA_BOSS) !== 0,
+      thief: (attributes & CA_THIEF) !== 0,
+    };
+  }
+
+  /** Experience for the first player unit in the fight that can gain it (only player units do, as in FE8). */
+  function experience(a: PlayUnit, d: PlayUnit, strikes: readonly Strike[]): ExpAward | null {
+    const last = strikes[strikes.length - 1];
+    for (const [u, other, by] of [
+      [a, d, 'attacker'],
+      [d, a, 'defender'],
+    ] as const) {
+      if (u.team !== 'player' || u.exp === null) continue;
+      const hpOf = (side: 'attacker' | 'defender', unit: PlayUnit) => (last ? (side === 'attacker' ? last.attackerHp : last.defenderHp) : unit.hp);
+      const fell = hpOf(by, u) <= 0;
+      const otherFell = hpOf(by === 'attacker' ? 'defender' : 'attacker', other) <= 0;
+      const dealt = strikes.some((s) => s.by === by && s.hit && s.damage > 0);
+      const gain = expGain(profileOf(u), profileOf(other), dealt, fell, otherFell);
+      const art = artByName.get(u.class);
+      const character = characterOf(u);
+      const result = addExp(u.level, u.exp, gain, maxLevel(art, character), () =>
+        rollLevelUp(u.stats, character?.growths ?? art?.growths ?? u.stats, art?.caps ?? u.stats, rn),
+      );
+      return result.gain > 0 ? { unit: u.id, level: u.level, exp: u.exp, result } : null;
+    }
+    return null;
+  }
+
   const rules: PlayRules = {
     width: map.width,
     height: map.height,
@@ -80,6 +133,7 @@ export function chapterRules(map: ChapterMap, artByName: ReadonlyMap<string, Cla
       const f = preview(a, d);
       return resolveBattle(f.attacker, f.defender, f.forecast, rn);
     },
+    experience,
   };
   return { rules, preview };
 }
