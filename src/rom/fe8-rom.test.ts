@@ -14,6 +14,8 @@ import { ALL_CHARACTER_NAMES, checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY }
 import { FE8U_SYSTEM_GLYPHS, FE8U_TALK_GLYPHS, readFont } from './fe8-font';
 import { readChibi } from './fe8-portraits';
 import { readMapCursor } from './fe8-cursor';
+import { readPhaseBanner } from './fe8-phase';
+import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
 import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
@@ -235,5 +237,13 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     let opaque = 0;
     for (let i = 3; i < corner.rgba.length; i += 4) if (corner.rgba[i]) opaque++;
     expect(opaque).toBeGreaterThan(4);
+  });
+
+  it('reads each phase banner', () => {
+    for (const team of ['player', 'enemy', 'ally'] as Team[]) {
+      const b = readPhaseBanner(rom, team)!;
+      expect(contentBounds(b.band)).not.toBeNull();
+      expect(contentBounds(b.name)).not.toBeNull();
+    }
   });
 });
