@@ -58,6 +58,7 @@ describe('FE8 characters', () => {
     // Personal bases HP to Con, one of them negative as FE8 stores it; then growths HP to Luck.
     bytes.set([2, 0, 0xff, 0xfd, 3, 0, 5, 1], T + 0x0c);
     bytes.set([70, 40, 60, 60, 30, 30, 60], T + 0x1c);
+    view.setUint32(T + 0x28, 1 << 15, true); // attributes: a boss
     const rom = readRom(bytes);
     expect(findCharacterTable(rom)).toBe(T);
     expect(readCharacters(rom, { root: 0, nodes: 0, table: 0x40, count: 4 }, T)[0]).toEqual({
@@ -68,6 +69,7 @@ describe('FE8 characters', () => {
       baseLevel: 1,
       base: { hp: 2, str: 0, skl: -1, spd: -3, def: 3, res: 0, lck: 5, con: 1 },
       growths: { hp: 70, str: 40, skl: 60, spd: 60, def: 30, res: 30, lck: 60, con: 0 },
+      attributes: 1 << 15,
     });
   });
 });

@@ -17,6 +17,7 @@ const MIN_CHARACTERS = 0x40;
 export const BASE_LEVEL = 0x0b;
 export const BASE_STATS = 0x0c;
 const GROWTHS = 0x1c;
+const ATTRIBUTES = 0x28;
 
 export interface RomCharacter {
   readonly id: number;
@@ -29,6 +30,8 @@ export interface RomCharacter {
   readonly base: ClassStats;
   /** Personal growths, used instead of the class's. FE8 has no Con growth. */
   readonly growths: ClassStats;
+  /** Character attribute bits, added to the class's (CA_BOSS for bosses). */
+  readonly attributes: number;
 }
 
 /** Offset of character 1's record, or null. */
@@ -70,7 +73,7 @@ export function readCharacters(rom: GbaRom, text: TextTable, table: number): Rom
   for (let k = 0; table + (k + 1) * CHARACTER_STRIDE <= rom.size && rom.u8(table + k * CHARACTER_STRIDE + 4) === k + 1; k++) {
     const a = table + k * CHARACTER_STRIDE;
     const name = String.fromCharCode(...decodeTextBytes(rom, text, rom.u16(a)).filter((b) => b >= 0x20 && b < 0x7f)).trim();
-    out.push({ id: k + 1, name, defaultClass: rom.u8(a + 5), portrait: rom.u16(a + 6), ...readCharacterStats(rom, a) });
+    out.push({ id: k + 1, name, defaultClass: rom.u8(a + 5), portrait: rom.u16(a + 6), ...readCharacterStats(rom, a), attributes: rom.u32(a + ATTRIBUTES) });
   }
   return out;
 }

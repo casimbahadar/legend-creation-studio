@@ -26,6 +26,12 @@ export interface ClassArt {
   readonly weaponRanks: Uint8Array;
   readonly base: ClassStats;
   readonly growths: ClassStats;
+  /** Stat maximums, and what the class counts for in experience (fe8-classes). */
+  readonly caps: ClassStats;
+  readonly power: number;
+  /** Its promotion class's power, 0 if it has none. */
+  readonly promotionPower: number;
+  readonly attributes: number;
   readonly terrainAvoid: Uint8Array | null;
   readonly terrainDef: Uint8Array | null;
   readonly terrainRes: Uint8Array | null;
@@ -77,6 +83,10 @@ export function readCatalog(rom: GbaRom, text: TextTable): Catalog {
         weaponRanks: c.weaponRanks,
         base: c.base,
         growths: c.growths,
+        caps: c.caps,
+        power: c.power,
+        promotionPower: c.promotion ? (byId.get(c.promotion)?.power ?? 0) : 0,
+        attributes: c.attributes,
         terrainAvoid: c.terrainAvoid,
         terrainDef: c.terrainDef,
         terrainRes: c.terrainRes,

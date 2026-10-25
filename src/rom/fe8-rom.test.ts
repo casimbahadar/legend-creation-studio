@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { crc32 } from './crc32';
 import { FE8_US_CRC32 } from './fe8';
 import { readRom } from './gba-rom';
-import { readClasses } from './fe8-classes';
+import { CA_BOSS, CA_PROMOTED, readClasses, readClassStats } from './fe8-classes';
 import { checkClassNames } from './fe8-names';
 import { FE8_US_ITEM_TABLE, findItemTable, readItems } from './fe8-items';
 import { checkItemNames } from './fe8-item-names';
@@ -246,5 +246,15 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
       expect(contentBounds(b.band)).not.toBeNull();
       expect(contentBounds(b.name)).not.toBeNull();
     }
+  });
+
+  it('reads what classes and characters count for in experience', () => {
+    // src/data_classes.c: Eirika's Lord caps most stats at 20, has relative power 3 and promotes to class 4.
+    const lord = readClassStats(rom, 1);
+    expect([lord.caps.hp, lord.caps.str, lord.power, lord.promotion]).toEqual([60, 20, 3, 4]);
+    expect(lord.attributes & CA_PROMOTED).toBe(0);
+    expect(readClassStats(rom, 7).attributes & CA_PROMOTED).toBe(CA_PROMOTED); // Paladin
+    const oneill = readCharacters(rom, findTextTable(rom)!, findCharacterTable(rom)!).find((c) => c.id === 0x68)!;
+    expect(oneill.attributes & CA_BOSS).toBe(CA_BOSS);
   });
 });

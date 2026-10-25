@@ -15,6 +15,10 @@ const MOVE_COST_POINTER = 0x38;
 const WEAPON_RANKS = 0x2c;
 const BASE_STATS = 0x0b;
 const GROWTHS = 0x1b;
+const PROMOTION = 0x05;
+const MAX_STATS = 0x13;
+const RELATIVE_POWER = 0x1a;
+const ATTRIBUTES = 0x28;
 const TERRAIN_AVOID_POINTER = 0x44;
 const TERRAIN_DEF_POINTER = 0x48;
 const TERRAIN_RES_POINTER = 0x4c;
@@ -49,6 +53,14 @@ export interface RomClass {
   readonly base: ClassStats;
   /** Growth rates in percent (con has none, so it is 0). */
   readonly growths: ClassStats;
+  /** Stat maximums; luck's is FE8's fixed 30. */
+  readonly caps: ClassStats;
+  /** How much the class counts for in experience (classRelativePower). */
+  readonly power: number;
+  /** The class it promotes to, 0 for none. */
+  readonly promotion: number;
+  /** Class attribute bits (CA_* in the decompilation's include/bmunit.h). */
+  readonly attributes: number;
   /** Avoid, Def and Res bonus per terrain id, or null if the ROM has no table. */
   readonly terrainAvoid: Uint8Array | null;
   readonly terrainDef: Uint8Array | null;
@@ -62,14 +74,27 @@ function terrainTable(rom: GbaRom, at: number): Uint8Array | null {
   return rom.bytes.slice(rom.offsetOf(p), rom.offsetOf(p) + TERRAIN_COUNT);
 }
 
-/** A class's base stats and growths, by class id. */
-export function readClassStats(rom: GbaRom, id: number): Pick<RomClass, 'base' | 'growths'> {
+/** FE8's attribute bits that play uses (include/bmunit.h). */
+export const CA_THIEF = 1 << 3;
+export const CA_PROMOTED = 1 << 8;
+export const CA_BOSS = 1 << 15;
+export const CA_MAXLEVEL10 = 1 << 19;
+/** FE8's luck cap (UNIT_LCK_MAX). */
+const LUCK_CAP = 30;
+
+/** A class's base stats, growths, caps and what it counts for in experience, by class id. */
+export function readClassStats(rom: GbaRom, id: number): Pick<RomClass, 'base' | 'growths' | 'caps' | 'power' | 'promotion' | 'attributes'> {
   const a = CLASS_TABLE + id * CLASS_STRIDE;
   const b = (k: number) => rom.u8(a + BASE_STATS + k);
   const g = (k: number) => rom.u8(a + GROWTHS + k);
+  const m = (k: number) => rom.u8(a + MAX_STATS + k);
   return {
     base: { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: 0, con: b(6) },
     growths: { hp: g(0), str: g(1), skl: g(2), spd: g(3), def: g(4), res: g(5), lck: g(6), con: 0 },
+    caps: { hp: m(0), str: m(1), skl: m(2), spd: m(3), def: m(4), res: m(5), lck: LUCK_CAP, con: m(6) },
+    power: rom.u8(a + RELATIVE_POWER),
+    promotion: rom.u8(a + PROMOTION),
+    attributes: rom.u32(a + ATTRIBUTES),
   };
 }
 
