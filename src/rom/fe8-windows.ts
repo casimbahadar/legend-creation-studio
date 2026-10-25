@@ -196,3 +196,15 @@ export function contentBounds(image: Image): { x: number; y: number; width: numb
   }
   return x1 < 0 ? null : { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
 }
+
+/**
+ * The strip DrawUiItemHover puts under a menu's chosen line, `width` tiles (at least 2): tile 0x7A,
+ * then 0x7B, ending with 0x7C, one tile high, in palette 1.
+ */
+export function drawMenuHover(art: WindowArt, width: number): Image {
+  const entries = new Uint16Array(Math.max(2, width));
+  entries.fill(0x7b | (FRAME_PALETTE << 12));
+  entries[0] = 0x7a | (FRAME_PALETTE << 12);
+  entries[entries.length - 1] = 0x7c | (FRAME_PALETTE << 12);
+  return drawTilemap(art.tiles, { width: entries.length, height: 1, entries }, (n) => (n === FRAME_PALETTE ? art.framePalette : undefined));
+}

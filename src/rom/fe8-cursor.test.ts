@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cursorSpread, FE8U_MISC_UI_GRAPHICS, FE8U_MISC_UI_PALETTE, readMapCursor } from './fe8-cursor';
+import { cursorSpread, FE8U_MISC_UI_GRAPHICS, FE8U_MISC_UI_PALETTE, handOffset, readMapCursor, readMenuHand } from './fe8-cursor';
 import { readRom } from './gba-rom';
 
 /** LZ77 with literal blocks only, which the GBA's decompressor reads like any other. */
@@ -22,6 +22,25 @@ describe('FE8 map cursor', () => {
     expect([img.width, img.height]).toEqual([8, 8]);
     expect(Array.from(img.rgba.subarray(0, 8))).toEqual([248, 0, 0, 255, 0, 0, 0, 0]);
     expect(readMapCursor(readRom(new Uint8Array(0x100)))).toBeNull();
+  });
+
+  it('reads the hand from tiles 0 and 1 and, a stored row below, 18 and 19', () => {
+    const bytes = new Uint8Array(FE8U_MISC_UI_PALETTE + 0x40);
+    const view = new DataView(bytes.buffer);
+    const tiles = new Uint8Array(20 * 32);
+    for (const [t, c] of [[0, 1], [1, 2], [18, 3], [19, 4]]) tiles.fill(c! * 0x11, t! * 32, t! * 32 + 32);
+    bytes.set(lz77(tiles), FE8U_MISC_UI_GRAPHICS);
+    for (let c = 1; c <= 4; c++) view.setUint16(FE8U_MISC_UI_PALETTE + c * 2, c, true);
+    const img = readMenuHand(readRom(bytes))!;
+    const red = (x: number, y: number) => img.rgba[(y * 16 + x) * 4];
+    expect([red(0, 0), red(8, 0), red(0, 8), red(8, 8)]).toEqual([8, 16, 24, 32]);
+  });
+
+  it('puts the hand 14 pixels left of the text, bobbing up to 4 back over 32 ticks', () => {
+    const tick = 1000 / 60;
+    expect(handOffset(0)).toEqual({ x: -14, y: 2 });
+    expect(handOffset(18.5 * tick)).toEqual({ x: -10, y: 2 });
+    expect(handOffset(32.5 * tick)).toEqual({ x: -14, y: 2 });
   });
 
   it('breathes as sMapCursorSpriteLut does: wide for 10 frames, then in to tight and out again', () => {

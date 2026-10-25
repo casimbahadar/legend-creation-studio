@@ -13,7 +13,7 @@ import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe
 import { ALL_CHARACTER_NAMES, checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
 import { FE8U_SYSTEM_GLYPHS, FE8U_TALK_GLYPHS, readFont } from './fe8-font';
 import { readChibi } from './fe8-portraits';
-import { readMapCursor } from './fe8-cursor';
+import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
@@ -237,6 +237,7 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     let opaque = 0;
     for (let i = 3; i < corner.rgba.length; i += 4) if (corner.rgba[i]) opaque++;
     expect(opaque).toBeGreaterThan(4);
+    expect(contentBounds(readMenuHand(rom)!)).not.toBeNull();
   });
 
   it('reads each phase banner', () => {

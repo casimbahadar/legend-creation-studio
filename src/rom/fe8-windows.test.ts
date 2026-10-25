@@ -4,6 +4,7 @@ import {
   contentBounds,
   drawFrame,
   drawGoalWindow,
+  drawMenuHover,
   drawTilemap,
   drawUnitWindow,
   FE8U_GOAL_ONE_LINE_TILEMAP,
@@ -140,6 +141,14 @@ describe('FE8 window art', () => {
       expect(contentBounds(one)).toEqual({ x: 0, y: 8, width: 8, height: 8 });
       expect(at(one, 0, 8)).toEqual([32, 0, 0, 255]);
       expect(drawGoalWindow(art, 2).height).toBe(8);
+    });
+
+    it('draws the menu hover strip from tiles 0x7A, 0x7B and 0x7C', () => {
+      const tiles = new Uint8Array(0x80 * 32);
+      for (const t of [0x7a, 0x7b, 0x7c]) tiles.fill((t & 15) * 0x11, t * 32, t * 32 + 32);
+      const img = drawMenuHover({ ...art, tiles }, 4);
+      expect([img.width, img.height]).toEqual([32, 8]);
+      expect([0, 8, 16, 24].map((x) => at(img, x, 0)[0])).toEqual([80, 88, 88, 96]);
     });
 
     it('has nothing for a ROM without the art', () => {
