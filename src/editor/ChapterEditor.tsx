@@ -54,6 +54,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const artByName = useMemo(() => new Map(data.art.map((a) => [a.entry.name, a])), [data.art]);
   const mapImage = useMemo(() => (map ? toCanvas(renderMap(map)) : null), [map]);
   const characters = useMemo(() => unitCharacters(data, chapter.units), [data, chapter.units]);
+  const cursorCorner = useMemo(() => (data.cursor ? toCanvas(data.cursor) : null), [data.cursor]);
 
   // Edit mode's map: the placed units, idling, and a cursor on the one being edited.
   useEffect(() => {
@@ -75,12 +76,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
         g.drawImage(art.frames[u.team][frame]!, Math.round(sx), Math.round(sy));
       }
       const edited = editing ? chapter.units.find((u) => u.id === editing) : undefined;
-      if (edited) drawCursor(g, edited.at[0], edited.at[1], now);
+      if (edited) drawCursor(g, edited.at[0], edited.at[1], now, cursorCorner);
       if (chapter.units.length) raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [playing, mapImage, chapter.units, artByName, editing]);
+  }, [playing, mapImage, chapter.units, artByName, editing, cursorCorner]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });

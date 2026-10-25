@@ -27,7 +27,7 @@ import {
   type PlayView,
 } from '../core/play-input';
 import type { ProjectChapter } from '../core/project';
-import { unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
+import { toCanvas, unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
 import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } from '../play/draw';
 import { followCamera, VIEW_HEIGHT, VIEW_WIDTH } from '../play/camera';
 import { chapterRules } from '../play/rules';
@@ -73,6 +73,7 @@ export function PlayScreen({
   // One stream of random numbers per play session.
   const rng = useRef(randomNumbers(Date.now()));
   const characters = useMemo(() => unitCharacters(data, chapter.units), [data, chapter.units]);
+  const cursorCorner = useMemo(() => (data.cursor ? toCanvas(data.cursor) : null), [data.cursor]);
   const start = () => {
     rng.current = randomNumbers(Date.now());
     return startView(startPlay(chapter, (u) => withBonus(unitStats(artByName.get(u.class), characters.get(u.id), u.level), u.statBonus)));
@@ -225,13 +226,13 @@ export function PlayScreen({
         }
         if (bf.done) setView((v) => finishBattle(v));
       }
-      if (!battle) drawCursor(g, view.cursor[0], view.cursor[1], now);
+      if (!battle) drawCursor(g, view.cursor[0], view.cursor[1], now, cursorCorner);
       g.setTransform(1, 0, 0, 1, 0, 0);
       raf = requestAnimationFrame(draw);
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH]);
+  }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH, cursorCorner]);
 
   // The computer's phases: a pause on each phase banner, then one unit at a time.
   const aiTurn = (view.phase !== 'player' || !!view.banner) && !view.walking && !view.battle;

@@ -1,6 +1,8 @@
 // Canvas drawing for the map in play: range squares, the movement arrow and the cursor, all at the
 // GBA's own scale of 16 pixels per square.
 
+import { cursorSpread } from '../rom/fe8-cursor';
+
 /** Range square colours from Endless Chronicle: blue where a unit can move, red where it can attack, as in FE. */
 export const MOVE_COLOURS = { fill: 'rgba(48, 110, 255, 0.45)', edge: 'rgba(170, 200, 255, 0.8)' };
 export const ATTACK_COLOURS = { fill: 'rgba(255, 60, 48, 0.42)', edge: 'rgba(255, 170, 160, 0.75)' };
@@ -58,7 +60,11 @@ export function drawArrow(g: CanvasRenderingContext2D, route: readonly number[],
 }
 
 /** Endless Chronicle's cursor: four yellow corner brackets that step outward and back every 250 ms. */
-export function drawCursor(g: CanvasRenderingContext2D, x: number, y: number, now: number) {
+export function drawCursor(g: CanvasRenderingContext2D, x: number, y: number, now: number, corner?: CanvasImageSource | null) {
+  if (corner) {
+    drawRomCursor(g, x, y, now, corner);
+    return;
+  }
   const out = Math.floor(now / 250) % 2;
   const arm = 5;
   const thick = 2;
@@ -74,5 +80,22 @@ export function drawCursor(g: CanvasRenderingContext2D, x: number, y: number, no
     const oy = (y + cy) * 16 - dy * out;
     g.fillRect(dx > 0 ? ox : ox - thick, dy > 0 ? oy : oy - arm, thick, arm);
     g.fillRect(dx > 0 ? ox : ox - arm, dy > 0 ? oy : oy - thick, arm, thick);
+  }
+}
+
+/** FE8's own cursor: the ROM's corner tile in each corner of the square, flipped, spread as at `now` (fe8-cursor.ts). */
+function drawRomCursor(g: CanvasRenderingContext2D, x: number, y: number, now: number, corner: CanvasImageSource) {
+  const s = cursorSpread(now);
+  for (const [cx, cy, flipX, flipY] of [
+    [s.left, s.top, false, false],
+    [s.right, s.top, true, false],
+    [s.left, s.bottom, false, true],
+    [s.right, s.bottom, true, true],
+  ] as const) {
+    g.save();
+    g.translate(x * 16 + cx + (flipX ? 8 : 0), y * 16 + cy + (flipY ? 8 : 0));
+    g.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+    g.drawImage(corner, 0, 0);
+    g.restore();
   }
 }
