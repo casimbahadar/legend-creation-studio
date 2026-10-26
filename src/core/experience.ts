@@ -4,7 +4,7 @@
 // rising by its growth rate's chance, and at the class's last level experience stops.
 // Not yet: the Assassin's doubled experience for a Silencer kill, monsters' special cases.
 
-import type { Stats } from './combat';
+import { hpCapFor, LUCK_CAP, type Stats } from './combat';
 
 /** What decides a unit's experience: its level and class, from the ROM. */
 export interface ExpProfile {
@@ -58,9 +58,8 @@ export function expGain(actor: ExpProfile, target: ExpProfile, dealtDamage: bool
 export type StatGains = Omit<Stats, 'con'>;
 
 const GROWN = ['hp', 'str', 'skl', 'spd', 'def', 'res', 'lck'] as const;
-/** HP can't pass 60 for player units; luck can't pass 30 for anyone. */
-export const PLAYER_HP_CAP = 60;
-export const LUCK_CAP = 30;
+/** HP can't pass 60 for player units (hpCapFor); luck can't pass 30 for anyone. */
+const PLAYER_HP_CAP = hpCapFor('player');
 
 /** GetStatIncrease: 1 for each full 100 of growth, and the rest as a percent chance. `rn` gives 0 to 99. */
 function statIncrease(growth: number, rn: () => number): number {

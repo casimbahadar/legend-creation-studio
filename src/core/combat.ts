@@ -45,9 +45,17 @@ export function withBonus(stats: Stats, bonus: Partial<Stats> | undefined): Stat
   return { hp: add('hp', 1), str: add('str', 0), skl: add('skl', 0), spd: add('spd', 0), def: add('def', 0), res: add('res', 0), lck: add('lck', 0), con: add('con', 0) };
 }
 
+/** FE8's HP cap (UNIT_MHP_MAX): 120 for enemies, 60 for everyone else. */
+export function hpCapFor(team: 'player' | 'enemy' | 'ally'): number {
+  return team === 'enemy' ? 120 : 60;
+}
+
+/** FE8's luck cap (UNIT_LCK_MAX). */
+export const LUCK_CAP = 30;
+
 /**
- * Stats cut to their caps, as FE8 cuts a unit's when it loads (UnitCheckStatCaps): HP to `hpCap` (60,
- * or 120 for enemies), luck to 30, the rest to the class's maximums in `caps`.
+ * Stats cut to their caps, as FE8 cuts a unit's when it loads (UnitCheckStatCaps): HP to `hpCap`
+ * (hpCapFor), luck to 30, the rest to the class's maximums in `caps`.
  */
 export function withinCaps(stats: Stats, caps: Stats, hpCap: number): Stats {
   return {
@@ -57,7 +65,7 @@ export function withinCaps(stats: Stats, caps: Stats, hpCap: number): Stats {
     spd: Math.min(stats.spd, caps.spd),
     def: Math.min(stats.def, caps.def),
     res: Math.min(stats.res, caps.res),
-    lck: Math.min(stats.lck, 30),
+    lck: Math.min(stats.lck, LUCK_CAP),
     con: Math.min(stats.con, caps.con),
   };
 }

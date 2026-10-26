@@ -5,8 +5,8 @@
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { battleFrame, expBarEnd, expFrame, LEVEL_UP_MS, type BattleFrame } from '../core/battle-anim';
-import { PLAYER_HP_CAP, startingExp } from '../core/experience';
-import { randomNumbers, withBonus, withinCaps } from '../core/combat';
+import { startingExp } from '../core/experience';
+import { hpCapFor, randomNumbers, withBonus, withinCaps } from '../core/combat';
 import { attackRange } from '../core/movement';
 import { startPlay, unitAt } from '../core/play';
 import {
@@ -87,7 +87,7 @@ export function PlayScreen({
         (u) => {
           const art = artByName.get(u.class);
           const stats = withBonus(unitStats(art, characters.get(u.id), u.level), u.statBonus);
-          return art ? withinCaps(stats, art.caps, u.team === 'enemy' ? 120 : PLAYER_HP_CAP) : stats;
+          return art ? withinCaps(stats, art.caps, hpCapFor(u.team)) : stats;
         },
         // Only player units gain experience, as in FE8.
         (u) => (u.team === 'player' ? startingExp(u.level, maxLevel(artByName.get(u.class), characters.get(u.id))) : null),
