@@ -475,3 +475,44 @@ describe('trading', () => {
     expect(pressB(untouched, rules).action).toBeNull();
   });
 });
+
+describe('chapter goals', () => {
+  const chapter = (goal: Partial<ProjectChapter>, extra: ProjectChapter['units'] = []): ProjectChapter => ({
+    ...chapterWith([4, 2], extra),
+    ...goal,
+    units: [...chapterWith([4, 2], extra).units.map((u) => (u.id === 'eirika' ? { ...u, character: 'eirika' } : u))],
+  });
+  const view = (c: ProjectChapter) => startView(startPlay(c, () => STATS));
+
+  it("offers Seize to the lord on the square, and seizing wins", () => {
+    const menu = moveRight(view(chapter({ goal: 'seize', seizeAt: [2, 1] })));
+    expect(menuOptions(menu, rules)).toEqual(['seize', 'wait']);
+    const won = pressA(menu, rules);
+    expect(won.outcome).toEqual({ result: 'victory' });
+    // Off the square, or without the lord, no Seize.
+    expect(menuOptions(moveRight(view(chapter({ goal: 'seize', seizeAt: [3, 2] }))), rules)).toEqual(['wait']);
+  });
+
+  it('does not win a Seize chapter by defeating every enemy', () => {
+    const v = view(chapter({ goal: 'seize', seizeAt: [0, 0] }));
+    const fight = pressA(pressA(moveRight({ ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'brigand-1' ? { ...u, at: [3, 1] as const } : u)) } }), rules), rules);
+    expect(finishBattle(fight).outcome).toBeNull();
+  });
+
+  it('wins Defeat boss when the boss falls', () => {
+    const c = { ...chapter({ goal: 'boss', boss: 'brigand-1' }), units: chapterWith([3, 1]).units.map((u) => (u.id === 'brigand-1' ? { ...u, character: 'oneill' } : u)) };
+    const fight = pressA(pressA(moveRight(view(c)), rules), rules);
+    expect(finishBattle(fight).outcome).toEqual({ result: 'victory' });
+  });
+
+  it('wins Survive as the turn after the last begins', () => {
+    let v = view(chapter({ goal: 'survive', surviveTurns: 2 }));
+    for (let turn = 1; turn <= 2; turn++) {
+      expect(v.outcome).toBeNull();
+      v = endPlayerTurn(v);
+      while ((v.phase !== 'player' || v.banner) && !v.outcome) v = stepAI(v, rules);
+    }
+    expect(v.state.turn).toBe(3);
+    expect(v.outcome).toEqual({ result: 'victory' });
+  });
+});

@@ -60,7 +60,7 @@ const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
 /** How long the notice that a weapon broke shows (A closes it sooner). */
 const BROKE_MS = 1500;
-const MENU_LABELS: Record<MenuOption, string> = { attack: 'Attack', staff: 'Staff', item: 'Item', trade: 'Trade', wait: 'Wait' };
+const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', item: 'Item', trade: 'Trade', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
 

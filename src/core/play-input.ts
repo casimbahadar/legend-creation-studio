@@ -12,11 +12,11 @@ export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, discardItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, boostUnit, discardItem, seize, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
-export type MenuOption = 'attack' | 'staff' | 'item' | 'trade' | 'wait';
+export type MenuOption = 'seize' | 'attack' | 'staff' | 'item' | 'trade' | 'wait';
 
 /** What can be done with one item, as in FE8's item menu. */
 export type ItemOption = 'equip' | 'use' | 'discard';
@@ -182,6 +182,9 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
   const unit = view.action ? unitById(view.state, view.action.unit) : undefined;
   if (!unit) return [];
   const options: MenuOption[] = [];
+  // Seize comes first, as in FE8, for the lord standing on the square (UnitActionMenu_CanSeize).
+  const goal = view.state.goal;
+  if (goal?.kind === 'seize' && goal.lord === unit.id && goal.at && goal.at[0] === unit.at[0] && goal.at[1] === unit.at[1]) options.push('seize');
   if (rules.targetsOf(unit, view.state).length) options.push('attack');
   if (rules.staffChoices?.(unit, view.state).length) options.push('staff');
   if (unit.items.length) options.push('item');
@@ -335,6 +338,10 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   const unit = unitById(view.state, a.unit);
   if (!unit) return view;
   if (option === 'wait') return { ...view, state: finishAction(view.state, unit.id), action: null };
+  if (option === 'seize') {
+    const state = seize(view.state, unit.id);
+    return { ...view, state, action: null, outcome: outcomeOf(state) };
+  }
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
   if (option === 'trade') {
     const partners = tradePartners(view.state, unit);
@@ -540,7 +547,9 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
     }
     const state = endTurn(view.state);
     const first = state.units.find((u) => u.team === 'player');
-    return { ...view, state, phase: 'player', queue: [], banner: 'player', cursor: first ? first.at : view.cursor };
+    // A Survive goal is won as the turn after the last begins.
+    const outcome = outcomeOf(state);
+    return { ...view, state, phase: 'player', queue: [], banner: outcome ? null : 'player', cursor: first ? first.at : view.cursor, outcome };
   }
   const unit = unitById(view.state, next);
   if (!unit) return { ...view, queue: rest };

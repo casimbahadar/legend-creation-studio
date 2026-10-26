@@ -3,6 +3,7 @@
 
 import type { Stats } from './combat';
 import type { ExpResult } from './experience';
+import { goalRule, type GoalRule } from './goals';
 import { DEFAULT_BEHAVIOUR, type Behaviour, type ProjectChapter, type ProjectUnit, type Team } from './project';
 
 export interface PlayUnit {
@@ -35,6 +36,10 @@ export interface PlayState {
   readonly units: readonly PlayUnit[];
   /** Units that have fallen, in order. */
   readonly fallen: readonly PlayUnit[];
+  /** What wins the chapter (decision 36); Rout if left out. */
+  readonly goal?: GoalRule;
+  /** The lord has seized. */
+  readonly seized?: boolean;
 }
 
 export type Outcome = { readonly result: 'victory' } | { readonly result: 'defeat'; readonly fallen: PlayUnit | null };
@@ -76,6 +81,7 @@ export function startPlay(
       };
     }),
     fallen: [],
+    goal: goalRule(chapter),
   };
 }
 
@@ -193,14 +199,29 @@ export function applyExp(state: PlayState, id: string, result: ExpResult): PlayS
 
 /**
  * Whether the chapter is over (decision 26): lost if a Must survive unit has fallen or no player unit
- * is left, won (Rout) once no enemy is left. Checked after each battle.
+ * is left; won by its goal (decision 36): Rout once no enemy is left, Seize once the lord has seized,
+ * Defeat boss once the boss has fallen, Survive once the turn after the last has begun. Checked after
+ * each battle, action and new turn.
  */
 export function outcomeOf(state: PlayState): Outcome | null {
   const lost = state.fallen.find((u) => u.mustSurvive);
   if (lost) return { result: 'defeat', fallen: lost };
   if (!state.units.some((u) => u.team === 'player')) return { result: 'defeat', fallen: null };
-  if (!state.units.some((u) => u.team === 'enemy')) return { result: 'victory' };
-  return null;
+  const goal = state.goal ?? { kind: 'rout' };
+  const won =
+    goal.kind === 'seize'
+      ? !!state.seized
+      : goal.kind === 'boss'
+        ? state.fallen.some((u) => u.id === goal.unit)
+        : goal.kind === 'survive'
+          ? state.turn > goal.turns
+          : !state.units.some((u) => u.team === 'enemy');
+  return won ? { result: 'victory' } : null;
+}
+
+/** The lord seizes: the unit is done and the chapter is won. */
+export function seize(state: PlayState, id: string): PlayState {
+  return { ...finishAction(state, id), seized: true };
 }
 
 /** Every unit ready to act again, as at the start of each phase in FE. */

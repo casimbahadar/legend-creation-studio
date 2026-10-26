@@ -8,7 +8,12 @@ export const PROJECT_VERSION = 0;
 export type Team = 'player' | 'enemy' | 'ally';
 export const TEAMS: readonly Team[] = ['player', 'enemy', 'ally'];
 
-export type ChapterGoal = 'rout';
+/** A chapter's goal (decision 36; see goals.ts). */
+export const CHAPTER_GOALS = ['rout', 'seize', 'boss', 'survive'] as const;
+export type ChapterGoal = (typeof CHAPTER_GOALS)[number];
+/** The most turns a Survive goal can ask for; FE8's goal window shows two digits. */
+export const MAX_SURVIVE_TURNS = 99;
+export const DEFAULT_SURVIVE_TURNS = 10;
 
 /** Stats a unit can set for itself (decision 25), in FE's display order. */
 export const STAT_KEYS = ['hp', 'str', 'skl', 'spd', 'lck', 'def', 'res', 'con'] as const;
@@ -63,6 +68,12 @@ export interface ProjectChapter {
    */
   replaces?: string;
   goal: ChapterGoal;
+  /** For Seize: the square the lord takes. */
+  seizeAt?: [number, number];
+  /** For Defeat boss: the id of the enemy unit that is the boss. */
+  boss?: string;
+  /** For Survive: how many turns to hold out. */
+  surviveTurns?: number;
   units: ProjectUnit[];
 }
 
@@ -175,7 +186,14 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
       if (c.replaces !== undefined && (typeof c.replaces !== 'string' || mapEntry(c.replaces) === null)) {
         problem(`${at}.replaces`, "The chapter's place in the game is unreadable.");
       }
-      if (c.goal !== 'rout') problem(`${at}.goal`, 'The chapter goal must be "rout" (defeat every enemy).');
+      if (!CHAPTER_GOALS.includes(c.goal as ChapterGoal)) problem(`${at}.goal`, `The chapter has a goal this tool doesn't know: "${String(c.goal)}".`);
+      if (c.seizeAt !== undefined && (!Array.isArray(c.seizeAt) || c.seizeAt.length !== 2 || !c.seizeAt.every((v) => isInt(v) && v >= 0))) {
+        problem(`${at}.seizeAt`, 'The square to seize is unreadable.');
+      }
+      if (c.boss !== undefined && (typeof c.boss !== 'string' || !NAME.test(c.boss))) problem(`${at}.boss`, 'The boss to defeat is unreadable.');
+      if (c.surviveTurns !== undefined && (!isInt(c.surviveTurns) || c.surviveTurns < 1 || c.surviveTurns > MAX_SURVIVE_TURNS)) {
+        problem(`${at}.surviveTurns`, `Survive needs a number of turns from 1 to ${MAX_SURVIVE_TURNS}.`);
+      }
       if (!Array.isArray(c.units)) return problem(`${at}.units`, 'The chapter needs a list of units, even an empty one.');
 
       const unitIds = new Set<string>();
