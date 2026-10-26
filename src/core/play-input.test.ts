@@ -380,6 +380,27 @@ describe('healing with a staff', () => {
     expect(pressB(choosing, staffRules).action).toMatchObject({ kind: 'menu', index: 0 });
   });
 
+  it("lets the computer's healers heal their side", () => {
+    // The brigand carries a staff; a second, hurt brigand stands next to it.
+    const v = start([4, 0], [{ id: 'brigand-2', class: 'brigand', team: 'enemy', level: 1, at: [4, 1] }]);
+    const set: PlayView = {
+      ...v,
+      state: { ...v.state, units: v.state.units.map((u) => (u.id === 'brigand-1' ? { ...u, items: ['heal'], uses: [3] } : u.id === 'brigand-2' ? { ...u, hp: 4 } : u)) },
+    };
+    const enemyRules: PlayRules = {
+      ...staffRules,
+      staffChoices: (u, s) => {
+        const hurt = s.units.filter((o) => o.id !== u.id && o.team === u.team && o.hp < o.stats.hp && Math.abs(o.at[0] - u.at[0]) + Math.abs(o.at[1] - u.at[1]) === 1);
+        return u.items[0] === 'heal' && hurt.length ? [{ item: 0, targets: hurt.map((o) => o.id), heal: 10 }] : [];
+      },
+    };
+    const acting = stepAI(stepAI(endPlayerTurn(set), enemyRules), enemyRules);
+    expect(acting.battle).toMatchObject({ attacker: 'brigand-1', defender: 'brigand-2', heal: 10 });
+    const after = finishBattle(acting);
+    expect(after.state.units.find((u) => u.id === 'brigand-2')!.hp).toBe(14);
+    expect(after.state.units.find((u) => u.id === 'brigand-1')!.uses).toEqual([2]);
+  });
+
   it('offers no Staff with nobody hurt in reach', () => {
     const v = setUp();
     const fine = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'seth' ? { ...u, hp: 18 } : u)) } };

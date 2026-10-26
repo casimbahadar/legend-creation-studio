@@ -60,3 +60,38 @@ describe('planAction', () => {
     expect(planAction(ally, s, rules())).toEqual({ to: 2, route: [0, 1, 2], attack: 'x' });
   });
 });
+
+describe('planAction with a healing staff', () => {
+  // The healer 'e' heals 8 a neighbour that is hurt.
+  const healRules: AiRules = {
+    ...rules(),
+    staffChoices: (u, s) => {
+      if (u.id !== 'e') return [];
+      const hurt = s.units.filter((o) => o.id !== u.id && o.team === u.team && o.hp < o.stats.hp && Math.abs(o.at[0] - u.at[0]) === 1);
+      return hurt.length ? [{ item: 0, targets: hurt.map((o) => o.id), heal: 8 }] : [];
+    },
+  };
+  const hurt = (s: PlayState, hp: Record<string, number>) => ({ ...s, units: s.units.map((u) => (hp[u.id] !== undefined ? { ...u, hp: hp[u.id]! } : u)) });
+
+  it('walks up to a hurt ally and heals it rather than attacking', () => {
+    // 'p' could be attacked from square 2, but the healer goes to 5 to heal 'f'.
+    const s = hurt(play(unit('p', 'player', 1), unit('e', 'enemy', 3), unit('f', 'enemy', 6)), { f: 3 });
+    expect(planAction(enemy(s), s, healRules)).toEqual({ to: 5, route: [3, 4, 5], attack: null, heal: { target: 'f', item: 0, heal: 8 } });
+  });
+
+  it('heals where it does most good, then the ally with the least HP left', () => {
+    // 'f' is missing 2 HP, 'g' 7: healing 'g' gives back more.
+    const s = hurt(play(unit('f', 'enemy', 2), unit('e', 'enemy', 3), unit('g', 'enemy', 4)), { f: 8, g: 3 });
+    expect(planAction(enemy(s), s, healRules).heal?.target).toBe('g');
+    // Both missing at least 8: the one with less HP left.
+    const t = hurt(play(unit('f', 'enemy', 2), unit('e', 'enemy', 3), unit('g', 'enemy', 4)), { f: 1, g: 2 });
+    expect(planAction(enemy(t), t, healRules).heal?.target).toBe('f');
+  });
+
+  it('attacks as usual with nobody to heal, and a holding healer only heals next to it', () => {
+    const s = play(unit('p', 'player', 2), unit('e', 'enemy', 3), unit('f', 'enemy', 6));
+    expect(planAction(enemy(s), s, healRules)).toMatchObject({ attack: 'p' });
+    const held = hurt(play(unit('e', 'enemy', 3, 'hold'), unit('f', 'enemy', 6)), { f: 3 });
+    expect(planAction(enemy(held), held, healRules)).toEqual({ to: 3, route: [3], attack: null });
+  });
+});

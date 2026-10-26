@@ -5,7 +5,9 @@
 // then the ally phase (decision 24), each unit acting by its behaviour, one step at a time through
 // stepAI.
 
-import { planAction, type AiRules } from './ai';
+import { planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
+
+export type { StaffChoice } from './ai';
 import type { Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
@@ -52,13 +54,6 @@ export interface Fight {
   readonly defenderItem: number | null;
 }
 
-/** A staff the unit can heal with: its item index, the allies it reaches and how much it heals. */
-export interface StaffChoice {
-  readonly item: number;
-  readonly targets: readonly string[];
-  readonly heal: number;
-}
-
 export interface Battle extends Fight {
   readonly attacker: string;
   readonly defender: string;
@@ -77,9 +72,15 @@ export interface PlayView {
   readonly route: readonly number[] | null;
   /**
    * A unit walking its route to the square it was just moved to, from `from`. Input waits until
-   * finishWalk. A computer-controlled unit attacks `then` on arrival, if set.
+   * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`) on arrival, if set.
    */
-  readonly walking: { readonly id: string; readonly route: readonly number[]; readonly from: readonly [number, number]; readonly then?: string | null } | null;
+  readonly walking: {
+    readonly id: string;
+    readonly route: readonly number[];
+    readonly from: readonly [number, number];
+    readonly then?: string | null;
+    readonly thenHeal?: PlannedHeal;
+  } | null;
   readonly action: Action | null;
   /** A fight being shown. Input waits until finishBattle. */
   readonly battle: Battle | null;
@@ -106,12 +107,15 @@ export interface PlayRules extends AiRules {
   experience?(attacker: PlayUnit, defender: PlayUnit, strikes: readonly Strike[]): ExpAward | null;
   /** Each weapon the unit could attack with from where it stands (its item index), with the foes it reaches, in item order. */
   weaponChoices?(unit: PlayUnit, state: PlayState): { readonly item: number; readonly targets: readonly string[] }[];
-  /** Each staff the unit could heal with from where it stands, in item order (none if left out). */
-  staffChoices?(unit: PlayUnit, state: PlayState): StaffChoice[];
   /** The experience healing with item `index` gives the unit, if any. */
   staffExperience?(unit: PlayUnit, index: number): ExpAward | null;
   /** Whether the unit can equip its item `index` (a weapon its class can use), and how much HP using it heals (0: can't be used). */
   itemUse?(unit: PlayUnit, index: number): { readonly equip: boolean; readonly heal: number };
+}
+
+/** A heal with a staff: played like a fight with no blows, then its experience; finishBattle heals. */
+function healBattle(healer: PlayUnit, target: PlayUnit, heal: PlannedHeal, rules: PlayRules): Battle {
+  return { attacker: healer.id, defender: target.id, strikes: [], attackerItem: heal.item, defenderItem: null, heal: heal.heal, exp: rules.staffExperience?.(healer, heal.item) ?? null };
 }
 
 /** A fight between two units, with the experience it gives. */
@@ -347,11 +351,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     const attacker = unitById(view.state, a.unit);
     const defender = unitById(view.state, a.targets[a.index] ?? null);
     if (!attacker || !defender) return view;
-    if (a.staff) {
-      // A heal plays like a fight with no blows, then shows its experience; finishBattle heals.
-      const heal: Battle = { attacker: attacker.id, defender: defender.id, strikes: [], attackerItem: a.staff.item, defenderItem: null, heal: a.staff.heal, exp: rules.staffExperience?.(attacker, a.staff.item) ?? null };
-      return { ...view, action: null, battle: heal };
-    }
+    if (a.staff) return { ...view, action: null, battle: healBattle(attacker, defender, { target: defender.id, item: a.staff.item, heal: a.staff.heal }, rules) };
     return { ...view, action: null, battle: startBattle(attacker, defender, view.state, rules) };
   }
   const [x, y] = view.cursor;
@@ -410,6 +410,8 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   const done = { ...view, walking: null };
   if (view.phase === 'player') return openMenu(done, w.id, w.from);
   const unit = unitById(view.state, w.id);
+  const ally = unitById(view.state, w.thenHeal?.target ?? null);
+  if (unit && ally && w.thenHeal) return { ...done, cursor: unit.at, battle: healBattle(unit, ally, w.thenHeal, rules) };
   const target = unitById(view.state, w.then ?? null);
   if (unit && target) return { ...done, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
   return { ...done, state: finishAction(view.state, w.id), cursor: unit ? unit.at : view.cursor };
@@ -449,8 +451,10 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   const start = unit.at[1] * rules.width + unit.at[0];
   if (plan.to !== start) {
     const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
-    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(view.state, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack } };
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(view.state, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal } };
   }
+  const ally = unitById(view.state, plan.heal?.target ?? null);
+  if (ally && plan.heal) return { ...view, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
   const target = unitById(view.state, plan.attack);
   if (target) return { ...view, queue: rest, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
   return { ...view, queue: rest, cursor: unit.at, state: finishAction(view.state, unit.id) };
