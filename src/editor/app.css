@@ -564,6 +564,7 @@ h3 {
 
 /* After a fight: the experience bar in the middle of the screen, then the level-up window, as in FE. */
 .fe-window.exp-window,
+.fe-window.broke-window,
 .fe-window.level-up-window {
   left: 50%;
   top: 50%;

@@ -3,6 +3,7 @@ import type { Stats } from './combat';
 import { searchMoves } from './movement';
 import { startPlay, type PlayState, type PlayUnit } from './play';
 import {
+  brokenWeapons,
   canMove,
   chooseWeapon,
   itemOptions,
@@ -188,6 +189,15 @@ describe('attacking', () => {
     };
     const fighting = pressA(pressA(moveRight(armed), withItems), withItems);
     expect(eirika(finishBattle(fighting))).toMatchObject({ items: ['rapier'], uses: [30] });
+  });
+
+  it('tells which weapons a fight broke', () => {
+    const v = start([3, 1]);
+    const state = { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['rapier'], uses: [1] } : u.id === 'brigand-1' ? { ...u, items: ['iron-axe'], uses: [5] } : u)) };
+    const strike = (by: 'attacker' | 'defender', hit: boolean) => ({ by, hit, crit: false, damage: hit ? 3 : 0, attackerHp: 18, defenderHp: 15, used: hit });
+    const battle = { attacker: 'eirika', defender: 'brigand-1', attackerItem: 0, defenderItem: 0, exp: null };
+    expect(brokenWeapons(state, { ...battle, strikes: [strike('attacker', true), strike('defender', true)] })).toEqual([{ unit: 'eirika', item: 'rapier' }]);
+    expect(brokenWeapons(state, { ...battle, strikes: [strike('attacker', false)] })).toEqual([]);
   });
 
   it('chooses a target by tapping it, and attacks on a second tap', () => {

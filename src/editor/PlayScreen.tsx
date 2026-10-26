@@ -10,6 +10,7 @@ import { hpCapFor, randomNumbers, withBonus, withinCaps } from '../core/combat';
 import { attackRange } from '../core/movement';
 import { startPlay, unitAt } from '../core/play';
 import {
+  brokenWeapons,
   canMove as unitCanMove,
   chooseItem,
   chooseItemOption,
@@ -54,6 +55,8 @@ import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, LevelUpW
 /** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
 const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
+/** How long the notice that a weapon broke shows (A closes it sooner). */
+const BROKE_MS = 1500;
 const MENU_LABELS: Record<MenuOption, string> = { attack: 'Attack', item: 'Item', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
@@ -168,13 +171,16 @@ export function PlayScreen({
   const battleFrom = useRef({ attackerHp: 0, defenderHp: 0 });
   const [hud, setHud] = useState<BattleFrame | null>(null);
   const hudKey = useRef('');
-  // After a fight that gave experience, its display plays before the fight is applied (expFrame).
+  // After a fight: the experience it gave (expFrame), then any weapon that broke, then the fight is applied.
   const expShown = useRef(false);
   const [expStart, setExpStart] = useState<number | null>(null);
   const expOffset = useRef(0);
   const [expNow, setExpNow] = useState(0);
+  const ending = useRef(false);
+  const [broke, setBroke] = useState<readonly { unit: string; item: string }[] | null>(null);
   useEffect(() => {
     expShown.current = false;
+    ending.current = false;
     if (!battle) {
       setHud(null);
       hudKey.current = '';
@@ -199,17 +205,39 @@ export function PlayScreen({
   }, [expStart]);
   const award = battle?.exp ?? null;
   const expShow = award && expStart !== null ? expFrame(award.exp, award.result.gain, !!award.result.levelUp, expNow) : null;
+  /** The fight and its experience have been shown: show any broken weapon, or apply the fight. Once per battle. */
+  const endFight = useRef(() => {});
+  endFight.current = () => {
+    if (ending.current || !battle) return;
+    ending.current = true;
+    const list = brokenWeapons(play, battle);
+    if (list.length) setBroke(list);
+    else setView((v) => finishBattle(v));
+  };
   useEffect(() => {
     if (expStart === null || expShow) return;
     setExpStart(null);
-    setView((v) => finishBattle(v));
+    endFight.current();
   }, [expStart, expShow]);
+  const closeBroke = () => {
+    setBroke(null);
+    setView((v) => finishBattle(v));
+  };
+  useEffect(() => {
+    if (!broke) return;
+    const t = window.setTimeout(closeBroke, BROKE_MS);
+    return () => window.clearTimeout(t);
+  }, [broke]);
 
-  /** A: skips ahead through the experience display while it shows, otherwise as in the game. */
+  /** A: skips ahead through the experience display or the broken weapon notice while they show, otherwise as in the game. */
   const onAPress = useRef(() => {});
   onAPress.current = () => {
     if (award && expShow) {
       expOffset.current += expShow.phase === 'bar' ? Math.max(0, expBarEnd(award.result.gain) - expNow) : LEVEL_UP_MS;
+      return;
+    }
+    if (broke) {
+      closeBroke();
       return;
     }
     setView((v) => pressA(v, rules));
@@ -288,7 +316,7 @@ export function PlayScreen({
           setHud(bf);
         }
         if (bf.done) {
-          if (!battle!.exp) setView((v) => finishBattle(v));
+          if (!battle!.exp) endFight.current();
           else if (!expShown.current) {
             expShown.current = true;
             expOffset.current = 0;
@@ -433,6 +461,19 @@ export function PlayScreen({
         {battle && hud && <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
         {award && expShow?.phase === 'bar' && <ExpWindow exp={expShow.exp} />}
+        {broke && (
+          <div className="fe-window broke-window" role="status">
+            {broke.map((b) => {
+              const owner = play.units.find((u) => u.id === b.unit);
+              const item = data.items.find((x) => x.entry.name === b.item)?.entry.gameName ?? b.item;
+              return (
+                <span key={b.unit} className="fe-line">
+                  <FeText text={owner ? `${unitLabel(owner)}'s ${item} broke!` : `${item} broke!`} />
+                </span>
+              );
+            })}
+          </div>
+        )}
         {award?.result.levelUp && expShow?.phase === 'levelUp' && (() => {
           const u = play.units.find((x) => x.id === award.unit);
           return u ? <LevelUpWindow unit={u} label={unitLabel(u)} level={award.result.level} gains={award.result.levelUp} /> : null;

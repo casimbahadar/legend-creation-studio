@@ -408,6 +408,21 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   return { ...view, queue: rest, cursor: unit.at, state: finishAction(view.state, unit.id) };
 }
 
+/** The weapons that broke in a fight: each side's item that ran out of uses (GetItemAfterUse leaves none). */
+export function brokenWeapons(state: PlayState, b: Battle): { readonly unit: string; readonly item: string }[] {
+  const out: { unit: string; item: string }[] = [];
+  for (const [id, index, by] of [
+    [b.attacker, b.attackerItem, 'attacker'],
+    [b.defender, b.defenderItem, 'defender'],
+  ] as const) {
+    const unit = unitById(state, id);
+    const uses = index === null ? null : unit?.uses[index];
+    if (!unit || index === null || uses === null || uses === undefined) continue;
+    if (b.strikes.filter((s) => s.by === by && s.used).length >= uses) out.push({ unit: id, item: unit.items[index]! });
+  }
+  return out;
+}
+
 /** The battle has been shown: apply its result and the experience it gave. */
 export function finishBattle(view: PlayView): PlayView {
   const b = view.battle;
