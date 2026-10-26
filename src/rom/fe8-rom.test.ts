@@ -16,7 +16,8 @@ import { readChibi, readPortrait } from './fe8-portraits';
 import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
 import { drawExpBar, readExpBarArt } from './fe8-expbar';
-import { readLevelUpBox } from './fe8-levelup';
+import { FE8U_LEVEL_UP_TEXT_AP, FE8U_STAT_GAIN_AP, readLevelUpBox, readLevelUpSprites } from './fe8-levelup';
+import { readApAnimation } from './fe8-ap';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
 import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
@@ -305,4 +306,13 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect([face.width, face.height]).toEqual([96, 80]);
     expect(contentBounds(face)!.height).toBeGreaterThan(60);
   });
+
+  it("reads the level-up's sprite animations", () => {
+    const sprites = readLevelUpSprites(rom)!;
+    // The decompilation's sheets: LEVEL UP 256 x 16, the gain labels 256 x 24.
+    expect([sprites.text.length, sprites.gain.length]).toEqual([64 * 32, 96 * 32]);
+    expect(readApAnimation(rom, FE8U_LEVEL_UP_TEXT_AP, 0)).not.toBeNull();
+    for (const anim of [0, 1, 3]) expect(readApAnimation(rom, FE8U_STAT_GAIN_AP, anim)!.steps.length).toBeGreaterThan(0);
+  });
 });
+

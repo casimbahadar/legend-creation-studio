@@ -8,7 +8,20 @@ import type { PlayState, PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
 import type { StatGains } from '../core/experience';
 import { levelUpAt } from '../core/battle-anim';
-import { LEVEL_UP_LAYOUT, type LevelUpStat } from '../rom/fe8-levelup';
+import {
+  FE8U_LEVEL_UP_TEXT_AP,
+  FE8U_STAT_GAIN_AP,
+  LEVEL_UP_LAYOUT,
+  LEVEL_UP_SPRITE_PALETTE,
+  LEVEL_UP_TEXT_TILE,
+  STAT_GAIN_TILE,
+  statGainPalettes,
+  statGainTiles,
+  type LevelUpSprites,
+  type LevelUpStat,
+} from '../rom/fe8-levelup';
+import type { GbaRom } from '../rom/gba-rom';
+import { ApSprite } from './ApSprite';
 import type { GameItem } from '../play/catalog';
 import type { TextColour } from '../rom/fe8-font';
 import { FeText } from './FeText';
@@ -411,6 +424,7 @@ export function LevelUpScreen({
   frame,
   at,
   face,
+  sprites,
 }: {
   box: string;
   unit: PlayUnit;
@@ -424,6 +438,8 @@ export function LevelUpScreen({
   at: readonly [number, number];
   /** Its full face, if it has one. */
   face?: string | null;
+  /** The game's LEVEL UP and gain label animations, with the ROM they're read from; look-alikes without. */
+  sprites?: { readonly rom: GbaRom; readonly art: LevelUpSprites } | null;
 }) {
   const labels = levelUpLabels(gains);
   const f = levelUpAt(frame, labels.length);
@@ -431,6 +447,24 @@ export function LevelUpScreen({
     // Where ManimLevelUp_StartLevelUpText puts it: beside the unit, kept on the screen.
     const x = at[0] < 2 ? 48 : at[0] >= 13 ? 208 : at[0] * 16 + 16;
     const y = at[1] * 16 - 8 + (at[1] < 2 ? 32 : 0);
+    if (sprites) {
+      const pals = sprites.art.palettes;
+      return (
+        <ApSprite
+          rom={sprites.rom}
+          at={FE8U_LEVEL_UP_TEXT_AP}
+          anim={0}
+          t={frame - 2}
+          x={x}
+          y={y}
+          sheet={sprites.art.text}
+          firstTile={LEVEL_UP_TEXT_TILE}
+          tileBase={LEVEL_UP_TEXT_TILE | (LEVEL_UP_SPRITE_PALETTE << 12)}
+          palettes={(n) => pals[n - LEVEL_UP_SPRITE_PALETTE]}
+          look="text"
+        />
+      );
+    }
     return (
       <div className="level-up-text" style={{ left: gbaPx(x), top: gbaPx(y) }}>
         <FeText text="LEVEL UP" colour="gold" />
@@ -461,7 +495,8 @@ export function LevelUpScreen({
                 <FeText text={d} colour="blue" />
               </span>
             ))}
-            {shown.has(l.stat) && gain > 0 && (
+            {shown.has(l.stat) && sprites && gainLabels(sprites, LEVEL_UP_LAYOUT.indexOf(l), gain, frame - labelStart(labels.indexOf(l.stat)), frame - 74, l.x * 8 + 62, l.y * 8 + 23)}
+            {shown.has(l.stat) && !sprites && gain > 0 && (
               <span className="level-up-item gain" style={{ left: gbaPx((l.x + 5) * 8 + 10), top: gbaPx((1 + l.y) * 8) }}>
                 <FeText text={`+${gain}`} colour="green" />
               </span>
@@ -470,6 +505,33 @@ export function LevelUpScreen({
         );
       })}
     </div>
+  );
+}
+
+/** The frame the `k`th gain label appears on (ManimLevelUp_PutStatGainLabels, from frame 116, 21 apart). */
+const labelStart = (k: number) => 116 + 21 * k;
+
+/**
+ * A stat's gain label as StartManimLevelUpStatGainLabelAnim puts it together at (x, y) on the box: for
+ * the level, animation 0 (18 left and 4 up); for a stat that rose, animation 1 there, animation 3 with
+ * the stat's own tiles holding the gain's digit 3 to the left, and animation 0. `t` counts from the
+ * label's start, `clock` from the labels' (for the cycling colours).
+ */
+function gainLabels(sprites: { rom: GbaRom; art: LevelUpSprites }, stat: number, gain: number, t: number, clock: number, x: number, y: number) {
+  const palettes = statGainPalettes(sprites.art, clock);
+  const step = clock < 4 ? -1 : Math.floor(clock / 4) & 15;
+  const common = STAT_GAIN_TILE | (LEVEL_UP_SPRITE_PALETTE << 12);
+  const sprite = (anim: number, dx: number, dy: number, sheet: Uint8Array, tileBase: number, look: string) => (
+    <ApSprite rom={sprites.rom} at={FE8U_STAT_GAIN_AP} anim={anim} t={t} x={x + dx} y={y + dy} sheet={sheet} firstTile={STAT_GAIN_TILE} tileBase={tileBase} palettes={palettes} look={`${look}:${step}`} />
+  );
+  if (stat === 0) return sprite(0, -18, -4, sprites.art.gain, common, 'gain');
+  if (gain <= 0) return null;
+  return (
+    <>
+      {sprite(1, 0, 0, sprites.art.gain, common, 'gain')}
+      {sprite(3, -3, 0, statGainTiles(sprites.art, stat, gain), (STAT_GAIN_TILE + (stat - 1) * 2) | (LEVEL_UP_SPRITE_PALETTE << 12), `stat${stat}+${gain}`)}
+      {sprite(0, -18, -4, sprites.art.gain, common, 'gain')}
+    </>
   );
 }
 

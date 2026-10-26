@@ -13,7 +13,7 @@ import { FE8U_SYSTEM_GLYPHS, readFont, readTextPalette, type Font } from '../rom
 import { readWindowArt, type WindowArt } from '../rom/fe8-windows';
 import { readMapCursor } from '../rom/fe8-cursor';
 import { readExpBarArt, type ExpBarArt } from '../rom/fe8-expbar';
-import { readLevelUpBox } from '../rom/fe8-levelup';
+import { readLevelUpBox, readLevelUpSprites, type LevelUpSprites } from '../rom/fe8-levelup';
 import { readPhaseBanner, type PhaseBanner } from '../rom/fe8-phase';
 import type { Image, Palette } from '../rom/gba-graphics';
 import type { ItemMismatch } from '../rom/fe8-item-names';
@@ -59,6 +59,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     phaseBanners: readPhaseBanners(rom),
     expBar: readExpBarArt(rom),
     levelUpBox: readLevelUpBox(rom),
+    levelUpSprites: readLevelUpSprites(rom),
   };
 }
 
@@ -89,6 +90,8 @@ export interface EditorRom {
   readonly expBar: ExpBarArt | null;
   /** FE8's level-up box, for play's level-ups (decision 35); null if not found. */
   readonly levelUpBox: Image | null;
+  /** FE8's level-up sprites (LEVEL UP, the gain labels), for play's level-ups (decision 35); null if not found. */
+  readonly levelUpSprites: LevelUpSprites | null;
 }
 
 export interface GameFont {

@@ -1018,3 +1018,11 @@ a.button {
   position: absolute;
   image-rendering: pixelated;
 }
+
+/* An AP sprite animation from the ROM. */
+.ap-sprite {
+  position: absolute;
+  z-index: 4;
+  image-rendering: pixelated;
+  pointer-events: none;
+}

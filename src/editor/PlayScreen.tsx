@@ -593,6 +593,7 @@ export function PlayScreen({
                 frame={expShow.frame}
                 at={[u.at[0] - cam[0], u.at[1] - cam[1]]}
                 face={characters.get(u.id)?.portrait ? faceUrl(data.rom, characters.get(u.id)!.portrait) : null}
+                sprites={data.levelUpSprites ? { rom: data.rom, art: data.levelUpSprites } : null}
               />
             );
           return <LevelUpWindow unit={u} label={unitLabel(u)} level={award.result.level} gains={award.result.levelUp} />;
