@@ -8,8 +8,9 @@ import type { PlayState, PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
 import type { StatGains } from '../core/experience';
 import type { GameItem } from '../play/catalog';
+import type { TextColour } from '../rom/fe8-font';
 import { FeText } from './FeText';
-import { goalBox, MapBox, Place, unitBox, WindowArtContext } from './FeWindow';
+import { goalBox, MapBox, Place, unitBox, WindowArtContext, type Box } from './FeWindow';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
@@ -137,36 +138,92 @@ export function UnitStrip({ unit, weapon }: { unit: PlayUnit | undefined; weapon
  * copied two rows above the box's), and below it "Left" at 16 pixels and the count in blue ending in
  * the 8 pixels from 48.
  */
-export function GoalWindow({ play, corner }: { play: PlayState; corner: Corner }) {
+/**
+ * Text_DrawNumber at x `x` of a line of text (which starts 8 pixels into the box): the last digit
+ * there, each earlier one 8 pixels to its left.
+ */
+function NumberAt({ box, x, y, n, colour }: { box: Box; x: number; y: number; n: number; colour: TextColour }) {
+  return (
+    <>
+      {[...String(n)].reverse().map((d, i) => (
+        <Place key={i} box={box} x={8 + x - 8 * i} y={y}>
+          <FeText text={d} colour={colour} />
+        </Place>
+      ))}
+    </>
+  );
+}
+
+/**
+ * FE8's goal window (GoalDisplay_Init): the goal's text, and on a second line the enemies left for
+ * Rout, or for Survive the turn out of the last one ("Last Turn" once it comes). Seize and Defeat boss
+ * have the one line. `text` is the first line (goalWindowText).
+ */
+export function GoalWindow({ play, text, corner }: { play: PlayState; text: string; corner: Corner }) {
+  const goal = play.goal ?? { kind: 'rout' };
   const left = play.units.filter((u) => u.team === 'enemy').length;
+  const lastTurn = goal.kind === 'survive' && play.turn >= goal.turns;
   const art = useContext(WindowArtContext);
-  const b = art && goalBox(art, 2);
+  const b = art && goalBox(art, goal.kind === 'seize' || goal.kind === 'boss' ? 1 : 2);
   if (b)
     return (
       <MapBox box={b} className={`goal-box at-${corner}`}>
         <Place box={b} x={8} y={8} width={64}>
-          <FeText text="Defeat enemy" />
+          <FeText text={text} />
         </Place>
-        <Place box={b} x={24} y={24}>
-          <FeText text="Left" />
-        </Place>
-        {/* Text_DrawNumber puts the last digit at 48 and each earlier one 8 pixels to its left. */}
-        <Place box={b} x={40} y={24} width={16} align="right">
-          <FeText text={left} colour="blue" />
-        </Place>
+        {goal.kind === 'rout' && (
+          <>
+            <Place box={b} x={24} y={24}>
+              <FeText text="Left" />
+            </Place>
+            <NumberAt box={b} x={48} y={24} n={left} colour="blue" />
+          </>
+        )}
+        {goal.kind === 'survive' &&
+          (lastTurn ? (
+            <Place box={b} x={8} y={24} width={64}>
+              <FeText text="Last Turn" colour="green" />
+            </Place>
+          ) : (
+            <>
+              <NumberAt box={b} x={10} y={24} n={play.turn} colour="blue" />
+              <Place box={b} x={26} y={24}>
+                <FeText text="/" />
+              </Place>
+              <NumberAt box={b} x={34} y={24} n={goal.turns} colour="blue" />
+              <Place box={b} x={50} y={24}>
+                <FeText text="Turn" />
+              </Place>
+            </>
+          ))}
       </MapBox>
     );
   return (
     <div className={`fe-window goal-window at-${corner}`}>
       <span className="fe-line">
-        <FeText text="Defeat enemy" />
+        <FeText text={text} />
       </span>
-      <span className="fe-line">
-        <FeText text="Left" colour="gold" />
-        <FeText text={` ${left}  `} />
-        <FeText text="Turn" colour="gold" />
-        <FeText text={` ${play.turn}`} />
-      </span>
+      {goal.kind === 'rout' && (
+        <span className="fe-line">
+          <FeText text="Left" colour="gold" />
+          <FeText text={` ${left}  `} />
+          <FeText text="Turn" colour="gold" />
+          <FeText text={` ${play.turn}`} />
+        </span>
+      )}
+      {goal.kind === 'survive' && (
+        <span className="fe-line">
+          {lastTurn ? (
+            <FeText text="Last Turn" colour="green" />
+          ) : (
+            <>
+              <FeText text={play.turn} colour="blue" />
+              <FeText text={`/${goal.turns} `} />
+              <FeText text="Turn" colour="gold" />
+            </>
+          )}
+        </span>
+      )}
     </div>
   );
 }

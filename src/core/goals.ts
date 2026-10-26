@@ -64,3 +64,24 @@ export function goalProblem(chapter: ProjectChapter): string | null {
       return null;
   }
 }
+
+/** FE8's gate terrains (TERRAIN_GATE_CASTLE, TERRAIN_GATE_REGULAR): seizing one reads "Seize gate". */
+const GATE_TERRAINS: ReadonlySet<number> = new Set([0x0b, 0x23]);
+
+/**
+ * The goal window's first line, one of FE8's own goal window texts: "Defeat enemy" (MSG_19E), "Seize
+ * gate" (MSG_19F) on a gate and "Seize throne" (MSG_1A1) anywhere else, "Defeat boss" (MSG_19D) or
+ * "Survive" (MSG_19C). `terrainAt` gives a square's terrain id.
+ */
+export function goalWindowText(rule: GoalRule, terrainAt: (x: number, y: number) => number): string {
+  switch (rule.kind) {
+    case 'seize':
+      return rule.at && GATE_TERRAINS.has(terrainAt(rule.at[0], rule.at[1])) ? 'Seize gate' : 'Seize throne';
+    case 'boss':
+      return 'Defeat boss';
+    case 'survive':
+      return 'Survive';
+    default:
+      return 'Defeat enemy';
+  }
+}

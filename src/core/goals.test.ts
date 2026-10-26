@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { goalProblem, goalRule, seizeLord } from './goals';
+import { goalProblem, goalRule, goalWindowText, seizeLord } from './goals';
 import { mapRef, type ProjectChapter } from './project';
 
 const base: ProjectChapter = {
@@ -43,5 +43,14 @@ describe('chapter goals', () => {
   it('uses 10 turns for Survive unless told otherwise', () => {
     expect(goalRule({ ...base, goal: 'survive' })).toEqual({ kind: 'survive', turns: 10 });
     expect(goalProblem({ ...base, goal: 'survive', surviveTurns: 0 })).toMatch(/from 1 to 99/);
+  });
+
+  it("shows FE8's own goal window text, Seize gate on a gate", () => {
+    const plain = () => 0x01;
+    expect(goalWindowText({ kind: 'rout' }, plain)).toBe('Defeat enemy');
+    expect(goalWindowText({ kind: 'seize', at: [2, 3], lord: 'eirika' }, plain)).toBe('Seize throne');
+    expect(goalWindowText({ kind: 'seize', at: [2, 3], lord: 'eirika' }, (x, y) => (x === 2 && y === 3 ? 0x23 : 0))).toBe('Seize gate');
+    expect(goalWindowText({ kind: 'boss', unit: 'boss' }, plain)).toBe('Defeat boss');
+    expect(goalWindowText({ kind: 'survive', turns: 8 }, plain)).toBe('Survive');
   });
 });

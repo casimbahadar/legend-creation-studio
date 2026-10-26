@@ -7,8 +7,9 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { battleFrame, expBarEnd, expFrame, LEVEL_UP_MS, type BattleFrame } from '../core/battle-anim';
 import { startingExp } from '../core/experience';
 import { hpCapFor, randomNumbers, withBonus, withinCaps } from '../core/combat';
+import { goalWindowText } from '../core/goals';
 import { attackRange } from '../core/movement';
-import { startPlay, unitAt } from '../core/play';
+import { startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import {
   brokenWeapons,
   canMove as unitCanMove,
@@ -63,6 +64,25 @@ const BROKE_MS = 1500;
 const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', item: 'Item', trade: 'Trade', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
+
+/** What won the chapter, by its goal (decision 36). */
+function victoryText(play: PlayState, label: (u: PlayUnit) => string): string {
+  const goal = play.goal ?? { kind: 'rout' };
+  switch (goal.kind) {
+    case 'seize': {
+      const lord = play.units.find((u) => u.id === goal.lord);
+      return `${lord ? label(lord) : 'Your lord'} seized the square on turn ${play.turn}.`;
+    }
+    case 'boss': {
+      const boss = play.fallen.find((u) => u.id === goal.unit);
+      return `${boss ? label(boss) : 'The boss'} defeated on turn ${play.turn}.`;
+    }
+    case 'survive':
+      return `Held out for ${goal.turns} ${goal.turns === 1 ? 'turn' : 'turns'}.`;
+    default:
+      return `Every enemy defeated on turn ${play.turn}.`;
+  }
+}
 
 export function PlayScreen({
   data,
@@ -389,7 +409,7 @@ export function PlayScreen({
                 portrait={characters.get(under.id)?.portrait ? <Chibi rom={data.rom} id={characters.get(under.id)!.portrait} /> : undefined}
               />
             )}
-            {!view.walking && <GoalWindow play={play} corner={goalCorner} />}
+            {!view.walking && <GoalWindow play={play} text={goalWindowText(play.goal ?? { kind: 'rout' }, (x, y) => map.terrain[y * map.width + x] ?? 0)} corner={goalCorner} />}
           </>
         )}
         {a?.kind === 'target' &&
@@ -567,7 +587,7 @@ export function PlayScreen({
             <strong>{view.outcome.result === 'victory' ? 'Chapter Clear!' : 'Defeat'}</strong>
             <span>
               {view.outcome.result === 'victory'
-                ? `Every enemy defeated on turn ${play.turn}.`
+                ? victoryText(play, unitLabel)
                 : view.outcome.fallen
                   ? `${unitLabel(view.outcome.fallen)} has fallen.`
                   : 'All your units have fallen.'}
