@@ -2,7 +2,7 @@
 // A draft written from memory: Endless Chronicle has no FE8 item ids to confirm it against.
 // gameName is the name the clean ROM is expected to show, so checkItemNames can compare the list
 // with a real ROM; the editor shows any mismatches. Kept to what early chapters need: the common
-// weapons of each type, the standard staves, and Vulnerary and Elixir.
+// weapons of each type, the standard staves, the stat boosters, and Vulnerary and Elixir.
 
 import type { RomItem } from './fe8-items';
 
@@ -93,6 +93,16 @@ export const FE8_ITEM_NAMES: readonly ItemName[] = [
   { name: 'rescue', id: 0x55, gameName: 'Rescue' },
   { name: 'unlock', id: 0x58, gameName: 'Unlock' },
   { name: 'barrier', id: 0x59, gameName: 'Barrier' },
+  // Stat boosters (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON), named as in the decompilation's texts.txt (MSG_3D4 to MSG_3DC).
+  { name: 'angelic-robe', id: 0x5b, gameName: 'Angelic Robe' },
+  { name: 'energy-ring', id: 0x5c, gameName: 'Energy Ring' },
+  { name: 'secret-book', id: 0x5d, gameName: 'Secret Book' },
+  { name: 'speedwing', id: 0x5e, gameName: 'Speedwing' },
+  { name: 'goddess-icon', id: 0x5f, gameName: 'Goddess Icon' },
+  { name: 'dragonshield', id: 0x60, gameName: 'Dragonshield' },
+  { name: 'talisman', id: 0x61, gameName: 'Talisman' },
+  { name: 'swiftsole', id: 0x62, gameName: 'Swiftsole' },
+  { name: 'body-ring', id: 0x63, gameName: 'Body Ring' },
   { name: 'vulnerary', id: 0x6c, gameName: 'Vulnerary' },
   { name: 'elixir', id: 0x6d, gameName: 'Elixir' },
 ];
