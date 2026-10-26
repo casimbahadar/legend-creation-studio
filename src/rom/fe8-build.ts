@@ -16,8 +16,8 @@
 // lord seizes, after which the game runs the ending scene itself (MaybeCallEndEvent); Defeat boss is
 // the misc list's DefeatBoss, waiting for the flag the boss's death quote sets. The boss gets an entry
 // of its own at the head of the death-quote list for the chapter's slot (the list is copied to the
-// added area), saying its own vanilla quote, and the replaced chapter's boss entries are dropped so no
-// other boss's fall ends the chapter. Survive is vanilla's Survive turn event: on player phase of the
+// added area), silent unless the slot is the boss's own chapter, where it says its vanilla quote, and
+// the replaced chapter's boss entries are dropped so no other boss's fall ends the chapter. Survive is vanilla's Survive turn event: on player phase of the
 // turn after the last, set the win flag and run the ending scene; its objective "Survive N turns" is
 // written over the replaced chapter's own objective text.
 
@@ -233,17 +233,17 @@ export function findFlagEvent(rom: GbaRom, list: number, flag: number, maxEntrie
 
 /**
  * The death-quote list for a Defeat boss chapter in `slot`, written into the added area: an entry for
- * the boss in this slot first, setting EVFLAG_DEFEAT_BOSS and saying the boss's own quote (the replaced
- * chapter's, or else the boss's first boss quote), then the vanilla list without the replaced
- * chapter's boss entries. Returns the literal to repoint and the new list's pointer.
+ * the boss in this slot first, setting EVFLAG_DEFEAT_BOSS, then the vanilla list without the replaced
+ * chapter's boss entries. The entry says the boss's vanilla quote only in the boss's own chapter (the
+ * replaced chapter's entry for it); elsewhere it is silent. Returns the literal to repoint and the new
+ * list's pointer.
  */
 function bossDeathQuotes(clean: GbaRom, pid: number, slot: number, w: Writer): { literal: number; pointer: number } {
   const found = findDefeatTalkList(clean);
   const vanilla = found && readDefeatTalks(clean, found.table);
   if (!found || !vanilla) throw new Error("This ROM's death quotes aren't where this tool expects them, so it can't make a Defeat boss chapter.");
   const own = vanilla.find((e) => e.pid === pid && e.chapter === slot);
-  const quote = own ?? vanilla.find((e) => e.pid === pid && e.flag === EVFLAG_DEFEAT_BOSS && e.msg !== 0);
-  const entry: DefeatTalk = { pid, route: ANY, chapter: slot, flag: EVFLAG_DEFEAT_BOSS, msg: quote?.msg ?? 0, event: own?.event ?? 0 };
+  const entry: DefeatTalk = { pid, route: ANY, chapter: slot, flag: EVFLAG_DEFEAT_BOSS, msg: own?.msg ?? 0, event: own?.event ?? 0 };
   const rest = vanilla.filter((e) => !(e.chapter === slot && e.flag === EVFLAG_DEFEAT_BOSS));
   return { literal: found.literal, pointer: w.bytes(defeatTalkBytes([entry, ...rest])) };
 }

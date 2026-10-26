@@ -178,7 +178,7 @@ describe('FE8 builder', () => {
     expect(words(rom, rom.u32(group + EVENT_GROUP.location), 1)).toEqual([0]);
   });
 
-  it("wins on Defeat boss when the boss's own death quote, first in a moved list, sets the boss flag", () => {
+  it("wins on Defeat boss when the boss's death-quote entry, first in a moved list, sets the boss flag", () => {
     const c: ProjectChapter = { ...chapter(), goal: 'boss', boss: 'fighter-1' };
     c.units[2]!.character = 'breguet';
     const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
@@ -187,14 +187,19 @@ describe('FE8 builder', () => {
     // DefeatBoss(ending): AFEV(EVFLAG_WIN, ending, EVFLAG_DEFEAT_BOSS), then the game over check.
     expect(words(out, out.u32(g + EVENT_GROUP.misc), 7)).toEqual([0x00030001, ending, 2, 0x00000001, ROM_BASE + 0x240000, 101, 0]);
     expect(Array.from(out.bytes.subarray(CHAPTER_TABLE + 0x88, CHAPTER_TABLE + 0x91))).toEqual([0xbd, 0x01, 0x9d, 0x01, 3, 0, 0, 0xff, 0]);
-    // Breguet's entry for the Prologue comes first with his chapter 1 quote; O'Neill's Prologue entry is gone.
+    // Breguet's entry for the Prologue comes first, silent: his quote belongs to chapter 1. O'Neill's
+    // Prologue entry is gone.
     const literal = ((FE8U_GET_DEFEAT_TALK_ENTRY + 2 + 4) & ~3) + 4;
+    const quotes = (o: typeof out) => readDefeatTalks(o, o.offsetOf(o.u32(literal)))!.map((e) => [e.pid, e.route, e.chapter, e.flag, e.msg]);
     expect(out.u32(literal)).toBeGreaterThanOrEqual(ROM_BASE + EXPANSION);
-    expect(readDefeatTalks(out, out.offsetOf(out.u32(literal)))!.map((e) => [e.pid, e.route, e.chapter, e.flag, e.msg])).toEqual([
-      [0x46, 0xff, 0, 2, 0x936],
+    expect(quotes(out)).toEqual([
+      [0x46, 0xff, 0, 2, 0],
       [0x46, 0xff, 1, 2, 0x936],
       [0x02, 0xff, 0xff, 0, 0xc25],
     ]);
+    // O'Neill in the Prologue, his own chapter, keeps his quote.
+    c.units[2]!.character = 'oneill';
+    expect(quotes(readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes))[0]).toEqual([0x68, 0xff, 0, 2, 0x917]);
     // A Rout chapter leaves the death quotes alone.
     expect(rom.u32(literal)).toBe(ROM_BASE + 0x260000);
   });
