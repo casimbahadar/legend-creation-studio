@@ -23,6 +23,8 @@ export type Action =
   | { readonly kind: 'menu'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
   /** Choosing which enemy to attack. */
   | { readonly kind: 'target'; readonly unit: string; readonly from: readonly [number, number]; readonly targets: readonly string[]; readonly index: number }
+  /** Choosing which weapon to attack with, `index` highlighted among the weapon choices. */
+  | { readonly kind: 'weapon'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
   /** The unit's items, `index` highlighted. */
   | { readonly kind: 'items'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
   /** What to do with item `item`, option `index` highlighted. */
@@ -86,6 +88,8 @@ export interface PlayRules extends AiRules {
   fight(attacker: PlayUnit, defender: PlayUnit, state: PlayState): Fight;
   /** The experience a fight gives, if any (none if left out). */
   experience?(attacker: PlayUnit, defender: PlayUnit, strikes: readonly Strike[]): ExpAward | null;
+  /** Each weapon the unit could attack with from where it stands (its item index), with the foes it reaches, in item order. */
+  weaponChoices?(unit: PlayUnit, state: PlayState): { readonly item: number; readonly targets: readonly string[] }[];
   /** Whether the unit can equip its item `index` (a weapon its class can use), and how much HP using it heals (0: can't be used). */
   itemUse?(unit: PlayUnit, index: number): { readonly equip: boolean; readonly heal: number };
 }
@@ -180,8 +184,15 @@ export function cursorTo(view: PlayView, x: number, y: number, rules: PlayRules)
 export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRules): PlayView {
   if (busy(view)) return view;
   const a = view.action;
-  if (a?.kind === 'menu' || a?.kind === 'items' || a?.kind === 'item') {
-    const n = a.kind === 'menu' ? menuOptions(view, rules).length : a.kind === 'item' ? itemOptions(view, rules).length : (unitById(view.state, a.unit)?.items.length ?? 0);
+  if (a?.kind === 'menu' || a?.kind === 'items' || a?.kind === 'item' || a?.kind === 'weapon') {
+    const n =
+      a.kind === 'menu'
+        ? menuOptions(view, rules).length
+        : a.kind === 'item'
+          ? itemOptions(view, rules).length
+          : a.kind === 'weapon'
+            ? weaponChoices(view, rules).length
+            : (unitById(view.state, a.unit)?.items.length ?? 0);
     return dy && n ? { ...view, action: { ...a, index: (a.index + dy + n) % n } } : view;
   }
   if (a?.kind === 'target') {
@@ -221,10 +232,30 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   if (!unit) return view;
   if (option === 'wait') return { ...view, state: finishAction(view.state, unit.id), action: null };
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
+  // With more than one weapon that reaches a foe, choose the weapon first, as in FE8.
+  if ((rules.weaponChoices?.(unit, view.state).length ?? 0) > 1) return { ...view, action: { kind: 'weapon', unit: unit.id, from: a.from, index: 0 } };
   const targets = rules.targetsOf(unit, view.state);
   const first = unitById(view.state, targets[0] ?? null);
   if (!first) return view;
   return { ...view, action: { kind: 'target', unit: unit.id, from: a.from, targets, index: 0 }, cursor: first.at };
+}
+
+/** The weapons the unit choosing a weapon could attack with. */
+export function weaponChoices(view: PlayView, rules: PlayRules): { readonly item: number; readonly targets: readonly string[] }[] {
+  const a = view.action;
+  const unit = a ? unitById(view.state, a.unit) : undefined;
+  return unit && rules.weaponChoices ? rules.weaponChoices(unit, view.state) : [];
+}
+
+/** Picks weapon choice `index`: the unit equips it (WeaponSelectMenu_Selected) and chooses among the foes it reaches. */
+export function chooseWeapon(view: PlayView, index: number, rules: PlayRules): PlayView {
+  const a = view.action;
+  if (busy(view) || a?.kind !== 'weapon') return view;
+  const choice = weaponChoices(view, rules)[index];
+  const first = unitById(view.state, choice?.targets[0] ?? null);
+  if (!choice || !first) return view;
+  const state = equipItem(view.state, a.unit, choice.item);
+  return { ...view, state, action: { kind: 'target', unit: a.unit, from: a.from, targets: choice.targets, index: 0 }, cursor: first.at };
 }
 
 /** Picks an item in the item menu, opening what can be done with it. */
@@ -264,6 +295,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     return option ? chooseOption(view, option, rules) : view;
   }
   if (a?.kind === 'items') return chooseItem(view, a.index);
+  if (a?.kind === 'weapon') return chooseWeapon(view, a.index, rules);
   if (a?.kind === 'item') {
     const option = itemOptions(view, rules)[a.index];
     return option ? chooseItemOption(view, option, rules) : view;
@@ -301,6 +333,7 @@ export function pressB(view: PlayView, rules: PlayRules): PlayView {
   const a = view.action;
   if (a?.kind === 'item') return { ...view, action: { kind: 'items', unit: a.unit, from: a.from, index: a.item } };
   if (a?.kind === 'items') return backToMenu(view, a.unit, a.from, rules, 'item');
+  if (a?.kind === 'weapon') return backToMenu(view, a.unit, a.from, rules, 'attack');
   if (a?.kind === 'target') {
     const unit = unitById(view.state, a.unit);
     return { ...view, action: { kind: 'menu', unit: a.unit, from: a.from, index: 0 }, cursor: unit ? unit.at : view.cursor };

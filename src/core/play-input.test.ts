@@ -4,6 +4,7 @@ import { searchMoves } from './movement';
 import { startPlay, type PlayState, type PlayUnit } from './play';
 import {
   canMove,
+  chooseWeapon,
   itemOptions,
   endPlayerTurn,
   finishBattle,
@@ -311,5 +312,28 @@ describe('the item menu', () => {
     expect(eirika(dropped).items).toEqual(['iron-sword', 'vulnerary']);
     expect(pressB(lance, itemRules).action).toMatchObject({ kind: 'items', index: 0 });
     expect(pressB(pressB(lance, itemRules), itemRules).action).toMatchObject({ kind: 'menu', index: 0 });
+  });
+});
+
+describe('choosing a weapon', () => {
+  // Eirika carries a lance and a sword; both reach the brigand next to her.
+  const weaponRules: PlayRules = { ...rules, weaponChoices: (u) => (u.items.length > 1 ? [{ item: 0, targets: ['brigand-1'] }, { item: 1, targets: ['brigand-1'] }] : [{ item: 0, targets: ['brigand-1'] }]) };
+  const armed = (items: string[]): PlayView => {
+    const v = start([3, 1]);
+    return { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items, uses: items.map(() => 40) } : u)) } };
+  };
+  const attackMenu = (items: string[]) => pressA(finishWalk(pressA(moveCursor(pressA(armed(items), weaponRules), 1, 0, weaponRules), weaponRules), weaponRules), weaponRules);
+
+  it('asks which weapon when more than one reaches, equips it and targets with it', () => {
+    const choosing = attackMenu(['iron-lance', 'iron-sword']);
+    expect(choosing.action).toMatchObject({ kind: 'weapon', index: 0 });
+    const targeting = chooseWeapon(moveCursor(choosing, 0, 1, weaponRules), 1, weaponRules);
+    expect(eirika(targeting).items).toEqual(['iron-sword', 'iron-lance']);
+    expect(targeting.action).toMatchObject({ kind: 'target', targets: ['brigand-1'] });
+    expect(pressB(choosing, weaponRules).action).toMatchObject({ kind: 'menu', index: 0 });
+  });
+
+  it('goes straight to the target with only one weapon', () => {
+    expect(attackMenu(['iron-sword']).action).toMatchObject({ kind: 'target' });
   });
 });

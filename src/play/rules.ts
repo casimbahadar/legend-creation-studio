@@ -148,6 +148,20 @@ export function chapterRules(
       return { strikes: resolveBattle(f.attacker, f.defender, f.forecast, rn), attackerItem: f.attackerItem, defenderItem: f.defenderItem };
     },
     experience,
+    weaponChoices: (u, state) => {
+      const art = artByName.get(u.class);
+      const choices: { item: number; targets: string[] }[] = [];
+      u.items.forEach((name, item) => {
+        const [weapon] = weaponsOf(art, [name], items);
+        if (!weapon) return;
+        const targets = state.units
+          .filter((o) => o.id !== u.id && areFoes(o.team, u.team) && inReach(weapon, distance(u, o)))
+          .sort((x, y) => distance(u, x) - distance(u, y))
+          .map((o) => o.id);
+        if (targets.length) choices.push({ item, targets });
+      });
+      return choices;
+    },
     itemUse: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);
       const equip = !!item && weaponsOf(artByName.get(u.class), [item.entry.name], items).length > 0;
