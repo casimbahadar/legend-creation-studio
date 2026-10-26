@@ -9,7 +9,8 @@ import { startingExp } from '../core/experience';
 import { hpCapFor, randomNumbers, withBonus, withinCaps } from '../core/combat';
 import { goalWindowText } from '../core/goals';
 import { attackRange } from '../core/movement';
-import { startPlay, unitAt, type PlayState, type PlayUnit } from '../core/play';
+import { startPlay, unitAt, type PlayState, type PlayUnit, type StatusKind } from '../core/play';
+import { statusIconFrames } from '../rom/fe8-status-icons';
 import {
   brokenWeapons,
   canMove as unitCanMove,
@@ -115,6 +116,16 @@ export function PlayScreen({
   const rng = useRef(randomNumbers(Date.now()));
   const characters = useMemo(() => unitCharacters(data, chapter.units), [data, chapter.units]);
   const cursorCorner = useMemo(() => (data.cursor ? toCanvas(data.cursor) : null), [data.cursor]);
+  // FE8's status icons, each frame ready to draw.
+  const statusIcons = useMemo(() => {
+    const art = data.statusIcons;
+    if (!art) return null;
+    const of = (kind: StatusKind) => {
+      const { frames, ticks } = statusIconFrames(art, kind);
+      return { ticks, frames: frames.map((f) => f && { canvas: toCanvas(f.drawn.image), x: f.x, y: f.y }) };
+    };
+    return { sleep: of('sleep'), silence: of('silence'), berserk: of('berserk') };
+  }, [data.statusIcons]);
   const start = () => {
     rng.current = randomNumbers(Date.now());
     return startView(
@@ -339,6 +350,15 @@ export function PlayScreen({
         const img = walking ? art.frames[u.team][[0, 1, 2, 1][Math.floor(now / 110) % 4]!]! : u.moved ? art.frames.moved[0]! : art.frames[u.team][frame]!;
         g.drawImage(img, Math.round(sx), Math.round(sy));
       }
+      // Status icons over the units, on the game clock (PutUnitSpriteIconsOam).
+      if (statusIcons) {
+        const clock = Math.floor((now * 60) / 1000);
+        for (const { u, x, y } of placed) {
+          const icon = u.status && statusIcons[u.status.kind];
+          const f = icon?.frames[Math.floor(clock / icon.ticks) % icon.frames.length];
+          if (f) g.drawImage(f.canvas, Math.round(x * 16 + f.x), Math.round(y * 16 + f.y));
+        }
+      }
       if (walkDone) setView((v) => finishWalk(v, rules));
       if (bf) {
         const key = `${bf.index}:${bf.landed ? battle!.strikes.indexOf(bf.landed) : -1}`;
@@ -362,7 +382,7 @@ export function PlayScreen({
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH, cursorCorner]);
+  }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH, cursorCorner, statusIcons]);
 
   // The computer's phases: a pause on each phase banner, then one unit at a time.
   const aiTurn = (view.phase !== 'player' || !!view.banner) && !view.walking && !view.battle;

@@ -74,23 +74,27 @@ export function readApFrame(rom: GbaRom, at: number, index: number): ApFrame | n
   const pieces: ApPiece[] = [];
   for (let i = 0; i < count; i++, p += 6) {
     if (p + 6 > rom.size) return null;
-    const [a0, a1, a2] = [rom.u16(p), rom.u16(p + 2), rom.u16(p + 4)];
-    const [w, h] = SIZES[((a0 >> 14) & 3) * 4 + ((a1 >> 14) & 3)] ?? [1, 1];
-    const affine = (a0 & 0x100) !== 0;
-    pieces.push({
-      x: signed(a1 & 0x1ff, 9),
-      y: signed(a0 & 0xff, 8),
-      width: w * 8,
-      height: h * 8,
-      tile: a2 & 0x3ff,
-      palette: (a2 >> 12) & 15,
-      hflip: !affine && (a1 & 0x1000) !== 0,
-      vflip: !affine && (a1 & 0x2000) !== 0,
-      affine: affine ? (matrices[(a1 >> 9) & 31] ?? [256, 0, 0, 256]) : null,
-      doubleSize: affine && (a0 & 0x200) !== 0,
-    });
+    pieces.push(oamPiece(rom.u16(p), rom.u16(p + 2), rom.u16(p + 4), matrices));
   }
   return pieces;
+}
+
+/** A sprite piece from its three OAM attributes, with `matrices` for scale/rotate pieces. */
+export function oamPiece(a0: number, a1: number, a2: number, matrices: readonly (readonly [number, number, number, number])[] = []): ApPiece {
+  const [w, h] = SIZES[((a0 >> 14) & 3) * 4 + ((a1 >> 14) & 3)] ?? [1, 1];
+  const affine = (a0 & 0x100) !== 0;
+  return {
+    x: signed(a1 & 0x1ff, 9),
+    y: signed(a0 & 0xff, 8),
+    width: w * 8,
+    height: h * 8,
+    tile: a2 & 0x3ff,
+    palette: (a2 >> 12) & 15,
+    hflip: !affine && (a1 & 0x1000) !== 0,
+    vflip: !affine && (a1 & 0x2000) !== 0,
+    affine: affine ? (matrices[(a1 >> 9) & 31] ?? [256, 0, 0, 256]) : null,
+    doubleSize: affine && (a0 & 0x200) !== 0,
+  };
 }
 
 /** Animation `index` of the AP at `at`, or null if it isn't readable. */

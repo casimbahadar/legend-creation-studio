@@ -15,6 +15,7 @@ import { readMapCursor } from '../rom/fe8-cursor';
 import { readExpBarArt, type ExpBarArt } from '../rom/fe8-expbar';
 import { readLevelUpBox, readLevelUpSprites, type LevelUpSprites } from '../rom/fe8-levelup';
 import { readPhaseBanner, type PhaseBanner } from '../rom/fe8-phase';
+import { readStatusIcons, type StatusIconArt } from '../rom/fe8-status-icons';
 import type { Image, Palette } from '../rom/gba-graphics';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
@@ -60,6 +61,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     expBar: readExpBarArt(rom),
     levelUpBox: readLevelUpBox(rom),
     levelUpSprites: readLevelUpSprites(rom),
+    statusIcons: readStatusIcons(rom),
   };
 }
 
@@ -92,6 +94,8 @@ export interface EditorRom {
   readonly levelUpBox: Image | null;
   /** FE8's level-up sprites (LEVEL UP, the gain labels), for play's level-ups (decision 35); null if not found. */
   readonly levelUpSprites: LevelUpSprites | null;
+  /** FE8's sleep, silence and berserk icons over units on the map (decision 35); null if not found. */
+  readonly statusIcons: StatusIconArt | null;
 }
 
 export interface GameFont {
