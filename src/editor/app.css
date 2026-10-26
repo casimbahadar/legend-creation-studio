@@ -562,6 +562,40 @@ h3 {
 .fe-fallback.fe-gray { color: #c8c8c8; }
 .fe-fallback.fe-black { color: #282828; text-shadow: none; }
 
+/* After a fight: the experience bar in the middle of the screen, then the level-up window, as in FE. */
+.fe-window.exp-window,
+.fe-window.level-up-window {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.exp-window .fe-line { gap: calc(4 * var(--gba-px, 1.5px)); flex-wrap: nowrap; }
+
+.exp-bar {
+  display: block;
+  width: calc(64 * var(--gba-px, 1.5px));
+  height: calc(5 * var(--gba-px, 1.5px));
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.exp-bar span {
+  display: block;
+  height: 100%;
+  background: #f8e070;
+}
+
+.level-up-window { min-width: 50%; }
+.level-up-head { justify-content: center; }
+
+.level-up-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: calc(8 * var(--gba-px, 1.5px));
+}
+
 /* HP along the bottom during a battle, as in FE's map battles. */
 .battle-hud {
   position: absolute;

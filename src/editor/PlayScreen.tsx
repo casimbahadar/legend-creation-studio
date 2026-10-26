@@ -4,8 +4,9 @@
 // Play page (decision 33). Play's rules, drawing and the ROM catalog live in src/play.
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { battleFrame, type BattleFrame } from '../core/battle-anim';
-import { randomNumbers, withBonus } from '../core/combat';
+import { battleFrame, expBarEnd, expFrame, LEVEL_UP_MS, type BattleFrame } from '../core/battle-anim';
+import { PLAYER_HP_CAP, startingExp } from '../core/experience';
+import { randomNumbers, withBonus, withinCaps } from '../core/combat';
 import { attackRange } from '../core/movement';
 import { startPlay, unitAt } from '../core/play';
 import {
@@ -30,7 +31,7 @@ import type { ProjectChapter } from '../core/project';
 import { toCanvas, unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
 import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } from '../play/draw';
 import { followCamera, VIEW_HEIGHT, VIEW_WIDTH } from '../play/camera';
-import { chapterRules } from '../play/rules';
+import { chapterRules, maxLevel } from '../play/rules';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import { PHASE_INTRO_FRAMES } from '../rom/fe8-phase';
 import type { ChapterMap } from '../rom/fe8-maps';
@@ -41,7 +42,7 @@ import { PhaseIntro } from './PhaseIntro';
 import { Chibi } from './Portrait';
 import { shortClassLabel } from './labels';
 import { unitCharacters, type EditorRom } from './project-io';
-import { BattleHud, BattlePopup, ForecastWindow, GoalWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
+import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
 /** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
 const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
@@ -79,7 +80,19 @@ export function PlayScreen({
   const cursorCorner = useMemo(() => (data.cursor ? toCanvas(data.cursor) : null), [data.cursor]);
   const start = () => {
     rng.current = randomNumbers(Date.now());
-    return startView(startPlay(chapter, (u) => withBonus(unitStats(artByName.get(u.class), characters.get(u.id), u.level), u.statBonus)));
+    return startView(
+      startPlay(
+        chapter,
+        // Cut to the class's caps, as FE8 cuts a unit's stats when it loads, so test play matches the patched game.
+        (u) => {
+          const art = artByName.get(u.class);
+          const stats = withBonus(unitStats(art, characters.get(u.id), u.level), u.statBonus);
+          return art ? withinCaps(stats, art.caps, u.team === 'enemy' ? 120 : PLAYER_HP_CAP) : stats;
+        },
+        // Only player units gain experience, as in FE8.
+        (u) => (u.team === 'player' ? startingExp(u.level, maxLevel(artByName.get(u.class), characters.get(u.id))) : null),
+      ),
+    );
   };
   const [view, setView] = useState<PlayView>(start);
   const play = view.state;
@@ -96,7 +109,10 @@ export function PlayScreen({
   }, [map.width]);
 
   // The rules change only with the map or the ROM data.
-  const chapterPlay = useMemo(() => chapterRules(map, artByName, data.items, () => rng.current()), [map, artByName, data.items]);
+  const chapterPlay = useMemo(
+    () => chapterRules(map, artByName, data.items, () => rng.current(), (u) => characters.get(u.id)),
+    [map, artByName, data.items, characters],
+  );
   const rules = chapterPlay.rules;
   const canMove = unitCanMove(selectedUnit);
   // A unit of yours that has already moved shows no range, as in FE.
@@ -142,7 +158,13 @@ export function PlayScreen({
   const battleFrom = useRef({ attackerHp: 0, defenderHp: 0 });
   const [hud, setHud] = useState<BattleFrame | null>(null);
   const hudKey = useRef('');
+  // After a fight that gave experience, its display plays before the fight is applied (expFrame).
+  const expShown = useRef(false);
+  const [expStart, setExpStart] = useState<number | null>(null);
+  const expOffset = useRef(0);
+  const [expNow, setExpNow] = useState(0);
   useEffect(() => {
+    expShown.current = false;
     if (!battle) {
       setHud(null);
       hudKey.current = '';
@@ -155,13 +177,41 @@ export function PlayScreen({
     };
   }, [battle]); // play is read only when a battle starts
 
+  useEffect(() => {
+    if (expStart === null) return;
+    let raf = 0;
+    const tick = (t: number) => {
+      setExpNow(t - expStart + expOffset.current);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [expStart]);
+  const award = battle?.exp ?? null;
+  const expShow = award && expStart !== null ? expFrame(award.exp, award.result.gain, !!award.result.levelUp, expNow) : null;
+  useEffect(() => {
+    if (expStart === null || expShow) return;
+    setExpStart(null);
+    setView((v) => finishBattle(v));
+  }, [expStart, expShow]);
+
+  /** A: skips ahead through the experience display while it shows, otherwise as in the game. */
+  const onAPress = useRef(() => {});
+  onAPress.current = () => {
+    if (award && expShow) {
+      expOffset.current += expShow.phase === 'bar' ? Math.max(0, expBarEnd(award.result.gain) - expNow) : LEVEL_UP_MS;
+      return;
+    }
+    setView((v) => pressA(v, rules));
+  };
+
   // Arrow keys, Z (A) and X (B) for playing on a computer, like an emulator.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.metaKey || e.ctrlKey || e.altKey) return;
       const dir = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
       if (dir) setView((v) => moveCursor(v, dir[0], dir[1], rules));
-      else if (e.key === 'z' || e.key === 'Z' || e.key === 'Enter') setView((v) => pressA(v, rules));
+      else if (e.key === 'z' || e.key === 'Z' || e.key === 'Enter') onAPress.current();
       else if (e.key === 'x' || e.key === 'X' || e.key === 'Escape') setView((v) => pressB(v, rules));
       else return;
       e.preventDefault();
@@ -227,7 +277,15 @@ export function PlayScreen({
           hudKey.current = key;
           setHud(bf);
         }
-        if (bf.done) setView((v) => finishBattle(v));
+        if (bf.done) {
+          if (!battle!.exp) setView((v) => finishBattle(v));
+          else if (!expShown.current) {
+            expShown.current = true;
+            expOffset.current = 0;
+            setExpNow(0);
+            setExpStart(performance.now());
+          }
+        }
       }
       if (!battle) drawCursor(g, view.cursor[0], view.cursor[1], now, cursorCorner);
       g.setTransform(1, 0, 0, 1, 0, 0);
@@ -304,6 +362,11 @@ export function PlayScreen({
           })()}
         {battle && hud && <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
+        {award && expShow?.phase === 'bar' && <ExpWindow exp={expShow.exp} />}
+        {award?.result.levelUp && expShow?.phase === 'levelUp' && (() => {
+          const u = play.units.find((x) => x.id === award.unit);
+          return u ? <LevelUpWindow unit={u} label={unitLabel(u)} level={award.result.level} gains={award.result.levelUp} /> : null;
+        })()}
         {view.banner &&
           (data.phaseBanners ? (
             <PhaseIntro key={`${play.turn}:${view.banner}`} banner={data.phaseBanners[view.banner]} label={PHASE_NAMES[view.banner]} viewW={viewW} viewH={viewH} />
@@ -339,7 +402,7 @@ export function PlayScreen({
       <UnitStrip unit={under} weapon={under && weaponsOf(artByName.get(under.class), under.items, data.items)[0]?.entry.gameName} />
       <GbaControls
         onDirection={(dx, dy) => setView((v) => moveCursor(v, dx, dy, rules))}
-        onA={() => setView((v) => pressA(v, rules))}
+        onA={() => onAPress.current()}
         onB={() => setView((v) => pressB(v, rules))}
         extra={[{ label: 'End turn', onPress: () => setView((v) => endPlayerTurn(v)), disabled: phase !== null }]}
       />

@@ -6,6 +6,7 @@ import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import type { PlayState, PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
+import type { StatGains } from '../core/experience';
 import { FeText } from './FeText';
 import { goalBox, MapBox, Place, unitBox, WindowArtContext } from './FeWindow';
 import { TEAM_LABELS } from './labels';
@@ -98,14 +99,16 @@ export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; 
   );
 }
 
-/** The rest of what FE shows on its status screen, in a strip under the game screen: level, weapon and stats. */
+/** The rest of what FE shows on its status screen, in a strip under the game screen: level, experience, weapon and stats. */
 export function UnitStrip({ unit, weapon }: { unit: PlayUnit | undefined; weapon: string | undefined }) {
   return (
     <div className={`unit-strip${unit ? ` team-${unit.team}` : ''}`} aria-live="polite">
       {unit && (
         <span className="fe-line">
           <FeText text="Lv" colour="gold" />
-          <FeText text={` ${unit.level}  ${weapon ?? 'No weapon'}   `} />
+          <FeText text={` ${unit.level} `} />
+          <FeText text="E" colour="gold" />
+          <FeText text={` ${unit.exp ?? '--'}  ${weapon ?? 'No weapon'}   `} />
           {(['str', 'skl', 'spd', 'lck', 'def', 'res'] as const).map((k) => (
             <span key={k} className="fe-stat">
               <FeText text={k[0]!.toUpperCase() + k.slice(1)} colour="gold" />
@@ -272,6 +275,53 @@ export function BattlePopup({
   return (
     <div key={battle.strikes.indexOf(l)} className={`popup ${l.hit ? (l.crit ? 'crit' : 'hit') : 'miss'}`} style={position(target.at)}>
       {l.hit ? (l.crit ? `Critical! ${l.damage}` : l.damage) : 'Miss'}
+    </div>
+  );
+}
+
+/** FE's experience window after a fight: the bar filling as the unit gains experience. */
+export function ExpWindow({ exp }: { exp: number }) {
+  return (
+    <div className="fe-window exp-window">
+      <span className="fe-line">
+        <FeText text="EXP" colour="gold" />
+        <span className="exp-bar">
+          <span style={{ width: `${exp}%` }} />
+        </span>
+        <FeText text={exp} />
+      </span>
+    </div>
+  );
+}
+
+const LEVEL_UP_STATS = [
+  ['hp', 'HP'],
+  ['str', 'Str'],
+  ['skl', 'Skl'],
+  ['spd', 'Spd'],
+  ['lck', 'Lck'],
+  ['def', 'Def'],
+  ['res', 'Res'],
+] as const;
+
+/** FE's level-up window: the unit's new level and stats, each stat that rose marked with its gain. */
+export function LevelUpWindow({ unit, label, level, gains }: { unit: PlayUnit; label: string; level: number; gains: StatGains }) {
+  return (
+    <div className="fe-window level-up-window" role="status">
+      <span className="fe-line level-up-head">
+        <FeText text={label} />
+        <FeText text="  Lv" colour="gold" />
+        <FeText text={` ${level}`} />
+      </span>
+      <div className="level-up-stats">
+        {LEVEL_UP_STATS.map(([k, name]) => (
+          <span key={k} className="fe-line">
+            <FeText text={name} colour="gold" />
+            <FeText text={` ${unit.stats[k] + gains[k]}`} />
+            {gains[k] > 0 && <FeText text={` +${gains[k]}`} colour="blue" />}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
