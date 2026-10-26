@@ -16,6 +16,7 @@ import { readChibi } from './fe8-portraits';
 import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
 import { drawExpBar, readExpBarArt } from './fe8-expbar';
+import { readLevelUpBox } from './fe8-levelup';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
 import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
@@ -290,5 +291,11 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect([art.box.width, art.box.height]).toEqual([17, 3]);
     // The box spans most of its 136 x 24 pixels.
     expect(contentBounds(drawExpBar(art, 50))!.width).toBeGreaterThan(120);
+  });
+
+  it('reads the map level-up box', () => {
+    const box = readLevelUpBox(rom)!;
+    expect([box.width, box.height]).toEqual([240, 224]);
+    expect(contentBounds(box)).not.toBeNull();
   });
 });
