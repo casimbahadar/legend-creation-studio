@@ -17,7 +17,7 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
   const slot = mapEntry(chapter.replaces ?? mapRef(0)) ?? 0;
   const notes = useMemo(() => {
     try {
-      return patchNotes(chapter, characterIds(data.rom, chapter.units));
+      return patchNotes(chapter, characterIds(data.rom, chapter.units), data.rom);
     } catch (e) {
       return [(e as Error).message];
     }

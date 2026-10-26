@@ -17,10 +17,12 @@
 // the misc list's DefeatBoss, waiting for the flag the boss's death quote sets. The boss gets an entry
 // of its own at the head of the death-quote list for the chapter's slot (the list is copied to the
 // added area), saying its own vanilla quote, and the replaced chapter's boss entries are dropped so no
-// other boss's fall ends the chapter.
+// other boss's fall ends the chapter. Survive is vanilla's Survive turn event: on player phase of the
+// turn after the last, set the win flag and run the ending scene; its objective "Survive N turns" is
+// written over the replaced chapter's own objective text.
 
 import { characterStatsAtLevel, withBonus } from '../core/combat';
-import { goalProblem, goalWindowText } from '../core/goals';
+import { goalProblem, goalRule, goalWindowText } from '../core/goals';
 import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectUnit, type StatKey, type Team } from '../core/project';
 import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
 import { FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
@@ -58,6 +60,15 @@ export const ROUT_GOAL_CHAPTER = 10;
  */
 export const SEIZE_THRONE_GOAL_CHAPTER = 3;
 export const SEIZE_GATE_GOAL_CHAPTER = 1;
+/**
+ * A vanilla Survive chapter whose goal window ("Survive", type Defense, with the end turn) the patch
+ * reuses: chapter index 13, Eirika's chapter 12, whose objective text names its own boss, so the
+ * patch writes one of its own.
+ */
+export const SURVIVE_GOAL_CHAPTER = 13;
+/** Chapter record fields: the objective text and the goal window's end turn. */
+const OBJECTIVE_TEXT = 0x88;
+const END_TURN = 0x8d;
 /** A vanilla Defeat boss chapter whose objective ("Defeat boss", goal window "Defeat boss") the patch reuses: chapter index 25, Ephraim's chapter 11. */
 export const DEFEAT_BOSS_GOAL_CHAPTER = 25;
 
@@ -89,7 +100,10 @@ const CHANGE_CHAPTER = 0x2a;
  */
 const LIST_END = 0;
 const LIST_FLAG = 1;
+const LIST_TURN = 2;
 const LIST_LOCA = 5;
+/** Player phase, for turn events. */
+const FACTION_BLUE = 0;
 /** A list entry's script that sets its flag and runs nothing. */
 const EVENT_NOSCRIPT = 1;
 const TILE_COMMAND_SEIZE = 0x11;
@@ -234,17 +248,31 @@ function bossDeathQuotes(clean: GbaRom, pid: number, slot: number, w: Writer): {
   return { literal: found.literal, pointer: w.bytes(defeatTalkBytes([entry, ...rest])) };
 }
 
+/** The turns a Survive chapter lasts. */
+const goalTurns = (chapter: ProjectChapter) => {
+  const rule = goalRule(chapter);
+  return rule.kind === 'survive' ? rule.turns : 0;
+};
+
+/**
+ * Survive's objective on the status screen: one line, which is 96 pixels wide, so kept shorter than
+ * vanilla's one-line "Defeat all monsters".
+ */
+export function surviveObjective(turns: number): string {
+  return `Survive ${turns} ${turns === 1 ? 'turn' : 'turns'}`;
+}
+
 /** Why the chapter's goal stops the patch from being made, in plain words; null if it doesn't. */
 export function goalBlocker(chapter: ProjectChapter): string | null {
   const problem = goalProblem(chapter);
   if (problem) return problem;
-  if (chapter.goal === 'survive') return "The Survive goal isn't in the patch yet.";
   return null;
 }
 
 /** The vanilla chapter whose objective fields the chapter's goal reuses, its goal window text matching test play's. */
 export function goalChapter(clean: GbaRom, chapter: ProjectChapter, source: number): number {
   if (chapter.goal === 'boss') return DEFEAT_BOSS_GOAL_CHAPTER;
+  if (chapter.goal === 'survive') return SURVIVE_GOAL_CHAPTER;
   if (chapter.goal !== 'seize') return ROUT_GOAL_CHAPTER;
   const map = readChapterMap(clean, source);
   const text = goalWindowText({ kind: 'seize', at: chapter.seizeAt ?? null, lord: null }, (x, y) => map?.terrain[y * map.width + x] ?? 0);
@@ -252,8 +280,14 @@ export function goalChapter(clean: GbaRom, chapter: ProjectChapter, source: numb
 }
 
 /** Reasons the patch will differ from test play for this chapter. */
-export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, number>): string[] {
+export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, number>, clean?: GbaRom): string[] {
   const notes: string[] = [];
+  const slot = mapEntry(chapter.replaces ?? mapRef(0));
+  if (clean && chapter.goal === 'survive' && slot !== null && slot < CHAPTER_COUNT) {
+    const objective = (i: number) => clean.u16(CHAPTER_TABLE + i * CHAPTER_STRIDE + OBJECTIVE_TEXT);
+    const shared = Array.from({ length: CHAPTER_COUNT }, (_, i) => i).some((i) => i !== slot && objective(i) === objective(slot));
+    if (shared) notes.push("Survive's objective replaces this chapter's own objective text, which another chapter in the game shares, so it shows there too.");
+  }
   const nameOf = (id: number) => FE8_CHARACTER_NAMES.find((c) => c.id === id)?.gameName ?? `character ${id}`;
   for (const u of chapter.units) {
     const who = u.name ?? u.id;
@@ -327,6 +361,8 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const beginning = w.words([...[players, enemies, allies].flatMap((p) => (p === null ? [] : [LOAD1, p, ENUN])), EVBIT_T(7), ENDA]);
   const endingScene = w.words([FADI(16), nextChapter, ENDA]);
   const emptyList = w.words([LIST_END]);
+  const surviveTurns = chapter.goal === 'survive' ? goalTurns(chapter) : null;
+  const turnList = surviveTurns === null ? emptyList : w.words([LIST_TURN | (EVFLAG_WIN << 16), endingScene, (surviveTurns + 1) | (FACTION_BLUE << 16), LIST_END]);
   const seizeAt = chapter.goal === 'seize' ? chapter.seizeAt : undefined;
   const locationList = seizeAt ? w.words([LIST_LOCA | (EVFLAG_WIN << 16), EVENT_NOSCRIPT, seizeAt[0] | (seizeAt[1] << 8) | (TILE_COMMAND_SEIZE << 16), LIST_END]) : emptyList;
   const winOn = chapter.goal === 'rout' ? EVFLAG_DEFEAT_ALL : chapter.goal === 'boss' ? EVFLAG_DEFEAT_BOSS : null;
@@ -339,12 +375,14 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
 
   // Names of units with their own character, encoded with the ROM's tree; each replaces its character's name text. When
   // a name needs letters the tree lacks, the tree is extended (text-extend) and moved here too, and
-  // the few game texts whose code that changes are re-encoded with it.
+  // the few game texts whose code that changes are re-encoded with it. Survive's objective replaces the
+  // slot's own objective text the same way.
   const ownUnits = chapter.units.filter(ownsCharacter);
   const wanted = ownUnits.flatMap((u) => {
     const name = u.name?.trim();
     return name ? [{ textId: clean.u16(characterRecord(clean, characters.get(u.id)!)), bytes: [...name].map((c) => c.charCodeAt(0)) }] : [];
   });
+  if (surviveTurns !== null) wanted.push({ textId: clean.u16(record + OBJECTIVE_TEXT), bytes: [...surviveObjective(surviveTurns)].map((c) => c.charCodeAt(0)) });
   const vanillaCodes = wanted.length ? readHuffmanCodes(clean, text) : null;
   const spellable = (b: number[]) => {
     try {
@@ -370,7 +408,8 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   // The new event group starts as a copy of vanilla's, which keeps its skirmish lists.
   const group = Array.from({ length: EVENT_GROUP.size / 4 }, (_, k) => clean.u32(vanillaGroup + 4 * k));
   const set = (offset: number, value: number) => (group[offset / 4] = value);
-  for (const o of [EVENT_GROUP.turn, EVENT_GROUP.character, GROUP_SELECT_UNIT, GROUP_DEST_SELECTED, GROUP_AFTER_MOVED]) set(o, emptyList);
+  set(EVENT_GROUP.turn, turnList);
+  for (const o of [EVENT_GROUP.character, GROUP_SELECT_UNIT, GROUP_DEST_SELECTED, GROUP_AFTER_MOVED]) set(o, emptyList);
   set(EVENT_GROUP.location, locationList);
   set(EVENT_GROUP.misc, miscList);
   set(GROUP_TUTORIAL, noTutorial);
@@ -422,6 +461,11 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   }
   const goal = CHAPTER_TABLE + goalChapter(clean, chapter, source) * CHAPTER_STRIDE;
   bytes.set(clean.bytes.subarray(goal + GOAL_FIELDS.start, goal + GOAL_FIELDS.end), record + GOAL_FIELDS.start);
+  if (surviveTurns !== null) {
+    // The slot's own objective text, now Survive's, and the goal window's last turn (shown as one less).
+    view.setUint16(record + OBJECTIVE_TEXT, clean.u16(record + OBJECTIVE_TEXT), true);
+    bytes[record + END_TURN] = surviveTurns + 1;
+  }
 
-  return { bytes, notes: patchNotes(chapter, characters) };
+  return { bytes, notes: patchNotes(chapter, characters, clean) };
 }

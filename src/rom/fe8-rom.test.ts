@@ -17,7 +17,7 @@ import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
-import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
 import { FE8U_GET_DEFEAT_TALK_ENTRY, findDefeatTalkList, readDefeatTalks } from './fe8-death-quotes';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
@@ -269,6 +269,7 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(goal(SEIZE_THRONE_GOAL_CHAPTER)).toEqual([0x1a5, 0x1a1, 0, 0]); // Seize the throne / Seize throne
     expect(goal(SEIZE_GATE_GOAL_CHAPTER)).toEqual([0x1a3, 0x19f, 0, 0]); // Seize the castle gate / Seize gate
     expect(goal(DEFEAT_BOSS_GOAL_CHAPTER)).toEqual([0x1bd, 0x19d, 3, 0]); // Defeat boss / Defeat boss
+    expect(goal(SURVIVE_GOAL_CHAPTER)).toEqual([0x1b0, 0x19c, 2, 12]); // Survive for 11 turns or defeat Aias / Survive, to turn 12
   });
 
   it("finds the death quotes through GetDefeatTalkEntry's literal pool", () => {

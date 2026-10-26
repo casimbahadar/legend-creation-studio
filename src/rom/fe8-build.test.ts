@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mapRef, type ProjectChapter } from '../core/project';
-import { AI_BYTES, buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { AI_BYTES, buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, surviveObjective, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
 import { FE8U_GET_DEFEAT_TALK_ENTRY, readDefeatTalks } from './fe8-death-quotes';
 import { ASSET_TABLE, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readUnitList } from './fe8-chapters';
 import { GENERIC_ENEMY } from './fe8-character-names';
@@ -33,6 +33,8 @@ function fakeClean(): Uint8Array {
   bytes.set([0xac, 0x01, 0x9e, 0x01, 1, 0, 0, 0xff, 0], rout + 0x88);
   const throne = CHAPTER_TABLE + SEIZE_THRONE_GOAL_CHAPTER * CHAPTER_STRIDE;
   bytes.set([0xa5, 0x01, 0xa1, 0x01, 0, 0, 0, 0xff, 0], throne + 0x88);
+  const survive = CHAPTER_TABLE + SURVIVE_GOAL_CHAPTER * CHAPTER_STRIDE;
+  bytes.set([0xb0, 0x01, 0x9c, 0x01, 2, 12, 0, 0xff, 0], survive + 0x88);
   const boss = CHAPTER_TABLE + DEFEAT_BOSS_GOAL_CHAPTER * CHAPTER_STRIDE;
   bytes.set([0xbd, 0x01, 0x9d, 0x01, 3, 0, 0, 0xff, 0], boss + 0x88);
   // GetDefeatTalkEntry: a push, then "ldr r0, [pc, #4]" whose literal points to the death quotes:
@@ -197,10 +199,31 @@ describe('FE8 builder', () => {
     expect(rom.u32(literal)).toBe(ROM_BASE + 0x260000);
   });
 
-  it("refuses a goal that still needs something, and goals the patch can't carry yet", () => {
+  it('wins on Survive with a turn event on the turn after the last, and writes its own objective', () => {
+    const c: ProjectChapter = { ...chapter(), goal: 'survive', surviveTurns: 8 };
+    const built = buildFe8Rom(readRom(clean), TEXT, c);
+    const out = readRom(built.bytes);
+    const g = groupOf(out);
+    const ending = out.u32(g + EVENT_GROUP.endingScene) >>> 0;
+    // TURN(EVFLAG_WIN, ending, 9, 0, FACTION_BLUE), then END; the misc list keeps only the game over check.
+    expect(words(out, out.u32(g + EVENT_GROUP.turn), 4)).toEqual([0x00030002, ending, 9, 0]);
+    expect(words(out, out.u32(g + EVENT_GROUP.misc), 4)).toEqual([0x00000001, ROM_BASE + 0x240000, 101, 0]);
+    // Goal window "Survive", type Defense, last turn 9 (shown as 8), and the Prologue's objective text (0).
+    expect(Array.from(out.bytes.subarray(CHAPTER_TABLE + 0x88, CHAPTER_TABLE + 0x91))).toEqual([0, 0, 0x9c, 0x01, 2, 9, 0, 0xff, 0]);
+    expect(surviveObjective(8)).toBe('Survive 8 turns');
+    expect(surviveObjective(1)).toBe('Survive 1 turn');
+    // Text 0 now says so, through the extended tree, since the stand-in's tree only has A and B.
+    const nodes = out.offsetOf(out.u32(FE8U_TREE_LITERAL));
+    const root = out.offsetOf(out.u32(out.offsetOf(out.u32(FE8U_ROOT_POINTER_LITERAL))));
+    expect(String.fromCharCode(...decodeTextBytes(out, { ...TEXT, nodes, root }, 0))).toBe('Survive 8 turns');
+    // Every chapter record but the Prologue's has objective text 0 in the stand-in, so it's shared.
+    expect(built.notes).toEqual(["Survive's objective replaces this chapter's own objective text, which another chapter in the game shares, so it shows there too."]);
+  });
+
+  it("refuses a goal that still needs something", () => {
     expect(() => buildFe8Rom(readRom(clean), TEXT, { ...chapter(), goal: 'seize' })).toThrow('Choose the square to seize.');
     expect(() => buildFe8Rom(readRom(clean), TEXT, { ...chapter(), goal: 'seize', seizeAt: [1, 1] })).toThrow(/Only Eirika can seize/);
-    expect(() => buildFe8Rom(readRom(clean), TEXT, { ...chapter(), goal: 'survive' })).toThrow("The Survive goal isn't in the patch yet.");
+    expect(() => buildFe8Rom(readRom(clean), TEXT, { ...chapter(), goal: 'survive', surviveTurns: 0 })).toThrow(/from 1 to 99/);
   });
 
   it("copies another chapter's map fields, keeping the slot's title and prep setting", () => {
