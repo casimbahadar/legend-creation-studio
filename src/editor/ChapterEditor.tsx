@@ -9,12 +9,22 @@ import { pickCharacter } from '../rom/fe8-character-names';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
 import { renderMap } from '../rom/fe8-maps';
 import { deviceStore, readAutosave, writeAutosave } from './autosave';
+import { GoalPanel } from './GoalPanel';
 import { TEAM_LABELS } from './labels';
 import { PatchExport } from './PatchExport';
 import { PlayScreen } from './PlayScreen';
 import { ShareGame } from './ShareGame';
 import { findMap, loadProject, nextUnitId, saveFile, startingLevel, unitCharacters, type EditorRom } from './project-io';
 import { UnitPanel } from './UnitPanel';
+
+/** The square to seize on Edit mode's map: a gold outline, so it shows on any terrain. */
+function drawSeizeMark(g: CanvasRenderingContext2D, x: number, y: number) {
+  g.fillStyle = 'rgba(248, 216, 64, 0.35)';
+  g.fillRect(x * 16, y * 16, 16, 16);
+  g.strokeStyle = '#f8d840';
+  g.lineWidth = 2;
+  g.strokeRect(x * 16 + 1, y * 16 + 1, 14, 14);
+}
 
 export function ChapterEditor({ data }: { data: EditorRom }) {
   const store = useMemo(() => deviceStore(), []);
@@ -47,6 +57,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const [playing, setPlaying] = useState(false);
   /** The placed unit whose panel is open in Edit mode. */
   const [editing, setEditing] = useState<string | null>(null);
+  /** Whether the next map tap chooses the square to seize. */
+  const [pickingSeize, setPickingSeize] = useState(false);
 
   const chapter = project.chapters[0]!;
   const mapIndex = findMap(data, chapter.map);
@@ -67,6 +79,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     let raf = 0;
     const draw = (now: number) => {
       g.drawImage(mapImage, 0, 0);
+      if (chapter.goal === 'seize' && chapter.seizeAt) drawSeizeMark(g, chapter.seizeAt[0], chapter.seizeAt[1]);
       const frame = idleFrame(now);
       // Top rows first, so taller sprites lower down overlap the ones behind them.
       for (const u of [...chapter.units].sort((a, b) => a.at[1] - b.at[1])) {
@@ -81,7 +94,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [playing, mapImage, chapter.units, artByName, editing, cursorCorner]);
+  }, [playing, mapImage, chapter.units, chapter.goal, chapter.seizeAt, artByName, editing, cursorCorner]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -92,7 +105,8 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     if (!next) return;
     if (chapter.units.length && !window.confirm('Changing the map removes the units you placed. Change it anyway?')) return;
     setEditing(null);
-    updateChapter({ map: mapRef(next.chapter), units: [] });
+    setPickingSeize(false);
+    updateChapter({ map: mapRef(next.chapter), units: [], seizeAt: undefined });
   }
 
   function onMapTap(event: MouseEvent<HTMLCanvasElement>) {
@@ -101,7 +115,13 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const x = Math.floor(((event.clientX - rect.left) / rect.width) * (c.width / 16));
     const y = Math.floor(((event.clientY - rect.top) / rect.height) * (c.height / 16));
     const art = data.art[artIndex];
-    if (!map || !art || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
+    if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
+    if (pickingSeize) {
+      setPickingSeize(false);
+      updateChapter({ seizeAt: [x, y] });
+      return;
+    }
+    if (!art) return;
     const here = chapter.units.find((u) => u.at[0] === x && u.at[1] === y);
     if (here) {
       setEditing(here.id === editing ? null : here.id);
@@ -149,6 +169,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
 
   function setMode(play: boolean) {
     setEditing(null);
+    setPickingSeize(false);
     setPlaying(play);
   }
 
@@ -186,9 +207,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   return (
     <section className="panel">
       <h2>Your chapter</h2>
-      <p className="note">
-        Goal: defeat every enemy. The chapter is lost if a unit marked Must survive falls, or all your units fall.
-      </p>
+      <p className="note">Whatever the goal, the chapter is lost if a unit marked Must survive falls, or all your units fall.</p>
 
       <label className="field">
         Project name
@@ -263,6 +282,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
             />
           ) : (
             <>
+              <GoalPanel chapter={chapter} picking={pickingSeize} onPicking={setPickingSeize} onChange={updateChapter} />
               {data.art.length > 0 && (
                 <div className="unit-controls">
                   <label className="field">

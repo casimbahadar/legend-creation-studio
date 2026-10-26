@@ -973,3 +973,8 @@ a.button {
 .popup {
   font-family: 'Pixelify Sans', ui-monospace, monospace;
 }
+
+/* The chapter's goal, above the unit controls in Edit mode. */
+.goal-controls {
+  margin: 0.75rem 0;
+}
