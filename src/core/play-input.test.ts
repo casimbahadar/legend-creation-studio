@@ -4,6 +4,7 @@ import { searchMoves } from './movement';
 import { startPlay, type PlayState, type PlayUnit } from './play';
 import {
   canMove,
+  itemOptions,
   endPlayerTurn,
   finishBattle,
   finishWalk,
@@ -261,5 +262,54 @@ describe('walkPosition', () => {
     expect(walkPosition(route, 5, 75)).toEqual({ x: 0.5, y: 0, done: false });
     expect(walkPosition(route, 5, 225)).toEqual({ x: 1, y: 0.5, done: false });
     expect(walkPosition(route, 5, 300)).toEqual({ x: 1, y: 1, done: true });
+  });
+});
+
+describe('the item menu', () => {
+  // Eirika, hurt, carrying a lance first, then a sword and a vulnerary; swords can be equipped, vulneraries heal 10.
+  const itemRules: PlayRules = {
+    ...rules,
+    itemUse: (u, i) => ({ equip: u.items[i] === 'iron-sword', heal: u.items[i] === 'vulnerary' ? 10 : 0 }),
+  };
+  const withItems = (v: PlayView, hp: number): PlayView => ({
+    ...v,
+    state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, hp, items: ['iron-lance', 'iron-sword', 'vulnerary'], uses: [45, 46, 3] } : u)) },
+  });
+  const itemMenu = (hp = 10) => {
+    const menu = finishWalk(pressA(moveCursor(pressA(withItems(start(), hp), itemRules), 1, 0, itemRules), itemRules), itemRules);
+    expect(menuOptions(menu, itemRules)).toEqual(['item', 'wait']);
+    return pressA(menu, itemRules);
+  };
+
+  it('lists the items and offers what each can do', () => {
+    const items = itemMenu();
+    expect(items.action).toMatchObject({ kind: 'items', index: 0 });
+    expect(itemOptions(pressA(items, itemRules), itemRules)).toEqual(['discard']);
+    const sword = pressA(moveCursor(items, 0, 1, itemRules), itemRules);
+    expect(itemOptions(sword, itemRules)).toEqual(['equip', 'discard']);
+    const vulnerary = pressA(moveCursor(items, 0, -1, itemRules), itemRules);
+    expect(itemOptions(vulnerary, itemRules)).toEqual(['use', 'discard']);
+    // At full HP a vulnerary can't be used.
+    expect(itemOptions(pressA(moveCursor(itemMenu(18), 0, -1, itemRules), itemRules), itemRules)).toEqual(['discard']);
+  });
+
+  it('equips a weapon by moving it to the top, back in the items', () => {
+    const equipped = pressA(pressA(moveCursor(itemMenu(), 0, 1, itemRules), itemRules), itemRules);
+    expect(eirika(equipped)).toMatchObject({ items: ['iron-sword', 'iron-lance', 'vulnerary'], uses: [46, 45, 3], moved: false });
+    expect(equipped.action).toMatchObject({ kind: 'items', index: 0 });
+  });
+
+  it('uses a vulnerary: heals up to 10, spends a use and ends the action', () => {
+    const used = pressA(pressA(moveCursor(itemMenu(), 0, -1, itemRules), itemRules), itemRules);
+    expect(eirika(used)).toMatchObject({ hp: 18, uses: [45, 46, 2], moved: true });
+    expect(used.action).toBeNull();
+  });
+
+  it('discards an item, and B steps back to the action menu', () => {
+    const lance = pressA(itemMenu(), itemRules);
+    const dropped = pressA(lance, itemRules);
+    expect(eirika(dropped).items).toEqual(['iron-sword', 'vulnerary']);
+    expect(pressB(lance, itemRules).action).toMatchObject({ kind: 'items', index: 0 });
+    expect(pressB(pressB(lance, itemRules), itemRules).action).toMatchObject({ kind: 'menu', index: 0 });
   });
 });

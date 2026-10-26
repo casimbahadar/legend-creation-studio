@@ -1,24 +1,32 @@
 // GBA-style controls for test play: a cursor moved one square at a time, A to act, B to cancel.
 // While a unit is being moved the cursor stays inside its reach; after it moves, FE's action menu
-// (Attack, Wait) opens, B undoes the move, and Attack picks a target. While a unit walks or a battle
-// plays, input waits. End turn hands over to the enemy phase, then the ally phase (decision 24), each
-// unit acting by its behaviour, one step at a time through stepAI.
+// (Attack, Item, Wait) opens, B undoes the move, Attack picks a target and Item opens the unit's
+// items. While a unit walks or a battle plays, input waits. End turn hands over to the enemy phase,
+// then the ally phase (decision 24), each unit acting by its behaviour, one step at a time through
+// stepAI.
 
 import { planAction, type AiRules } from './ai';
 import type { Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, endTurn, finishAction, moveUnit, outcomeOf, readyAll, spendUses, unitAt, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, discardItem, endTurn, equipItem, finishAction, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
-export type MenuOption = 'attack' | 'wait';
+export type MenuOption = 'attack' | 'item' | 'wait';
+
+/** What can be done with one item, as in FE8's item menu. */
+export type ItemOption = 'equip' | 'use' | 'discard';
 
 export type Action =
   /** The action menu for a unit that has just moved from `from`. */
   | { readonly kind: 'menu'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
   /** Choosing which enemy to attack. */
-  | { readonly kind: 'target'; readonly unit: string; readonly from: readonly [number, number]; readonly targets: readonly string[]; readonly index: number };
+  | { readonly kind: 'target'; readonly unit: string; readonly from: readonly [number, number]; readonly targets: readonly string[]; readonly index: number }
+  /** The unit's items, `index` highlighted. */
+  | { readonly kind: 'items'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
+  /** What to do with item `item`, option `index` highlighted. */
+  | { readonly kind: 'item'; readonly unit: string; readonly from: readonly [number, number]; readonly item: number; readonly index: number };
 
 /** Experience a unit earned in a fight: where it stood before, and the result. */
 export interface ExpAward {
@@ -78,6 +86,8 @@ export interface PlayRules extends AiRules {
   fight(attacker: PlayUnit, defender: PlayUnit, state: PlayState): Fight;
   /** The experience a fight gives, if any (none if left out). */
   experience?(attacker: PlayUnit, defender: PlayUnit, strikes: readonly Strike[]): ExpAward | null;
+  /** Whether the unit can equip its item `index` (a weapon its class can use), and how much HP using it heals (0: can't be used). */
+  itemUse?(unit: PlayUnit, index: number): { readonly equip: boolean; readonly heal: number };
 }
 
 /** A fight between two units, with the experience it gives. */
@@ -115,7 +125,34 @@ function moving(view: PlayView, rules: PlayRules): { unit: PlayUnit; search: Mov
 export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
   const unit = view.action ? unitById(view.state, view.action.unit) : undefined;
   if (!unit) return [];
-  return rules.targetsOf(unit, view.state).length ? ['attack', 'wait'] : ['wait'];
+  const options: MenuOption[] = [];
+  if (rules.targetsOf(unit, view.state).length) options.push('attack');
+  if (unit.items.length) options.push('item');
+  options.push('wait');
+  return options;
+}
+
+/**
+ * What the item menu offers for the highlighted item: Equip for a weapon the unit can use, Use for a
+ * healing item while the unit is hurt (as CanUnitUseHealItem), and Discard.
+ */
+export function itemOptions(view: PlayView, rules: PlayRules): ItemOption[] {
+  const a = view.action;
+  if (a?.kind !== 'item') return [];
+  const unit = unitById(view.state, a.unit);
+  if (!unit || a.item >= unit.items.length) return [];
+  const can = rules.itemUse?.(unit, a.item) ?? { equip: false, heal: 0 };
+  const options: ItemOption[] = [];
+  if (can.equip) options.push('equip');
+  if (can.heal > 0 && unit.hp < unit.stats.hp) options.push('use');
+  options.push('discard');
+  return options;
+}
+
+/** Back to the action menu with `option` highlighted (or the first if it's gone). */
+function backToMenu(view: PlayView, unit: string, from: readonly [number, number], rules: PlayRules, option: MenuOption): PlayView {
+  const menu: PlayView = { ...view, action: { kind: 'menu', unit, from, index: 0 } };
+  return { ...menu, action: { kind: 'menu', unit, from, index: Math.max(0, menuOptions(menu, rules).indexOf(option)) } };
 }
 
 function openMenu(view: PlayView, unit: string, from: readonly [number, number]): PlayView {
@@ -143,9 +180,9 @@ export function cursorTo(view: PlayView, x: number, y: number, rules: PlayRules)
 export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRules): PlayView {
   if (busy(view)) return view;
   const a = view.action;
-  if (a?.kind === 'menu') {
-    const n = menuOptions(view, rules).length;
-    return dy ? { ...view, action: { ...a, index: (a.index + dy + n) % n } } : view;
+  if (a?.kind === 'menu' || a?.kind === 'items' || a?.kind === 'item') {
+    const n = a.kind === 'menu' ? menuOptions(view, rules).length : a.kind === 'item' ? itemOptions(view, rules).length : (unitById(view.state, a.unit)?.items.length ?? 0);
+    return dy && n ? { ...view, action: { ...a, index: (a.index + dy + n) % n } } : view;
   }
   if (a?.kind === 'target') {
     const n = a.targets.length;
@@ -183,10 +220,40 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   const unit = unitById(view.state, a.unit);
   if (!unit) return view;
   if (option === 'wait') return { ...view, state: finishAction(view.state, unit.id), action: null };
+  if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
   const targets = rules.targetsOf(unit, view.state);
   const first = unitById(view.state, targets[0] ?? null);
   if (!first) return view;
   return { ...view, action: { kind: 'target', unit: unit.id, from: a.from, targets, index: 0 }, cursor: first.at };
+}
+
+/** Picks an item in the item menu, opening what can be done with it. */
+export function chooseItem(view: PlayView, index: number): PlayView {
+  const a = view.action;
+  if (busy(view) || a?.kind !== 'items') return view;
+  const unit = unitById(view.state, a.unit);
+  if (!unit || index >= unit.items.length) return view;
+  return { ...view, action: { kind: 'item', unit: a.unit, from: a.from, item: index, index: 0 } };
+}
+
+/**
+ * Does `option` with the chosen item: Equip moves it to the top and goes back to the items; Use heals
+ * and ends the unit's action, as in FE8; Discard drops it and goes back to the items (or the action
+ * menu once none are left).
+ */
+export function chooseItemOption(view: PlayView, option: ItemOption, rules: PlayRules): PlayView {
+  const a = view.action;
+  if (busy(view) || a?.kind !== 'item' || !itemOptions(view, rules).includes(option)) return view;
+  const unit = unitById(view.state, a.unit);
+  if (!unit) return view;
+  if (option === 'use') {
+    const heal = rules.itemUse?.(unit, a.item).heal ?? 0;
+    return { ...view, state: finishAction(useHealItem(view.state, unit.id, a.item, heal), unit.id), action: null };
+  }
+  const state = option === 'equip' ? equipItem(view.state, unit.id, a.item) : discardItem(view.state, unit.id, a.item);
+  const left = unitById(state, unit.id)?.items.length ?? 0;
+  if (!left) return backToMenu({ ...view, state }, unit.id, a.from, rules, 'wait');
+  return { ...view, state, action: { kind: 'items', unit: unit.id, from: a.from, index: option === 'equip' ? 0 : Math.min(a.item, left - 1) } };
 }
 
 export function pressA(view: PlayView, rules: PlayRules): PlayView {
@@ -195,6 +262,11 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
   if (a?.kind === 'menu') {
     const option = menuOptions(view, rules)[a.index];
     return option ? chooseOption(view, option, rules) : view;
+  }
+  if (a?.kind === 'items') return chooseItem(view, a.index);
+  if (a?.kind === 'item') {
+    const option = itemOptions(view, rules)[a.index];
+    return option ? chooseItemOption(view, option, rules) : view;
   }
   if (a?.kind === 'target') {
     const attacker = unitById(view.state, a.unit);
@@ -221,12 +293,14 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
 }
 
 /**
- * B: from targeting, back to the menu; from the menu, undo the move (the unit goes back and is picked
+ * B: from an item's options, back to the items; from the items or targeting, back to the menu; from the menu, undo the move (the unit goes back and is picked
  * up again with the arrow to where it was); otherwise cancel the selection and bring the cursor back.
  */
 export function pressB(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view)) return view;
   const a = view.action;
+  if (a?.kind === 'item') return { ...view, action: { kind: 'items', unit: a.unit, from: a.from, index: a.item } };
+  if (a?.kind === 'items') return backToMenu(view, a.unit, a.from, rules, 'item');
   if (a?.kind === 'target') {
     const unit = unitById(view.state, a.unit);
     return { ...view, action: { kind: 'menu', unit: a.unit, from: a.from, index: 0 }, cursor: unit ? unit.at : view.cursor };

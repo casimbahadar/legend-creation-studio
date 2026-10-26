@@ -111,6 +111,23 @@ export function spendUses(state: PlayState, id: string, index: number, count: nu
   };
 }
 
+/** Moves a unit's item `index` to the top of its items, as FE8's Equip does, so it fights with it first. */
+export function equipItem(state: PlayState, id: string, index: number): PlayState {
+  const move = <T>(list: readonly T[]) => [list[index]!, ...list.filter((_, i) => i !== index)];
+  return { ...state, units: state.units.map((u) => (u.id === id && index > 0 && index < u.items.length ? { ...u, items: move(u.items), uses: move(u.uses) } : u)) };
+}
+
+/** Drops a unit's item `index`. */
+export function discardItem(state: PlayState, id: string, index: number): PlayState {
+  return { ...state, units: state.units.map((u) => (u.id === id ? { ...u, items: u.items.filter((_, i) => i !== index), uses: u.uses.filter((_, i) => i !== index) } : u)) };
+}
+
+/** Uses a healing item: the unit gets back up to `heal` HP (not past its maximum) and the item loses a use. */
+export function useHealItem(state: PlayState, id: string, index: number, heal: number): PlayState {
+  const healed = { ...state, units: state.units.map((u) => (u.id === id ? { ...u, hp: Math.min(u.stats.hp, u.hp + heal) } : u)) };
+  return spendUses(healed, id, index, 1);
+}
+
 /** A unit's experience after a fight: its new level and experience, and any level-up's gains (max HP rises; current HP stays). */
 export function applyExp(state: PlayState, id: string, result: ExpResult): PlayState {
   const up = result.levelUp;

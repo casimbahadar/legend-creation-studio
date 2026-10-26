@@ -32,6 +32,9 @@ export interface ChapterRules {
   preview(attacker: PlayUnit, defender: PlayUnit, at?: readonly [number, number]): FightPreview;
 }
 
+/** HP healing items' heal by item id (GetUnitItemHealAmount): Vulnerary 10, Elixir 80, and the second Vulnerary entry 10. */
+const HEAL_ITEMS: Readonly<Record<number, number>> = { 0x6c: 10, 0x6d: 80, 0xa2: 10 };
+
 /** A unit's last level: 10 for classes FE8 marks so (CA_MAXLEVEL10), otherwise 20. */
 export function maxLevel(art: ClassArt | undefined, character: RomCharacter | undefined): number {
   return ((art?.attributes ?? 0) | (character?.attributes ?? 0)) & CA_MAXLEVEL10 ? 10 : 20;
@@ -145,6 +148,11 @@ export function chapterRules(
       return { strikes: resolveBattle(f.attacker, f.defender, f.forecast, rn), attackerItem: f.attackerItem, defenderItem: f.defenderItem };
     },
     experience,
+    itemUse: (u, index) => {
+      const item = items.find((i) => i.entry.name === u.items[index]);
+      const equip = !!item && weaponsOf(artByName.get(u.class), [item.entry.name], items).length > 0;
+      return { equip, heal: item ? (HEAL_ITEMS[item.rom.id] ?? 0) : 0 };
+    },
   };
   return { rules, preview };
 }
