@@ -745,3 +745,38 @@ describe('status staves', () => {
     expect(eirika(after)).toMatchObject({ uses: [1], exp: 1 });
   });
 });
+
+describe('Restore and Barrier', () => {
+  // Eirika moves beside Seth, who is asleep; her staff is `staff`.
+  const supportRules = (support: 'restore' | 'barrier'): PlayRules => ({
+    ...rules,
+    staffChoices: (u, st) => {
+      const near = st.units.filter((o) => o.id === 'seth' && Math.abs(o.at[0] - u.at[0]) + Math.abs(o.at[1] - u.at[1]) === 1);
+      return near.length ? [{ item: 0, targets: ['seth'], heal: 0, support }] : [];
+    },
+    staffExperience: (u) => ({ unit: u.id, level: u.level, exp: 0, result: { gain: 11, exp: 11, level: u.level, levelUp: null } }),
+  });
+  const setUp = (staff: string): PlayView => {
+    const v = start([4, 2], [{ id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [2, 0] }]);
+    return {
+      ...v,
+      state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: [staff], uses: [3] } : u.id === 'seth' ? { ...u, status: { kind: 'sleep' as const, turns: 4 } } : u)) },
+    };
+  };
+  const seth = (v: PlayView) => v.state.units.find((u) => u.id === 'seth')!;
+
+  it('Restore wakes the ally beside it, spending a use, with experience', () => {
+    const r = supportRules('restore');
+    const using = pressA(chooseOption(moveRight(setUp('restore')), 'staff', r), r);
+    expect(using.battle).toMatchObject({ attacker: 'eirika', defender: 'seth', strikes: [], support: 'restore', exp: { result: { gain: 11 } } });
+    const after = finishBattle(using);
+    expect(seth(after)).not.toHaveProperty('status');
+    expect(eirika(after)).toMatchObject({ uses: [2], moved: true });
+  });
+
+  it('Barrier gives the ally beside it 7 Res', () => {
+    const r = supportRules('barrier');
+    const after = finishBattle(pressA(chooseOption(moveRight(setUp('barrier')), 'staff', r), r));
+    expect(seth(after).barrier).toBe(7);
+  });
+});

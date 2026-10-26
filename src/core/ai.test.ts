@@ -307,3 +307,17 @@ describe('berserk', () => {
     expect(planAction(get(far, 'e'), far, rules(), true)).toMatchObject({ to: cell(4, 2), attack: null });
   });
 });
+
+describe('Restore', () => {
+  it('restores the highest-level ally with a status it can reach, ties to the last in the scan', () => {
+    const restore: AiStaff = { item: 0, heal: 0, physic: false, restore: true, reach: 1, rank: 1 };
+    const s = play(unit('p', 'player', [0, 0]), unit('e', 'enemy', [3, 1]), unit('f', 'enemy', [4, 0]), unit('g', 'enemy', [4, 2]));
+    const st = (kind: 'sleep' | 'silence') => ({ kind, turns: 3 });
+    const both = { ...s, units: s.units.map((u) => (u.id === 'f' ? { ...u, level: 4, status: st('sleep') } : u.id === 'g' ? { ...u, level: 4, status: st('silence') } : u)) };
+    const r = rules({ items: { e: [{ item: 0, staff: true, might: 0, min: 1, max: 1 }] }, staves: { e: [restore] } });
+    // Equal levels: f, at (4,0), comes later in the scan from the bottom right than g at (4,2).
+    expect(planAction(get(both, 'e'), both, r).restore).toEqual({ target: 'f', item: 0 });
+    const higher = { ...both, units: both.units.map((u) => (u.id === 'g' ? { ...u, level: 6 } : u)) };
+    expect(planAction(get(higher, 'e'), higher, r).restore).toEqual({ target: 'g', item: 0 });
+  });
+});

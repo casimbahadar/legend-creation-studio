@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBattle, areFoes, cannotAct, endTurn, finishAction, moveUnit, outcomeOf, setStatus, spendUses, startPlay, tickStatuses, unitAt } from './play';
+import { applyBattle, areFoes, cannotAct, clearStatus, endTurn, finishAction, moveUnit, outcomeOf, setBarrier, setStatus, spendUses, startPlay, tickStatuses, unitAt } from './play';
 import type { Stats } from './combat';
 import type { ProjectChapter } from './project';
 
@@ -82,6 +82,14 @@ describe('statuses', () => {
     }
     s = tickStatuses(s, 'player');
     expect(unitAt(s, 1, 1)).not.toHaveProperty('status');
+  });
+
+  it('Restore clears a status; Barrier gives 7 Res, a point less at each of its side\'s phase starts', () => {
+    const s = setBarrier(setStatus(startPlay(chapter, statsOf), 'eirika', 'silence'), 'eirika');
+    expect(unitAt(clearStatus(s, 'eirika'), 1, 1)).not.toHaveProperty('status');
+    expect(unitAt(s, 1, 1)?.barrier).toBe(7);
+    expect(unitAt(tickStatuses(s, 'enemy'), 1, 1)?.barrier).toBe(7);
+    expect(unitAt(tickStatuses(tickStatuses(s, 'player'), 'player'), 1, 1)?.barrier).toBe(5);
   });
 
   it('keeps asleep and berserk units from acting, but not silenced ones', () => {

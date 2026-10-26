@@ -411,7 +411,7 @@ export function PlayScreen({
         ? 'battle'
         : view.walking
           ? 'walk'
-          : view.action?.kind === 'target' && view.action.staff?.status
+          : view.action?.kind === 'target' && (view.action.staff?.status || view.action.staff?.support)
             ? 'staffTarget'
           : view.action?.kind === 'target' && view.action.staff
             ? 'heal'
@@ -474,6 +474,18 @@ export function PlayScreen({
                       <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} colour={rules.stealable?.(def, i) ? 'white' : 'gray'} />
                     </span>
                   ))}
+                </div>
+              );
+            if (a.staff?.support)
+              // Restore's or Barrier's target: whom, and with what.
+              return (
+                <div className={`fe-window heal-window at-top-${side}`}>
+                  <span className="fe-line">
+                    <FeText text={unitLabel(def)} />
+                  </span>
+                  <span className="fe-line">
+                    <FeText text={data.items.find((x) => x.entry.name === atk.items[a.staff!.item])?.entry.gameName ?? atk.items[a.staff!.item] ?? ''} />
+                  </span>
                 </div>
               );
             if (a.staff?.status)
@@ -635,7 +647,7 @@ export function PlayScreen({
               </>
             );
           })()}
-        {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && (
+        {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && !battle.support && (
           <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />
         )}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}

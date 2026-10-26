@@ -12,7 +12,7 @@ export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, cannotAct, discardItem, setStatus, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit, type StatusKind } from './play';
+import { applyBattle, applyExp, boostUnit, cannotAct, clearStatus, discardItem, setBarrier, setStatus, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit, type StatusKind } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -95,6 +95,8 @@ export interface Battle extends Fight {
   readonly healed?: readonly string[];
   /** Set for a staff that gives a status: the status, and whether it hit. It has no blows. */
   readonly inflict?: { readonly kind: StatusKind; readonly hit: boolean };
+  /** Set for Restore or Barrier on the defender. It has no blows. */
+  readonly support?: 'restore' | 'barrier';
   /** Set for a steal: the defender's item the attacker takes (its index). A steal has no blows. */
   readonly steal?: number;
   /** The experience the fight gave, shown after it; null if nobody gained any. */
@@ -111,7 +113,8 @@ export interface PlayView {
   /**
    * A unit walking its route to the square it was just moved to, from `from`. Input waits until
    * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`, uses the item per
-   * `thenUse`, steals per `thenSteal` or uses a status staff per `thenInflict`) on arrival, if set.
+   * `thenUse`, steals per `thenSteal`, uses a status staff per `thenInflict` or Restore per `thenRestore`)
+   * on arrival, if set.
    */
   readonly walking: {
     readonly id: string;
@@ -122,6 +125,7 @@ export interface PlayView {
     readonly thenUse?: { readonly item: number; readonly heal: number };
     readonly thenSteal?: PlannedSteal;
     readonly thenInflict?: PlannedStatus;
+    readonly thenRestore?: { readonly target: string; readonly item: number };
   } | null;
   readonly action: Action | null;
   /** A fight being shown. Input waits until finishBattle. */
@@ -184,6 +188,11 @@ function healBattle(healer: PlayUnit, target: PlayUnit, heal: PlannedHeal, rules
 function statusBattle(user: PlayUnit, target: PlayUnit, item: number, kind: StatusKind, rules: PlayRules): Battle {
   const hit = rules.statusStaffHits?.(user, target) ?? false;
   return { attacker: user.id, defender: target.id, strikes: [], attackerItem: item, defenderItem: null, inflict: { kind, hit }, exp: rules.staffExperience?.(user, item, !hit) ?? null };
+}
+
+/** Restore or Barrier (ExecRestore, ExecBarrierStaff): played like a fight with no blows, then its experience. */
+function supportBattle(user: PlayUnit, target: PlayUnit, item: number, support: 'restore' | 'barrier', rules: PlayRules): Battle {
+  return { attacker: user.id, defender: target.id, strikes: [], attackerItem: item, defenderItem: null, support, exp: rules.staffExperience?.(user, item) ?? null };
 }
 
 /** Fortify, chosen from the Staff menu: it heals every ally it reaches at once (SetStaffUseAction, ExecFortify). */
@@ -540,6 +549,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     if (!attacker || !defender) return view;
     if (a.trade) return { ...view, action: { kind: 'trade', unit: attacker.id, from: a.from, partner: defender.id, index: 0, picked: null, locked: a.locked } };
     if (a.steal) return { ...view, action: { kind: 'steal', unit: attacker.id, from: a.from, target: defender.id, index: 0, locked: a.locked } };
+    if (a.staff?.support) return { ...view, action: null, battle: supportBattle(attacker, defender, a.staff.item, a.staff.support, rules) };
     if (a.staff?.status) return { ...view, action: null, battle: statusBattle(attacker, defender, a.staff.item, a.staff.status, rules) };
     if (a.staff) return { ...view, action: null, battle: healBattle(attacker, defender, { target: defender.id, item: a.staff.item, heal: a.staff.heal }, rules) };
     return { ...view, action: null, battle: startBattle(attacker, defender, view.state, rules) };
@@ -620,6 +630,8 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   if (unit && w.thenUse) return { ...done, cursor: unit.at, state: finishAction(useHealItem(view.state, unit.id, w.thenUse.item, w.thenUse.heal), unit.id) };
   const robbed = unitById(view.state, w.thenSteal?.target ?? null);
   if (unit && robbed && w.thenSteal) return { ...done, cursor: unit.at, battle: stealBattle(unit, robbed, w.thenSteal.item) };
+  const restored = unitById(view.state, w.thenRestore?.target ?? null);
+  if (unit && restored && w.thenRestore) return { ...done, cursor: unit.at, battle: supportBattle(unit, restored, w.thenRestore.item, 'restore', rules) };
   const struck = unitById(view.state, w.thenInflict?.target ?? null);
   if (unit && struck && w.thenInflict) return { ...done, cursor: unit.at, battle: statusBattle(unit, struck, w.thenInflict.item, w.thenInflict.kind, rules) };
   const target = unitById(view.state, w.then ?? null);
@@ -696,13 +708,15 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   const start = unit.at[1] * rules.width + unit.at[0];
   if (plan.to !== start) {
     const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
-    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem, thenSteal: plan.steal, thenInflict: plan.inflict } };
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem, thenSteal: plan.steal, thenInflict: plan.inflict, thenRestore: plan.restore } };
   }
   if (plan.useItem) return { ...view, queue: rest, cursor: unit.at, state: finishAction(useHealItem(marked, unit.id, plan.useItem.item, plan.useItem.heal), unit.id) };
   const ally = unitById(armed, plan.heal?.target ?? null);
   if (ally && plan.heal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
   const robbed = unitById(armed, plan.steal?.target ?? null);
   if (robbed && plan.steal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: stealBattle(unit, robbed, plan.steal.item) };
+  const restored = unitById(armed, plan.restore?.target ?? null);
+  if (restored && plan.restore) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: supportBattle(unit, restored, plan.restore.item, 'restore', rules) };
   const struck = unitById(armed, plan.inflict?.target ?? null);
   if (struck && plan.inflict) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: statusBattle(unit, struck, plan.inflict.item, plan.inflict.kind, rules) };
   const target = unitById(armed, plan.attack);
@@ -737,6 +751,10 @@ export function finishBattle(view: PlayView): PlayView {
     used = spendUses(used, b.attacker, b.attackerItem, 1);
   }
   if (b.steal !== undefined) used = stealItem(used, b.attacker, b.defender, b.steal);
+  if (b.support && b.attackerItem !== null) {
+    used = b.support === 'restore' ? clearStatus(used, b.defender) : setBarrier(used, b.defender);
+    used = spendUses(used, b.attacker, b.attackerItem, 1);
+  }
   if (b.inflict && b.attackerItem !== null) {
     if (b.inflict.hit) used = setStatus(used, b.defender, b.inflict.kind);
     used = spendUses(used, b.attacker, b.attackerItem, 1);

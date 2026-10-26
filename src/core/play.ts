@@ -33,6 +33,8 @@ export interface PlayUnit {
   readonly healing?: boolean;
   /** A status from a staff, if any. */
   readonly status?: Status;
+  /** Barrier's Res bonus (barrierDuration): 7 when given, a point less at each of its side's phase starts; none if left out. */
+  readonly barrier?: number;
 }
 
 /** The statuses staves give (UNIT_STATUS_SLEEP, UNIT_STATUS_SILENCED, UNIT_STATUS_BERSERK). */
@@ -269,12 +271,34 @@ export function setStatus(state: PlayState, id: string, kind: StatusKind): PlayS
   return { ...state, units: state.units.map((u) => (u.id === id ? { ...u, status: { kind, turns: STATUS_TURNS } } : u)) };
 }
 
-/** The start of a team's phase (TickActiveFactionTurn): each of its statuses has a phase less left, and goes at none. */
-export function tickStatuses(state: PlayState, team: PlayUnit['team']): PlayState {
+/** Restore: the unit's status goes (ExecRestore). */
+export function clearStatus(state: PlayState, id: string): PlayState {
   return {
     ...state,
     units: state.units.map((u) => {
-      if (u.team !== team || !u.status) return u;
+      if (u.id !== id || !u.status) return u;
+      const { status: _gone, ...rest } = u;
+      return rest;
+    }),
+  };
+}
+
+/** Barrier: the unit's Res is raised by 7 (ExecBarrierStaff). */
+export function setBarrier(state: PlayState, id: string): PlayState {
+  return { ...state, units: state.units.map((u) => (u.id === id ? { ...u, barrier: 7 } : u)) };
+}
+
+/**
+ * The start of a team's phase (TickActiveFactionTurn): each of its units' Barrier bonus drops a point,
+ * and each status has a phase less left, going at none.
+ */
+export function tickStatuses(state: PlayState, team: PlayUnit['team']): PlayState {
+  return {
+    ...state,
+    units: state.units.map((unit) => {
+      if (unit.team !== team) return unit;
+      const u = unit.barrier ? { ...unit, barrier: unit.barrier - 1 } : unit;
+      if (!u.status) return u;
       const turns = u.status.turns - 1;
       if (turns > 0) return { ...u, status: { ...u.status, turns } };
       const { status: _gone, ...rest } = u;

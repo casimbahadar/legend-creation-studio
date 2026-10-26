@@ -11,7 +11,7 @@
 // friend-zone offset is wrong; only player units count as healers to head for; a thief heading for a heal
 // point never attacks on arrival.
 // A berserk unit acts in FE8's berserk phase (planAction's `berserk`).
-// Not yet: special items (keys, torches), Warp, Rescue and Restore. (The AI never uses Barrier.)
+// Not yet: special items (keys, torches), Warp and Rescue. (The AI never uses Barrier.)
 
 import { simulateAllHits, type Forecast } from './combat';
 import { shortestRoute, type MoveSearch } from './movement';
@@ -40,6 +40,9 @@ export interface AiStaff {
   readonly physic: boolean;
   readonly fortify?: boolean;
   readonly status?: StatusKind;
+  /** Restore: clears an ally's status. Barrier: the AI never uses it (AiStaffBarrier does nothing), but it counts in the rank order. */
+  readonly restore?: boolean;
+  readonly barrier?: boolean;
   readonly reach: number;
   readonly rank: number;
 }
@@ -87,6 +90,8 @@ export interface StaffChoice {
   readonly heal: number;
   readonly fortify?: boolean;
   readonly status?: StatusKind;
+  /** Restore (clears an ally's status) or Barrier (raises an ally's Res); these heal nothing. */
+  readonly support?: 'restore' | 'barrier';
 }
 
 /**
@@ -116,6 +121,8 @@ export interface Plan {
   readonly steal?: PlannedSteal;
   /** Or a foe to give a status with staff `item` from there. */
   readonly inflict?: PlannedStatus;
+  /** Or an ally beside it to Restore with staff `item` from there. */
+  readonly restore?: { readonly target: string; readonly item: number };
 }
 
 /** A status staff the computer chose: whom, with which item, and the status. */
@@ -493,7 +500,27 @@ function statusTarget(c: Ctx, staff: AiStaff, stay: boolean): { to: number; targ
 }
 
 /**
- * AiTryDoStaff (AiStaffHealMendRecover, AiStaffPhysicRescue, AiStaffFortify, and statusTarget): with a
+ * AiStaffRestore: an ally with a status beside or on a square the unit can reach (MarkMovementMapEdges),
+ * the highest level, ties to the last in the game's scan, from the safest square beside it.
+ */
+function restoreTarget(c: Ctx, stay: boolean): { to: number; target: PlayUnit } | null {
+  const reach = reached(c, stay);
+  let best = 0;
+  let found: { to: number; target: PlayUnit } | null = null;
+  for (const k of scan(c.w, c.h)) {
+    const target = c.occupant.get(k);
+    if (!target || !allied(c.unit, target) || !target.status || target.level < best) continue;
+    if (!reach.has(k) && !besideReached(c, k, reach)) continue;
+    const to = safestBeside(c, k, reach);
+    if (to === null) continue;
+    best = target.level;
+    found = { to, target };
+  }
+  return found;
+}
+
+/**
+ * AiTryDoStaff (AiStaffHealMendRecover, AiStaffPhysicRescue, AiStaffFortify, restoreTarget and statusTarget): with a
  * healing staff, the ally set on healing with the lowest HP share (ties to the last found), from the
  * safest square to heal it from; or Fortify's (fortifyFrom). Each staff, in item order, can replace
  * the one before if its rank is no lower.
@@ -506,9 +533,14 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
   for (const staff of staves) {
     if (staff.rank < rank) continue;
     let lowest = 100;
-    let found: { to: number; target: PlayUnit; fortify?: string[]; inflict?: StatusKind } | null = null;
+    let found: { to: number; target: PlayUnit; fortify?: string[]; inflict?: StatusKind; restore?: boolean } | null = null;
     const pct = (u: PlayUnit) => Math.trunc((u.hp * 100) / Math.max(1, u.stats.hp));
-    if (staff.status) {
+    if (staff.barrier) {
+      // AiStaffBarrier does nothing.
+    } else if (staff.restore) {
+      const r = restoreTarget(c, stay);
+      if (r) found = { ...r, restore: true };
+    } else if (staff.status) {
       const s = statusTarget(c, staff, stay);
       if (s) found = { ...s, inflict: staff.status };
     } else if (staff.fortify) {
@@ -537,7 +569,9 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
         found = { to, target };
       }
     }
-    if (found?.inflict) {
+    if (found?.restore) {
+      plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, restore: { target: found.target.id, item: staff.item } };
+    } else if (found?.inflict) {
       plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, inflict: { target: found.target.id, item: staff.item, kind: found.inflict } };
     } else if (found) {
       const heal: PlannedHeal = { target: found.target.id, item: staff.item, heal: staff.heal, ...(found.fortify ? { fortify: found.fortify } : {}) };

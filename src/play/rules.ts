@@ -50,6 +50,9 @@ const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean; fort
 /** Staves that give a status, by item id (ExecStatusStaff): Silence, Sleep and Berserk. */
 const STATUS_STAVES: Readonly<Record<number, StatusKind>> = { 0x51: 'silence', 0x52: 'sleep', 0x53: 'berserk' };
 
+/** Restore and Barrier by item id: each works on an ally beside the user. */
+const SUPPORT_STAVES: Readonly<Record<number, 'restore' | 'barrier'>> = { 0x50: 'restore', 0x59: 'barrier' };
+
 /** Stat boosters by item id: Angelic Robe to Body Ring (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON). */
 const BOOSTERS = new Set([0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63]);
 /**
@@ -108,7 +111,8 @@ export function chapterRules(
     const t = map.terrain[u.at[1] * map.width + u.at[0]] ?? 0;
     const index = itemIndex(u, weapon);
     return {
-      stats: u.stats,
+      // GetUnitResistance adds Barrier's bonus.
+      stats: u.barrier ? { ...u.stats, res: u.stats.res + u.barrier } : u.stats,
       hp: u.hp,
       weapon: weapon ? toWeapon(weapon) : null,
       uses: index === null ? null : (u.uses[index] ?? null),
@@ -201,7 +205,15 @@ export function chapterRules(
    * + 30 - 2 per square between them, from 0 to 100.
    */
   function staffAccuracy(u: PlayUnit, target: PlayUnit): number {
-    return Math.max(0, Math.min(100, (u.stats.str - target.stats.res) * 5 + u.stats.skl + 30 - distance(u, target) * 2));
+    return Math.max(0, Math.min(100, (u.stats.str - target.stats.res - (target.barrier ?? 0)) * 5 + u.stats.skl + 30 - distance(u, target) * 2));
+  }
+
+  /** The unit's staff `index` if it is Restore or Barrier and its class can use it. */
+  function supportStaff(u: PlayUnit, index: number) {
+    const item = items.find((i) => i.entry.name === u.items[index]);
+    const art = artByName.get(u.class);
+    const kind = item ? SUPPORT_STAVES[item.rom.id] : undefined;
+    return item && kind && art && isStaff(item.rom) && usable(art, item) && !u.status ? { item, kind } : null;
   }
 
   /** The unit's staff `index` if it is a healing staff its class can use. */
@@ -250,6 +262,8 @@ export function chapterRules(
     carriesMagic: (u) => weaponsFor(u).some((w) => (w.rom.attributes & IA_MAGIC) !== 0),
     aiStaves: (u) =>
       u.items.flatMap((_, index): AiStaff[] => {
+        const support = supportStaff(u, index);
+        if (support) return [{ item: index, heal: 0, physic: false, [support.kind]: true, reach: 1, rank: support.item.rom.rank }];
         const status = statusStaff(u, index);
         if (status) return [{ item: index, heal: 0, physic: true, status: status.kind, reach: magBy2(u), rank: status.item.rom.rank }];
         const staff = healStaff(u, index);
@@ -287,6 +301,16 @@ export function chapterRules(
     staffChoices: (u, state) => {
       const choices: StaffChoice[] = [];
       u.items.forEach((_, index) => {
+        const support = supportStaff(u, index);
+        if (support) {
+          // MakeTargetListForRestore: allies beside it with a status; ...ForBarrier: allies beside it under 7 Barrier.
+          const allies = state.units
+            .filter((o) => o.id !== u.id && !areFoes(o.team, u.team) && distance(u, o) === 1)
+            .filter((o) => (support.kind === 'restore' ? !!o.status : (o.barrier ?? 0) < 7))
+            .map((o) => o.id);
+          if (allies.length) choices.push({ item: index, targets: allies, heal: 0, support: support.kind });
+          return;
+        }
         const status = statusStaff(u, index);
         if (status) {
           // MakeTargetListForSleep, ...ForSilence: units not on its side in reach, with no other status.
@@ -319,7 +343,7 @@ export function chapterRules(
       return null;
     },
     staffExperience: (u, index, missed) => {
-      const staff = healStaff(u, index) ?? statusStaff(u, index);
+      const staff = healStaff(u, index) ?? statusStaff(u, index) ?? supportStaff(u, index);
       if (!staff) return null;
       // GetBattleUnitStaffExp: 1 for a miss.
       if (missed) return award(u, 1);
