@@ -1013,3 +1013,8 @@ a.button {
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
+
+.level-up-face {
+  position: absolute;
+  image-rendering: pixelated;
+}

@@ -397,8 +397,9 @@ export function levelUpLabels(gains: StatGains): LevelUpStat[] {
 /**
  * FE8's map level-up with the game's box (decision 35): "LEVEL UP" over the unit, then the box
  * scrolling up with the class name, the level and stats written as the game writes them (gold labels,
- * blue values, a digit to a tile), each gain's value rising as its label appears. The portrait and the
- * game's own "LEVEL UP" and gain labels (sprite animations) come later; look-alikes stand in for them.
+ * blue values, a digit to a tile), each gain's value rising as its label appears, and the unit's
+ * portrait. The game's own "LEVEL UP" and gain labels (sprite animations) come later; look-alikes
+ * stand in for them.
  */
 export function LevelUpScreen({
   box,
@@ -409,6 +410,7 @@ export function LevelUpScreen({
   gains,
   frame,
   at,
+  face,
 }: {
   box: string;
   unit: PlayUnit;
@@ -420,6 +422,8 @@ export function LevelUpScreen({
   frame: number;
   /** The unit's square on the screen. */
   at: readonly [number, number];
+  /** Its full face, if it has one. */
+  face?: string | null;
 }) {
   const labels = levelUpLabels(gains);
   const f = levelUpAt(frame, labels.length);
@@ -439,6 +443,8 @@ export function LevelUpScreen({
   const at8 = (x: number, y: number): CSSProperties => ({ left: gbaPx(x * 8), top: gbaPx(y * 8) });
   return (
     <div className="level-up-box" style={{ top: gbaPx(f.top), backgroundImage: `url(${box})` }} role="status" aria-label="Level up">
+      {/* StartFace(0, ..., 184, 32 - scroll): its top centre at x 184, 32 below the box's top. */}
+      {face && <img className="level-up-face" src={face} alt="" style={{ left: gbaPx(184 - 48), top: gbaPx(32), width: gbaPx(96), height: gbaPx(80) }} />}
       <span className="level-up-item" style={at8(3, 1)}>
         <FeText text={className} />
       </span>

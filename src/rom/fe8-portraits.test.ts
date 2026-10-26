@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FE8U_PORTRAIT_TABLE, PORTRAIT_STRIDE, readChibi } from './fe8-portraits';
+import { FE8U_PORTRAIT_TABLE, PORTRAIT_STRIDE, readChibi, readPortrait } from './fe8-portraits';
 import { readRom, ROM_BASE } from './gba-rom';
 
 /** LZ77 with literal blocks only, which the GBA's decompressor reads like any other. */
@@ -39,4 +39,27 @@ describe('FE8 portraits', () => {
     expect(readChibi(rom, 0)).toBeNull();
     expect(readChibi(rom, 1)).toBeNull();
   });
+
+  it("puts a full face together from its sheet's six pieces", () => {
+    // Portrait 3: sheet tile (row 0, col 8) colour 1, which goes to the face's second 64 x 32 piece
+    // (32 pixels down); tile (row 3, col 23), the right shoulder's last, colour 2.
+    const sheet = new Uint8Array(32 * 4 * 32);
+    sheet.fill(0x11, 8 * 32, 9 * 32);
+    sheet.fill(0x22, (3 * 32 + 23) * 32, (3 * 32 + 24) * 32);
+    const b = bytes.slice();
+    const v = new DataView(b.buffer);
+    const FACE = 0x3000;
+    b.set(lz77(sheet), FACE);
+    const rec = FE8U_PORTRAIT_TABLE + 2 * PORTRAIT_STRIDE;
+    v.setUint32(rec, ROM_BASE + FACE, true);
+    v.setUint32(rec + 8, ROM_BASE + PAL, true);
+    const face = readPortrait(readRom(b), 3)!;
+    expect([face.width, face.height]).toEqual([96, 80]);
+    const px = (x: number, y: number) => Array.from(face.rgba.subarray((y * 96 + x) * 4, (y * 96 + x) * 4 + 4));
+    expect(px(16, 32)).toEqual([248, 0, 0, 255]); // 48 - 32 = 16 across
+    expect(px(88, 72)).toEqual([0, 0, 248, 255]); // 48 + 32 + 8, 48 + 24
+    expect(px(0, 0)[3]).toBe(0);
+    expect(readPortrait(rom, 2)).toBeNull(); // no face sheet
+  });
 });
+

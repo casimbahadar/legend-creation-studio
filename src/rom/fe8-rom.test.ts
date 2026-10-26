@@ -12,7 +12,7 @@ import { CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readChapter, readPlayerUnit
 import { FE8_US_CHARACTER_TABLE, findCharacterTable, readCharacters } from './fe8-characters';
 import { ALL_CHARACTER_NAMES, checkCharacterNames, GENERIC_ALLY, GENERIC_ENEMY } from './fe8-character-names';
 import { FE8U_SYSTEM_GLYPHS, FE8U_TALK_GLYPHS, readFont } from './fe8-font';
-import { readChibi } from './fe8-portraits';
+import { readChibi, readPortrait } from './fe8-portraits';
 import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
 import { drawExpBar, readExpBarArt } from './fe8-expbar';
@@ -297,5 +297,12 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     const box = readLevelUpBox(rom)!;
     expect([box.width, box.height]).toEqual([240, 224]);
     expect(contentBounds(box)).not.toBeNull();
+  });
+
+  it("puts Eirika's full face together", () => {
+    const eirika = readCharacters(rom, findTextTable(rom)!, findCharacterTable(rom)!).find((c) => c.id === 1)!;
+    const face = readPortrait(rom, eirika.portrait)!;
+    expect([face.width, face.height]).toEqual([96, 80]);
+    expect(contentBounds(face)!.height).toBeGreaterThan(60);
   });
 });

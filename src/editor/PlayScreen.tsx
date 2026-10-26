@@ -51,7 +51,7 @@ import { GbaControls } from './controls';
 import { FeText, FontContext } from './FeText';
 import { frameStyle, imageUrl, WindowArtContext } from './FeWindow';
 import { PhaseIntro } from './PhaseIntro';
-import { Chibi } from './Portrait';
+import { Chibi, faceUrl } from './Portrait';
 import { shortClassLabel } from './labels';
 import { unitCharacters, type EditorRom } from './project-io';
 import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, HealWindow, LevelUpScreen, levelUpLabels, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
@@ -592,6 +592,7 @@ export function PlayScreen({
                 gains={award.result.levelUp}
                 frame={expShow.frame}
                 at={[u.at[0] - cam[0], u.at[1] - cam[1]]}
+                face={characters.get(u.id)?.portrait ? faceUrl(data.rom, characters.get(u.id)!.portrait) : null}
               />
             );
           return <LevelUpWindow unit={u} label={unitLabel(u)} level={award.result.level} gains={award.result.levelUp} />;
