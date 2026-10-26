@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mapRef, type ProjectChapter } from '../core/project';
-import { AI_BYTES, buildFe8Rom, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
+import { AI_BYTES, buildFe8Rom, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
 import { ASSET_TABLE, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readUnitList } from './fe8-chapters';
 import { GENERIC_ENEMY } from './fe8-character-names';
 import { CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE } from './fe8-characters';
@@ -30,6 +30,8 @@ function fakeClean(): Uint8Array {
   bytes.set([3, 1, 7, 7, 4, 5, 2, 9], ch5 + 0x0c);
   const rout = CHAPTER_TABLE + ROUT_GOAL_CHAPTER * CHAPTER_STRIDE;
   bytes.set([0xac, 0x01, 0x9e, 0x01, 1, 0, 0, 0xff, 0], rout + 0x88);
+  const throne = CHAPTER_TABLE + SEIZE_THRONE_GOAL_CHAPTER * CHAPTER_STRIDE;
+  bytes.set([0xa5, 0x01, 0xa1, 0x01, 0, 0, 0, 0xff, 0], throne + 0x88);
 
   const GROUP = 0x200000;
   u32(ASSET_TABLE + 0x20 * 4, ROM_BASE + GROUP);
@@ -138,6 +140,26 @@ describe('FE8 builder', () => {
     expect(Array.from(built.bytes.subarray(CHAPTER_TABLE + 0x88, CHAPTER_TABLE + 0x91))).toEqual([0xac, 0x01, 0x9e, 0x01, 1, 0, 0, 0xff, 0]);
     // The skirmish lists stay vanilla's.
     expect(rom.u32(group + 0x30) >>> 0).toBe(ROM_BASE + 0x300000 + 0x0c * 0x10);
+  });
+
+  it("wins on Seize with vanilla's Seize(x, y) on the chosen square, and no Rout check", () => {
+    const c: ProjectChapter = { ...chapter(), goal: 'seize', seizeAt: [7, 9] };
+    c.units[0]!.character = 'eirika';
+    const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
+    const g = groupOf(out);
+    // LOCA(EVFLAG_WIN, EVENT_NOSCRIPT, 7, 9, TILE_COMMAND_SEIZE), then END.
+    expect(words(out, out.u32(g + EVENT_GROUP.location), 4)).toEqual([0x00030005, 1, 0x00110907, 0]);
+    expect(words(out, out.u32(g + EVENT_GROUP.misc), 4)).toEqual([0x00000001, ROM_BASE + 0x240000, 101, 0]);
+    // "Seize the throne", goal window "Seize throne", type Seize.
+    expect(Array.from(out.bytes.subarray(CHAPTER_TABLE + 0x88, CHAPTER_TABLE + 0x91))).toEqual([0xa5, 0x01, 0xa1, 0x01, 0, 0, 0, 0xff, 0]);
+    // A Rout chapter's location list stays empty.
+    expect(words(rom, rom.u32(group + EVENT_GROUP.location), 1)).toEqual([0]);
+  });
+
+  it("refuses a goal that still needs something, and goals the patch can't carry yet", () => {
+    expect(() => buildFe8Rom(readRom(clean), TEXT, { ...chapter(), goal: 'seize' })).toThrow('Choose the square to seize.');
+    expect(() => buildFe8Rom(readRom(clean), TEXT, { ...chapter(), goal: 'seize', seizeAt: [1, 1] })).toThrow(/Only Eirika can seize/);
+    expect(() => buildFe8Rom(readRom(clean), TEXT, { ...chapter(), goal: 'survive' })).toThrow("The Survive goal isn't in the patch yet.");
   });
 
   it("copies another chapter's map fields, keeping the slot's title and prep setting", () => {

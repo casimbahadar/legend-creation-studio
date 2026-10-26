@@ -17,7 +17,7 @@ import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
-import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER } from './fe8-build';
+import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, findTextTable } from './text';
@@ -256,5 +256,16 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(readClassStats(rom, 7).attributes & CA_PROMOTED).toBe(CA_PROMOTED); // Paladin
     const oneill = readCharacters(rom, findTextTable(rom)!, findCharacterTable(rom)!).find((c) => c.id === 0x68)!;
     expect(oneill.attributes & CA_BOSS).toBe(CA_BOSS);
+  });
+
+  it('holds the goals the patch copies in the vanilla chapters it copies them from', () => {
+    // src/data/chapter_settings.json: objective text, goal window text, type, end turn.
+    const goal = (index: number) => {
+      const r = CHAPTER_TABLE + index * CHAPTER_STRIDE;
+      return [rom.u16(r + 0x88), rom.u16(r + 0x8a), rom.u8(r + 0x8c), rom.u8(r + 0x8d)];
+    };
+    expect(goal(ROUT_GOAL_CHAPTER)).toEqual([0x1ac, 0x19e, 1, 0]); // Defeat all enemy units / Defeat enemy
+    expect(goal(SEIZE_THRONE_GOAL_CHAPTER)).toEqual([0x1a5, 0x1a1, 0, 0]); // Seize the throne / Seize throne
+    expect(goal(SEIZE_GATE_GOAL_CHAPTER)).toEqual([0x1a3, 0x19f, 0, 0]); // Seize the castle gate / Seize gate
   });
 });

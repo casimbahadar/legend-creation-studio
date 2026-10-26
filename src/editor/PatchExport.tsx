@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import { mapEntry, mapRef, toName, type Project, type ProjectChapter } from '../core/project';
-import { buildFe8Rom, characterIds, ownsCharacter, patchNotes } from '../rom/fe8-build';
+import { buildFe8Rom, characterIds, goalBlocker, ownsCharacter, patchNotes } from '../rom/fe8-build';
 import { nameProblem } from '../rom/text-encode';
 import { crc32 } from '../rom/crc32';
 import { createUps } from '../rom/ups';
@@ -28,7 +28,8 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
     const problem = ownsCharacter(u) && u.name?.trim() ? nameProblem(data.textCodes, u.name) : null;
     return problem ? [`${u.name}: ${problem}`] : [];
   });
-  const blocked = !chapter.units.length || nameProblems.length > 0;
+  const goalBlock = goalBlocker(chapter);
+  const blocked = !chapter.units.length || nameProblems.length > 0 || goalBlock !== null;
 
   function save(kind: 'patch' | 'rom') {
     setError(null);
@@ -90,6 +91,7 @@ export function PatchExport({ data, project, chapter, onChange }: { data: Editor
           </ul>
         </div>
       )}
+      {goalBlock && <p className="bad">Goal: {goalBlock}</p>}
       <div className="stepper">
         <button type="button" className="button" disabled={blocked} onClick={() => save('patch')}>
           Download patch

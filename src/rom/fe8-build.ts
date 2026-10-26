@@ -10,16 +10,20 @@
 // (custom stats included) and no random level-ups on loading.
 //
 // The chapter's events are FE's own building blocks: a beginning scene that loads the player,
-// enemy and ally units, a misc list with vanilla's Rout check (DefeatAll) and game over check, and
-// an ending scene that moves on to the chapter the slot's vanilla ending moves on to.
+// enemy and ally units, a misc list with vanilla's game over check, and an ending scene that moves on
+// to the chapter the slot's vanilla ending moves on to. The goal (decision 36) is vanilla's too: Rout
+// is the misc list's DefeatAll; Seize is a location-list Seize(x, y), which sets the win flag when the
+// lord seizes, after which the game runs the ending scene itself (MaybeCallEndEvent).
 
 import { characterStatsAtLevel, withBonus } from '../core/combat';
+import { goalProblem, goalWindowText } from '../core/goals';
 import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectUnit, type StatKey, type Team } from '../core/project';
 import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
 import { FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
 import { BASE_LEVEL, BASE_STATS, characterRecord, readCharacterStats } from './fe8-characters';
 import { readClassStats } from './fe8-classes';
 import { FE8_ITEM_NAMES } from './fe8-item-names';
+import { readChapterMap } from './fe8-maps';
 import { FE8_CLASS_NAMES } from './fe8-names';
 import { readRom, ROM_BASE, type GbaRom } from './gba-rom';
 import { decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, type TextTable } from './text';
@@ -42,6 +46,13 @@ const GOAL_FIELDS = { start: 0x88, end: 0x91 };
  * type Defeat all) the patch reuses: chapter index 10, Eirika's chapter 9.
  */
 export const ROUT_GOAL_CHAPTER = 10;
+/**
+ * Vanilla Seize chapters whose objective the patch reuses (src/data/chapter_settings.json): chapter
+ * index 3, chapter 3 ("Seize the throne", goal window "Seize throne"), and chapter index 1, chapter 1
+ * ("Seize the castle gate", "Seize gate") for a gate.
+ */
+export const SEIZE_THRONE_GOAL_CHAPTER = 3;
+export const SEIZE_GATE_GOAL_CHAPTER = 1;
 
 /** Event groups' remaining offsets (EVENT_GROUP has the ones the reader uses). */
 const GROUP_SELECT_UNIT = 0x10;
@@ -64,9 +75,16 @@ const FADI = (speed: number) => evt(0x17, 2, 1, speed);
 const LOAD1 = evt(0x2c, 4, 0, 1); // restriction 1, as vanilla uses; followed by the units pointer
 const ENUN = evt(0x30, 2, 0);
 const CHANGE_CHAPTER = 0x2a;
-/** Event list entries: END, and FLAG (= AFEV: flag to set, script, flag to wait for). */
+/**
+ * Event list entries: END; FLAG (= AFEV: flag to set, script, flag to wait for); LOCA (flag to set,
+ * script, then x, y and the tile command as bytes).
+ */
 const LIST_END = 0;
 const LIST_FLAG = 1;
+const LIST_LOCA = 5;
+/** A list entry's script that sets its flag and runs nothing. */
+const EVENT_NOSCRIPT = 1;
+const TILE_COMMAND_SEIZE = 0x11;
 
 /** FE8 AI bytes for each behaviour (decision 23), from the decompilation's AI tables (src/cp_data.c). */
 export const AI_BYTES: Record<Behaviour, readonly number[]> = {
@@ -191,6 +209,22 @@ export function findFlagEvent(rom: GbaRom, list: number, flag: number, maxEntrie
   return null;
 }
 
+/** Why the chapter's goal stops the patch from being made, in plain words; null if it doesn't. */
+export function goalBlocker(chapter: ProjectChapter): string | null {
+  const problem = goalProblem(chapter);
+  if (problem) return problem;
+  if (chapter.goal === 'boss' || chapter.goal === 'survive') return `The ${chapter.goal === 'boss' ? 'Defeat boss' : 'Survive'} goal isn't in the patch yet.`;
+  return null;
+}
+
+/** The vanilla chapter whose objective fields the chapter's goal reuses, its goal window text matching test play's. */
+export function goalChapter(clean: GbaRom, chapter: ProjectChapter, source: number): number {
+  if (chapter.goal !== 'seize') return ROUT_GOAL_CHAPTER;
+  const map = readChapterMap(clean, source);
+  const text = goalWindowText({ kind: 'seize', at: chapter.seizeAt ?? null, lord: null }, (x, y) => map?.terrain[y * map.width + x] ?? 0);
+  return text === 'Seize gate' ? SEIZE_GATE_GOAL_CHAPTER : SEIZE_THRONE_GOAL_CHAPTER;
+}
+
 /** Reasons the patch will differ from test play for this chapter. */
 export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, number>): string[] {
   const notes: string[] = [];
@@ -235,6 +269,8 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   if (slot === null || slot >= CHAPTER_COUNT) throw new Error("The chapter's place in the game isn't one this tool knows.");
   if (source === null || source >= CHAPTER_COUNT) throw new Error("The chapter's map isn't one this tool knows.");
   if (clean.size !== EXPANSION) throw new Error('The patch needs the clean 16 MB ROM.');
+  const blocked = goalBlocker(chapter);
+  if (blocked) throw new Error(blocked);
 
   const record = CHAPTER_TABLE + slot * CHAPTER_STRIDE;
   const groupEntry = ASSET_TABLE + clean.u8(record + 0x74) * 4;
@@ -265,7 +301,10 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const beginning = w.words([...[players, enemies, allies].flatMap((p) => (p === null ? [] : [LOAD1, p, ENUN])), EVBIT_T(7), ENDA]);
   const endingScene = w.words([FADI(16), nextChapter, ENDA]);
   const emptyList = w.words([LIST_END]);
-  const miscList = w.words([LIST_FLAG | (EVFLAG_WIN << 16), endingScene, EVFLAG_DEFEAT_ALL, LIST_FLAG, gameOver, EVFLAG_GAMEOVER, LIST_END]);
+  const seizeAt = chapter.goal === 'seize' ? chapter.seizeAt : undefined;
+  const locationList = seizeAt ? w.words([LIST_LOCA | (EVFLAG_WIN << 16), EVENT_NOSCRIPT, seizeAt[0] | (seizeAt[1] << 8) | (TILE_COMMAND_SEIZE << 16), LIST_END]) : emptyList;
+  const defeatAll = chapter.goal === 'rout' ? [LIST_FLAG | (EVFLAG_WIN << 16), endingScene, EVFLAG_DEFEAT_ALL] : [];
+  const miscList = w.words([...defeatAll, LIST_FLAG, gameOver, EVFLAG_GAMEOVER, LIST_END]);
   const noTutorial = w.words([0]);
   const noTraps = w.bytes([0]);
 
@@ -302,7 +341,8 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   // The new event group starts as a copy of vanilla's, which keeps its skirmish lists.
   const group = Array.from({ length: EVENT_GROUP.size / 4 }, (_, k) => clean.u32(vanillaGroup + 4 * k));
   const set = (offset: number, value: number) => (group[offset / 4] = value);
-  for (const o of [EVENT_GROUP.turn, EVENT_GROUP.character, EVENT_GROUP.location, GROUP_SELECT_UNIT, GROUP_DEST_SELECTED, GROUP_AFTER_MOVED]) set(o, emptyList);
+  for (const o of [EVENT_GROUP.turn, EVENT_GROUP.character, GROUP_SELECT_UNIT, GROUP_DEST_SELECTED, GROUP_AFTER_MOVED]) set(o, emptyList);
+  set(EVENT_GROUP.location, locationList);
   set(EVENT_GROUP.misc, miscList);
   set(GROUP_TUTORIAL, noTutorial);
   set(GROUP_TRAPS, noTraps);
@@ -342,7 +382,7 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   }
 
   // The slot's chapter record: the map's own fields when it comes from another chapter (keeping the
-  // slot's title and prep-screen setting), and a Rout objective.
+  // slot's title and prep-screen setting), and the goal's objective.
   if (source !== slot) {
     const from = CHAPTER_TABLE + source * CHAPTER_STRIDE;
     const keep = [bytes[record + PREP_FLAG]!, ...bytes.slice(record + TITLE_IDS.start, record + TITLE_IDS.end)];
@@ -350,8 +390,8 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
     bytes[record + PREP_FLAG] = keep[0]!;
     bytes.set(keep.slice(1), record + TITLE_IDS.start);
   }
-  const rout = CHAPTER_TABLE + ROUT_GOAL_CHAPTER * CHAPTER_STRIDE;
-  bytes.set(clean.bytes.subarray(rout + GOAL_FIELDS.start, rout + GOAL_FIELDS.end), record + GOAL_FIELDS.start);
+  const goal = CHAPTER_TABLE + goalChapter(clean, chapter, source) * CHAPTER_STRIDE;
+  bytes.set(clean.bytes.subarray(goal + GOAL_FIELDS.start, goal + GOAL_FIELDS.end), record + GOAL_FIELDS.start);
 
   return { bytes, notes: patchNotes(chapter, characters) };
 }
