@@ -8,7 +8,14 @@ This is a non-commercial fan tool. It is not affiliated with Nintendo or Intelli
 
 ## Status
 
-Pre-0.1. The repository holds the project setup and a first page that checks whether a ROM is a clean Sacred Stones (US) ROM. Nothing else works yet. The first release, 0.1 "Your First Chapter", is described in [DECISIONS.md](DECISIONS.md).
+Pre-0.1, working toward 0.1 "Your First Chapter" (see [DECISIONS.md](DECISIONS.md)). With a clean Sacred Stones (US) ROM you can already:
+
+- make one chapter on any of FE8's maps: place player, enemy and ally units, choose their classes, FE8 characters, levels, items, stats and behaviour, and pick the chapter's goal (Rout, Seize, Defeat boss or Survive);
+- test play it in the browser with FE8's rules and, increasingly, its own graphics: movement, battles, experience and level-ups, weapon uses, items, staves and trading;
+- export it as an FE8 UPS patch that takes the place of a vanilla chapter;
+- share it as a Play link that others open with their own ROM.
+
+The newest patch features, such as the goals, are checked against the decompilation and stand-in ROMs but not yet in the real patched game.
 
 ## ROM policy
 
