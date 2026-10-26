@@ -347,3 +347,42 @@ describe('choosing a weapon', () => {
     expect(attackMenu(['iron-sword']).action).toMatchObject({ kind: 'target' });
   });
 });
+
+describe('healing with a staff', () => {
+  // Eirika carries a Heal staff; Seth stands next to where she moves, hurt.
+  const staffRules: PlayRules = {
+    ...rules,
+    staffChoices: (u, s) => {
+      const hurt = s.units.filter((o) => o.id !== u.id && o.team === 'player' && o.hp < o.stats.hp && Math.abs(o.at[0] - u.at[0]) + Math.abs(o.at[1] - u.at[1]) === 1);
+      return u.items[0] === 'heal' && hurt.length ? [{ item: 0, targets: hurt.map((o) => o.id), heal: 15 }] : [];
+    },
+    staffExperience: (u) => ({ unit: u.id, level: u.level, exp: 0, result: { gain: 11, exp: 11, level: u.level, levelUp: null } }),
+  };
+  const setUp = (): PlayView => {
+    const v = start([4, 2], [{ id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [2, 0] }]);
+    return {
+      ...v,
+      state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['heal'], uses: [3] } : u.id === 'seth' ? { ...u, hp: 5 } : u)) },
+    };
+  };
+
+  it('offers Staff with a hurt ally in reach, heals it, spends a use and gives experience', () => {
+    const menu = moveRight(setUp());
+    expect(menuOptions(menu, staffRules)).toEqual(['staff', 'item', 'wait']);
+    const choosing = pressA(menu, staffRules);
+    expect(choosing.action).toMatchObject({ kind: 'target', targets: ['seth'], staff: { item: 0, heal: 15 } });
+    expect(choosing.cursor).toEqual([2, 0]);
+    const healing = pressA(choosing, staffRules);
+    expect(healing.battle).toMatchObject({ attacker: 'eirika', defender: 'seth', strikes: [], heal: 15, exp: { result: { gain: 11 } } });
+    const after = finishBattle(healing);
+    expect(after.state.units.find((u) => u.id === 'seth')!.hp).toBe(18);
+    expect(eirika(after)).toMatchObject({ uses: [2], moved: true, exp: 11 });
+    expect(pressB(choosing, staffRules).action).toMatchObject({ kind: 'menu', index: 0 });
+  });
+
+  it('offers no Staff with nobody hurt in reach', () => {
+    const v = setUp();
+    const fine = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'seth' ? { ...u, hp: 18 } : u)) } };
+    expect(menuOptions(moveRight(fine), staffRules)).toEqual(['item', 'wait']);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Stats } from './combat';
-import { addExp, expGain, killExp, powerLevel, rollLevelUp, roundExp, startingExp, type ExpProfile } from './experience';
+import { addExp, expGain, killExp, powerLevel, rollLevelUp, roundExp, staffExp, startingExp, type ExpProfile } from './experience';
 
 const unit = (level: number, more: Partial<ExpProfile> = {}): ExpProfile => ({ level, promoted: false, power: 3, promotionPower: 0, boss: false, thief: false, ...more });
 const stats = (v: number): Stats => ({ hp: v, str: v, skl: v, spd: v, def: v, res: v, lck: v, con: v });
@@ -60,5 +60,11 @@ describe('experience', () => {
     expect(startingExp(10, 10)).toBeNull();
     expect(startingExp(9, 10)).toBe(0);
     expect(startingExp(1, 20)).toBe(0);
+  });
+
+  it("gives a heal 10 plus a twentieth of the staff's price a use, halved once promoted", () => {
+    expect(staffExp(false, 300)).toBe(25); // Heal: 10 + 15
+    expect(staffExp(true, 300)).toBe(12);
+    expect(staffExp(false, 5000)).toBe(100);
   });
 });

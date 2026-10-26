@@ -9,11 +9,11 @@ import { planAction, type AiRules } from './ai';
 import type { Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, discardItem, endTurn, equipItem, finishAction, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, discardItem, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
-export type MenuOption = 'attack' | 'item' | 'wait';
+export type MenuOption = 'attack' | 'staff' | 'item' | 'wait';
 
 /** What can be done with one item, as in FE8's item menu. */
 export type ItemOption = 'equip' | 'use' | 'discard';
@@ -21,10 +21,17 @@ export type ItemOption = 'equip' | 'use' | 'discard';
 export type Action =
   /** The action menu for a unit that has just moved from `from`. */
   | { readonly kind: 'menu'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
-  /** Choosing which enemy to attack. */
-  | { readonly kind: 'target'; readonly unit: string; readonly from: readonly [number, number]; readonly targets: readonly string[]; readonly index: number }
-  /** Choosing which weapon to attack with, `index` highlighted among the weapon choices. */
-  | { readonly kind: 'weapon'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
+  /** Choosing which enemy to attack, or with `staff`, which ally to heal with that item. */
+  | {
+      readonly kind: 'target';
+      readonly unit: string;
+      readonly from: readonly [number, number];
+      readonly targets: readonly string[];
+      readonly index: number;
+      readonly staff?: StaffChoice;
+    }
+  /** Choosing which weapon to attack with (or with `staff`, which staff to heal with), `index` highlighted among the choices. */
+  | { readonly kind: 'weapon'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number; readonly staff?: boolean }
   /** The unit's items, `index` highlighted. */
   | { readonly kind: 'items'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
   /** What to do with item `item`, option `index` highlighted. */
@@ -45,9 +52,18 @@ export interface Fight {
   readonly defenderItem: number | null;
 }
 
+/** A staff the unit can heal with: its item index, the allies it reaches and how much it heals. */
+export interface StaffChoice {
+  readonly item: number;
+  readonly targets: readonly string[];
+  readonly heal: number;
+}
+
 export interface Battle extends Fight {
   readonly attacker: string;
   readonly defender: string;
+  /** Set for a heal: the HP the attacker's staff (attackerItem) gives the defender. A heal has no blows. */
+  readonly heal?: number;
   /** The experience the fight gave, shown after it; null if nobody gained any. */
   readonly exp: ExpAward | null;
 }
@@ -90,6 +106,10 @@ export interface PlayRules extends AiRules {
   experience?(attacker: PlayUnit, defender: PlayUnit, strikes: readonly Strike[]): ExpAward | null;
   /** Each weapon the unit could attack with from where it stands (its item index), with the foes it reaches, in item order. */
   weaponChoices?(unit: PlayUnit, state: PlayState): { readonly item: number; readonly targets: readonly string[] }[];
+  /** Each staff the unit could heal with from where it stands, in item order (none if left out). */
+  staffChoices?(unit: PlayUnit, state: PlayState): StaffChoice[];
+  /** The experience healing with item `index` gives the unit, if any. */
+  staffExperience?(unit: PlayUnit, index: number): ExpAward | null;
   /** Whether the unit can equip its item `index` (a weapon its class can use), and how much HP using it heals (0: can't be used). */
   itemUse?(unit: PlayUnit, index: number): { readonly equip: boolean; readonly heal: number };
 }
@@ -131,6 +151,7 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
   if (!unit) return [];
   const options: MenuOption[] = [];
   if (rules.targetsOf(unit, view.state).length) options.push('attack');
+  if (rules.staffChoices?.(unit, view.state).length) options.push('staff');
   if (unit.items.length) options.push('item');
   options.push('wait');
   return options;
@@ -232,6 +253,11 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   if (!unit) return view;
   if (option === 'wait') return { ...view, state: finishAction(view.state, unit.id), action: null };
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
+  if (option === 'staff') {
+    const staves = rules.staffChoices?.(unit, view.state) ?? [];
+    if (staves.length > 1) return { ...view, action: { kind: 'weapon', unit: unit.id, from: a.from, index: 0, staff: true } };
+    return staves[0] ? healTargets(view, unit.id, a.from, staves[0]) : view;
+  }
   // With more than one weapon that reaches a foe, choose the weapon first, as in FE8.
   if ((rules.weaponChoices?.(unit, view.state).length ?? 0) > 1) return { ...view, action: { kind: 'weapon', unit: unit.id, from: a.from, index: 0 } };
   const targets = rules.targetsOf(unit, view.state);
@@ -240,17 +266,34 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   return { ...view, action: { kind: 'target', unit: unit.id, from: a.from, targets, index: 0 }, cursor: first.at };
 }
 
-/** The weapons the unit choosing a weapon could attack with. */
+/** The weapons (or for healing, staves) the unit choosing one could use. */
 export function weaponChoices(view: PlayView, rules: PlayRules): { readonly item: number; readonly targets: readonly string[] }[] {
   const a = view.action;
   const unit = a ? unitById(view.state, a.unit) : undefined;
-  return unit && rules.weaponChoices ? rules.weaponChoices(unit, view.state) : [];
+  if (!unit) return [];
+  if (a?.kind === 'weapon' && a.staff) return rules.staffChoices?.(unit, view.state) ?? [];
+  return rules.weaponChoices ? rules.weaponChoices(unit, view.state) : [];
 }
 
-/** Picks weapon choice `index`: the unit equips it (WeaponSelectMenu_Selected) and chooses among the foes it reaches. */
+/** Choosing which ally to heal with a staff. */
+function healTargets(view: PlayView, unit: string, from: readonly [number, number], staff: StaffChoice): PlayView {
+  const first = unitById(view.state, staff.targets[0] ?? null);
+  if (!first) return view;
+  return { ...view, action: { kind: 'target', unit, from, targets: staff.targets, index: 0, staff }, cursor: first.at };
+}
+
+/**
+ * Picks choice `index`: a weapon is equipped (WeaponSelectMenu_Selected) and the unit chooses among the
+ * foes it reaches; a staff goes straight to choosing whom to heal.
+ */
 export function chooseWeapon(view: PlayView, index: number, rules: PlayRules): PlayView {
   const a = view.action;
   if (busy(view) || a?.kind !== 'weapon') return view;
+  if (a.staff) {
+    const unit = unitById(view.state, a.unit);
+    const staff = unit ? rules.staffChoices?.(unit, view.state)[index] : undefined;
+    return staff ? healTargets(view, a.unit, a.from, staff) : view;
+  }
   const choice = weaponChoices(view, rules)[index];
   const first = unitById(view.state, choice?.targets[0] ?? null);
   if (!choice || !first) return view;
@@ -304,6 +347,11 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     const attacker = unitById(view.state, a.unit);
     const defender = unitById(view.state, a.targets[a.index] ?? null);
     if (!attacker || !defender) return view;
+    if (a.staff) {
+      // A heal plays like a fight with no blows, then shows its experience; finishBattle heals.
+      const heal: Battle = { attacker: attacker.id, defender: defender.id, strikes: [], attackerItem: a.staff.item, defenderItem: null, heal: a.staff.heal, exp: rules.staffExperience?.(attacker, a.staff.item) ?? null };
+      return { ...view, action: null, battle: heal };
+    }
     return { ...view, action: null, battle: startBattle(attacker, defender, view.state, rules) };
   }
   const [x, y] = view.cursor;
@@ -333,10 +381,10 @@ export function pressB(view: PlayView, rules: PlayRules): PlayView {
   const a = view.action;
   if (a?.kind === 'item') return { ...view, action: { kind: 'items', unit: a.unit, from: a.from, index: a.item } };
   if (a?.kind === 'items') return backToMenu(view, a.unit, a.from, rules, 'item');
-  if (a?.kind === 'weapon') return backToMenu(view, a.unit, a.from, rules, 'attack');
+  if (a?.kind === 'weapon') return backToMenu(view, a.unit, a.from, rules, a.staff ? 'staff' : 'attack');
   if (a?.kind === 'target') {
     const unit = unitById(view.state, a.unit);
-    return { ...view, action: { kind: 'menu', unit: a.unit, from: a.from, index: 0 }, cursor: unit ? unit.at : view.cursor };
+    return { ...backToMenu(view, a.unit, a.from, rules, a.staff ? 'staff' : 'attack'), cursor: unit ? unit.at : view.cursor };
   }
   if (a?.kind === 'menu') {
     const unit = unitById(view.state, a.unit);
@@ -427,13 +475,15 @@ export function brokenWeapons(state: PlayState, b: Battle): { readonly unit: str
 export function finishBattle(view: PlayView): PlayView {
   const b = view.battle;
   if (!b) return view;
-  const attacker = unitById(view.state, b.attacker);
-  const defender = unitById(view.state, b.defender);
   const last = b.strikes[b.strikes.length - 1];
   const spent = (by: 'attacker' | 'defender') => b.strikes.filter((s) => s.by === by && s.used).length;
   let used = view.state;
+  if (b.heal !== undefined && b.attackerItem !== null) used = spendUses(healUnit(used, b.defender, b.heal), b.attacker, b.attackerItem, 1);
   if (b.attackerItem !== null) used = spendUses(used, b.attacker, b.attackerItem, spent('attacker'));
   if (b.defenderItem !== null) used = spendUses(used, b.defender, b.defenderItem, spent('defender'));
+  // Without blows (a heal, or a fight nobody could strike in) HP stay as they are now.
+  const attacker = unitById(used, b.attacker);
+  const defender = unitById(used, b.defender);
   const fought = applyBattle(used, b.attacker, b.defender, last?.attackerHp ?? attacker?.hp ?? 0, last?.defenderHp ?? defender?.hp ?? 0);
   const state = b.exp ? applyExp(fought, b.exp.unit, b.exp.result) : fought;
   const still = unitById(state, b.attacker);

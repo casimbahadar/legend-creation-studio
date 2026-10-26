@@ -120,3 +120,9 @@ export function addExp(level: number, exp: number | null, gain: number, maxLevel
 export function startingExp(level: number, maxLevel: number): number | null {
   return level >= maxLevel ? null : 0;
 }
+
+/** GetBattleUnitStaffExp for a heal: 10 plus the staff's price a use / 20, halved for promoted units, at most 100. */
+export function staffExp(promoted: boolean, costPerUse: number): number {
+  const exp = 10 + Math.trunc(costPerUse / 20);
+  return Math.min(100, promoted ? Math.trunc(exp / 2) : exp);
+}

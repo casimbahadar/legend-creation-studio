@@ -1,15 +1,17 @@
 // The game rules for one chapter map, built from the ROM catalog: movement from each class's move
-// costs, targets from the weapons units carry, forecasts with terrain bonuses, fights and experience.
+// costs, targets from the weapons units carry, forecasts with terrain bonuses, fights, heals and
+// experience.
 
 import { forecast, resolveBattle, type Combatant, type Forecast, type Strike } from '../core/combat';
-import { addExp, expGain, rollLevelUp, type ExpProfile } from '../core/experience';
+import { addExp, expGain, rollLevelUp, staffExp, type ExpProfile } from '../core/experience';
 import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, unitAt, type PlayState, type PlayUnit } from '../core/play';
-import type { ExpAward, PlayRules } from '../core/play-input';
+import type { ExpAward, PlayRules, StaffChoice } from '../core/play-input';
 import type { RomCharacter } from '../rom/fe8-characters';
 import { CA_BOSS, CA_MAXLEVEL10, CA_PROMOTED, CA_THIEF } from '../rom/fe8-classes';
+import { isStaff } from '../rom/fe8-items';
 import type { ChapterMap } from '../rom/fe8-maps';
-import { distance, inReach, toWeapon, weaponsOf, type ClassArt, type GameItem } from './catalog';
+import { distance, inReach, toWeapon, usable, weaponsOf, type ClassArt, type GameItem } from './catalog';
 
 export interface FightPreview {
   readonly forecast: Forecast;
@@ -31,6 +33,14 @@ export interface ChapterRules {
    */
   preview(attacker: PlayUnit, defender: PlayUnit, at?: readonly [number, number]): FightPreview;
 }
+
+/** Healing staves by item id (GetUnitItemHealAmount, MakeTargetListForRangedHeal): Heal 10, Mend 20, Recover 80, Physic 10 at range. */
+const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean }>> = {
+  0x4b: { heal: 10, physic: false },
+  0x4c: { heal: 20, physic: false },
+  0x4d: { heal: 80, physic: false },
+  0x4e: { heal: 10, physic: true },
+};
 
 /** HP healing items' heal by item id (GetUnitItemHealAmount): Vulnerary 10, Elixir 80, and the second Vulnerary entry 10. */
 const HEAL_ITEMS: Readonly<Record<number, number>> = { 0x6c: 10, 0x6d: 80, 0xa2: 10 };
@@ -125,15 +135,26 @@ export function chapterRules(
       const fell = hpOf(by, u) <= 0;
       const otherFell = hpOf(by === 'attacker' ? 'defender' : 'attacker', other) <= 0;
       const dealt = strikes.some((s) => s.by === by && s.hit && s.damage > 0);
-      const gain = expGain(profileOf(u), profileOf(other), dealt, fell, otherFell);
-      const art = artByName.get(u.class);
-      const character = characterOf(u);
-      const result = addExp(u.level, u.exp, gain, maxLevel(art, character), () =>
-        rollLevelUp(u.stats, character?.growths ?? art?.growths ?? u.stats, art?.caps ?? u.stats, rn),
-      );
-      return result.gain > 0 ? { unit: u.id, level: u.level, exp: u.exp, result } : null;
+      return award(u, expGain(profileOf(u), profileOf(other), dealt, fell, otherFell));
     }
     return null;
+  }
+
+  /** `gain` experience for a player unit that can gain it, with any level-up rolled; null if it gains none. */
+  function award(u: PlayUnit, gain: number): ExpAward | null {
+    if (u.team !== 'player' || u.exp === null) return null;
+    const art = artByName.get(u.class);
+    const character = characterOf(u);
+    const result = addExp(u.level, u.exp, gain, maxLevel(art, character), () => rollLevelUp(u.stats, character?.growths ?? art?.growths ?? u.stats, art?.caps ?? u.stats, rn));
+    return result.gain > 0 ? { unit: u.id, level: u.level, exp: u.exp, result } : null;
+  }
+
+  /** The unit's staff `index` if it is a healing staff its class can use. */
+  function healStaff(u: PlayUnit, index: number) {
+    const item = items.find((i) => i.entry.name === u.items[index]);
+    const art = artByName.get(u.class);
+    const staff = item ? HEAL_STAVES[item.rom.id] : undefined;
+    return item && staff && art && isStaff(item.rom) && usable(art, item) ? { item, ...staff } : null;
   }
 
   const rules: PlayRules = {
@@ -161,6 +182,28 @@ export function chapterRules(
         if (targets.length) choices.push({ item, targets });
       });
       return choices;
+    },
+    staffChoices: (u, state) => {
+      const choices: StaffChoice[] = [];
+      u.items.forEach((_, index) => {
+        const staff = healStaff(u, index);
+        if (!staff) return;
+        // Heal, Mend and Recover reach a neighbour; Physic half the healer's Magic, at least 5 (GetUnitMagBy2Range).
+        const reach = staff.physic ? Math.max(5, Math.floor(u.stats.str / 2)) : 1;
+        const targets = state.units
+          .filter((o) => o.id !== u.id && !areFoes(o.team, u.team) && o.hp < o.stats.hp && distance(u, o) >= 1 && distance(u, o) <= reach)
+          .sort((x, y) => distance(u, x) - distance(u, y))
+          .map((o) => o.id);
+        // GetUnitItemHealAmount: the staff's amount plus the healer's Magic, at most 80.
+        if (targets.length) choices.push({ item: index, targets, heal: Math.min(80, staff.heal + u.stats.str) });
+      });
+      return choices;
+    },
+    staffExperience: (u, index) => {
+      const staff = healStaff(u, index);
+      if (!staff) return null;
+      const attributes = (artByName.get(u.class)?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0);
+      return award(u, staffExp((attributes & CA_PROMOTED) !== 0, staff.item.rom.costPerUse));
     },
     itemUse: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);

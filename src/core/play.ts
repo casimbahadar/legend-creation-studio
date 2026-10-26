@@ -122,10 +122,14 @@ export function discardItem(state: PlayState, id: string, index: number): PlaySt
   return { ...state, units: state.units.map((u) => (u.id === id ? { ...u, items: u.items.filter((_, i) => i !== index), uses: u.uses.filter((_, i) => i !== index) } : u)) };
 }
 
-/** Uses a healing item: the unit gets back up to `heal` HP (not past its maximum) and the item loses a use. */
+/** A unit gets back up to `amount` HP, not past its maximum. */
+export function healUnit(state: PlayState, id: string, amount: number): PlayState {
+  return { ...state, units: state.units.map((u) => (u.id === id ? { ...u, hp: Math.min(u.stats.hp, u.hp + amount) } : u)) };
+}
+
+/** Uses a healing item: the unit gets back up to `heal` HP and the item loses a use. */
 export function useHealItem(state: PlayState, id: string, index: number, heal: number): PlayState {
-  const healed = { ...state, units: state.units.map((u) => (u.id === id ? { ...u, hp: Math.min(u.stats.hp, u.hp + heal) } : u)) };
-  return spendUses(healed, id, index, 1);
+  return spendUses(healUnit(state, id, heal), id, index, 1);
 }
 
 /** A unit's experience after a fight: its new level and experience, and any level-up's gains (max HP rises; current HP stays). */
