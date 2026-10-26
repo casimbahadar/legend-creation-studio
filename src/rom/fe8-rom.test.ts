@@ -15,6 +15,7 @@ import { FE8U_SYSTEM_GLYPHS, FE8U_TALK_GLYPHS, readFont } from './fe8-font';
 import { readChibi } from './fe8-portraits';
 import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
+import { drawExpBar, readExpBarArt } from './fe8-expbar';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
 import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
@@ -281,5 +282,13 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     const list = readDefeatTalks(rom, found.table)!;
     expect(list).toHaveLength(79); // src/data_battlequotes.c
     expect(list.at(-1)).toMatchObject({ pid: 0x21, route: 0xff, chapter: 0xff, msg: 0xc43 }); // Syrene
+  });
+
+  it('reads the map experience bar', () => {
+    const art = readExpBarArt(rom)!;
+    expect(art).not.toBeNull();
+    expect([art.box.width, art.box.height]).toEqual([17, 3]);
+    // The box spans most of its 136 x 24 pixels.
+    expect(contentBounds(drawExpBar(art, 50))!.width).toBeGreaterThan(120);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { battleFrame, END_PAUSE_MS, EXP_MS_PER_POINT, expBarEnd, expFrame, LEVEL_UP_MS, STRIKE_MS } from './battle-anim';
+import { battleFrame, END_PAUSE_MS, EXP_MS_PER_POINT, expBarEnd, expFrame, LEVEL_UP_MS, levelUpStart, STRIKE_MS } from './battle-anim';
 import type { Strike } from './combat';
 
 const strikes: Strike[] = [
@@ -30,17 +30,20 @@ describe('battleFrame', () => {
 });
 
 describe('expFrame', () => {
-  it('fills the bar a point a frame, past 100 starting again, then shows the level-up', () => {
-    expect(expFrame(90, 30, true, 0)).toEqual({ phase: 'bar', exp: 90 });
-    expect(expFrame(90, 30, true, 250 + 5.5 * EXP_MS_PER_POINT)).toEqual({ phase: 'bar', exp: 95 });
-    expect(expFrame(90, 30, true, 250 + 15.5 * EXP_MS_PER_POINT)).toEqual({ phase: 'bar', exp: 5 });
-    expect(expFrame(90, 30, true, expBarEnd(30) - 1)).toEqual({ phase: 'bar', exp: 20 });
-    expect(expFrame(90, 30, true, expBarEnd(30))).toEqual({ phase: 'levelUp', exp: 20 });
-    expect(expFrame(90, 30, true, expBarEnd(30) + LEVEL_UP_MS)).toBeNull();
+  const at = (frames: number) => frames * EXP_MS_PER_POINT + 0.5;
+  it('fills the bar a point a frame from frame 30, past 100 starting again, then shows the level-up', () => {
+    expect(expFrame(90, 30, true, 0)).toEqual({ phase: 'bar', exp: 90, frame: 0 });
+    expect(expFrame(90, 30, true, at(29))).toMatchObject({ phase: 'bar', exp: 90 });
+    expect(expFrame(90, 30, true, at(30))).toMatchObject({ phase: 'bar', exp: 91 });
+    expect(expFrame(90, 30, true, at(40))).toMatchObject({ phase: 'bar', exp: 1 });
+    expect(expFrame(90, 30, true, expBarEnd(30) - 1)).toMatchObject({ phase: 'bar', exp: 20 });
+    expect(expFrame(90, 30, true, expBarEnd(30))).toMatchObject({ phase: 'gap', exp: 20 });
+    expect(expFrame(90, 30, true, levelUpStart(30))).toMatchObject({ phase: 'levelUp', exp: 20 });
+    expect(expFrame(90, 30, true, levelUpStart(30) + LEVEL_UP_MS)).toBeNull();
   });
 
   it('ends after the bar without a level-up', () => {
-    expect(expFrame(10, 20, false, expBarEnd(20) - 1)).toEqual({ phase: 'bar', exp: 30 });
-    expect(expFrame(10, 20, false, expBarEnd(20))).toBeNull();
+    expect(expFrame(10, 20, false, expBarEnd(20) - 1)).toMatchObject({ phase: 'bar', exp: 30 });
+    expect(expFrame(10, 20, false, levelUpStart(20))).toBeNull();
   });
 });

@@ -978,3 +978,11 @@ a.button {
 .goal-controls {
   margin: 0.75rem 0;
 }
+
+/* FE8's experience bar box from the ROM, at its place on the game screen. */
+.exp-bar-box {
+  position: absolute;
+  z-index: 3;
+  image-rendering: pixelated;
+  pointer-events: none;
+}

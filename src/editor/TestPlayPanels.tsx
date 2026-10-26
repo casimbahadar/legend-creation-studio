@@ -10,7 +10,8 @@ import type { StatGains } from '../core/experience';
 import type { GameItem } from '../play/catalog';
 import type { TextColour } from '../rom/fe8-font';
 import { FeText } from './FeText';
-import { goalBox, MapBox, Place, unitBox, WindowArtContext, type Box } from './FeWindow';
+import { expBarUrl, gbaPx, goalBox, MapBox, Place, unitBox, WindowArtContext, type Box } from './FeWindow';
+import { EXP_BAR_X, EXP_BAR_Y, expBarOpening, type ExpBarArt } from '../rom/fe8-expbar';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
@@ -347,7 +348,22 @@ export function BattlePopup({
 }
 
 /** FE's experience window after a fight: the bar filling as the unit gains experience. */
-export function ExpWindow({ exp }: { exp: number }) {
+/**
+ * FE8's experience bar: with the game's art, its box at the game's place on the screen (tile 6, 8),
+ * opening from its middle row out; otherwise a look-alike window.
+ */
+export function ExpWindow({ exp, frame, art }: { exp: number; frame: number; art: ExpBarArt | null }) {
+  if (art) {
+    const hidden = ((1 - expBarOpening(frame)) / 2) * 100;
+    return (
+      <img
+        className="exp-bar-box"
+        src={expBarUrl(art, exp)}
+        alt={`EXP ${exp}`}
+        style={{ left: gbaPx(EXP_BAR_X), top: gbaPx(EXP_BAR_Y), width: gbaPx(136), height: gbaPx(24), clipPath: `inset(${hidden}% 0 ${hidden}% 0)` }}
+      />
+    );
+  }
   return (
     <div className="fe-window exp-window">
       <span className="fe-line">

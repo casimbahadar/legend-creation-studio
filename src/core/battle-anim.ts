@@ -45,18 +45,26 @@ export function battleFrame(strikes: readonly Strike[], start: { attackerHp: num
 }
 
 /**
- * After a fight that gave experience: the experience window fills its bar a point a game frame, as
- * FE8's does, holds, and then, if the unit went up a level, the level-up window shows. Times in ms.
+ * After a fight that gave experience: the experience bar opens, fills a point a game frame, holds and
+ * closes, and then, if the unit went up a level, the level-up window shows. In frames, as FE8's
+ * ProcScr_MapAnimExpBar runs: a frame's wait, 7 frames opening, 20 still and 2 more, then a point a
+ * frame; 20 still after the last; closed, 8 more before the level-up. Times in ms.
  */
-export const EXP_MS_PER_POINT = 1000 / 60;
-const EXP_IN_MS = 250;
-const EXP_HOLD_MS = 450;
+const FRAME_MS = 1000 / 60;
+export const EXP_MS_PER_POINT = FRAME_MS;
+/** The first point is added on frame 30. */
+const EXP_IN_MS = 29 * FRAME_MS;
+const EXP_HOLD_MS = 21 * FRAME_MS;
+const EXP_GAP_MS = 8 * FRAME_MS;
 export const LEVEL_UP_MS = 2600;
 
 export interface ExpFrame {
-  readonly phase: 'bar' | 'levelUp';
+  /** The bar shows, then nothing for a moment, then the level-up window if any. */
+  readonly phase: 'bar' | 'gap' | 'levelUp';
   /** The bar's experience, 0 to 99 as it fills, starting again from 0 past a level. */
   readonly exp: number;
+  /** Frames since the display began, for the bar's opening. */
+  readonly frame: number;
 }
 
 /** When the bar phase ends. */
@@ -64,15 +72,22 @@ export function expBarEnd(gain: number): number {
   return EXP_IN_MS + gain * EXP_MS_PER_POINT + EXP_HOLD_MS;
 }
 
+/** When the level-up window shows. */
+export function levelUpStart(gain: number): number {
+  return expBarEnd(gain) + EXP_GAP_MS;
+}
+
 /** What shows `ms` into the experience display for a gain of `gain` from `exp`, or null once it's over. */
 export function expFrame(exp: number, gain: number, levelUp: boolean, ms: number): ExpFrame | null {
   const t = Math.max(0, ms);
-  const barEnd = expBarEnd(gain);
-  if (t < barEnd) {
+  const frame = Math.floor(t / FRAME_MS);
+  const after = (exp + gain) % 100;
+  if (t < expBarEnd(gain)) {
     const filled = Math.min(gain, Math.max(0, Math.floor((t - EXP_IN_MS) / EXP_MS_PER_POINT)));
-    const total = exp + filled;
-    return { phase: 'bar', exp: total % 100 };
+    return { phase: 'bar', exp: (exp + filled) % 100, frame };
   }
-  if (levelUp && t < barEnd + LEVEL_UP_MS) return { phase: 'levelUp', exp: (exp + gain) % 100 };
+  const up = levelUpStart(gain);
+  if (t < up) return { phase: 'gap', exp: after, frame };
+  if (levelUp && t < up + LEVEL_UP_MS) return { phase: 'levelUp', exp: after, frame };
   return null;
 }

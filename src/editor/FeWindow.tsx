@@ -6,6 +6,7 @@
 import { createContext, type CSSProperties, type ReactNode } from 'react';
 import { toCanvas } from '../play/catalog';
 import { contentBounds, drawFrame, drawGoalWindow, drawMenuHover, drawUnitWindow, type Team, type WindowArt } from '../rom/fe8-windows';
+import { drawExpBar, type ExpBarArt } from '../rom/fe8-expbar';
 import type { Image } from '../rom/gba-graphics';
 
 export const WindowArtContext = createContext<WindowArt | null>(null);
@@ -63,6 +64,17 @@ function box(art: WindowArt, key: string, draw: () => Image): Box | null {
 
 export const unitBox = (art: WindowArt, team: Team) => box(art, `unit:${team}`, () => drawUnitWindow(art, team));
 export const goalBox = (art: WindowArt, lines: 1 | 2) => box(art, `goal:${lines}`, () => drawGoalWindow(art, lines));
+
+const expBars = new WeakMap<ExpBarArt, Map<number, string>>();
+
+/** FE8's experience bar box showing `exp`, as a URL. */
+export function expBarUrl(art: ExpBarArt, exp: number): string {
+  let byExp = expBars.get(art);
+  if (!byExp) expBars.set(art, (byExp = new Map()));
+  let url = byExp.get(exp);
+  if (!url) byExp.set(exp, (url = scaledUrl(drawExpBar(art, exp))));
+  return url;
+}
 
 const frames = new WeakMap<WindowArt, CSSProperties>();
 

@@ -4,7 +4,7 @@
 // Play page (decision 33). Play's rules, drawing and the ROM catalog live in src/play.
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { battleFrame, expBarEnd, expFrame, LEVEL_UP_MS, type BattleFrame } from '../core/battle-anim';
+import { battleFrame, expBarEnd, expFrame, LEVEL_UP_MS, levelUpStart, type BattleFrame } from '../core/battle-anim';
 import { startingExp } from '../core/experience';
 import { hpCapFor, randomNumbers, withBonus, withinCaps } from '../core/combat';
 import { goalWindowText } from '../core/goals';
@@ -256,7 +256,8 @@ export function PlayScreen({
   const onAPress = useRef(() => {});
   onAPress.current = () => {
     if (award && expShow) {
-      expOffset.current += expShow.phase === 'bar' ? Math.max(0, expBarEnd(award.result.gain) - expNow) : LEVEL_UP_MS;
+      expOffset.current +=
+        expShow.phase === 'bar' ? Math.max(0, expBarEnd(award.result.gain) - expNow) : expShow.phase === 'gap' ? Math.max(0, levelUpStart(award.result.gain) - expNow) : LEVEL_UP_MS;
       return;
     }
     if (broke) {
@@ -556,7 +557,7 @@ export function PlayScreen({
               </div>
             ) : null;
           })()}
-        {award && expShow?.phase === 'bar' && <ExpWindow exp={expShow.exp} />}
+        {award && expShow?.phase === 'bar' && <ExpWindow exp={expShow.exp} frame={expShow.frame} art={data.expBar} />}
         {broke && (
           <div className="fe-window broke-window" role="status">
             {broke.map((b) => {
