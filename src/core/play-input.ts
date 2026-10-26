@@ -91,6 +91,8 @@ export interface Battle extends Fight {
   readonly defender: string;
   /** Set for a heal: the HP the attacker's staff (attackerItem) gives the defender. A heal has no blows. */
   readonly heal?: number;
+  /** Fortify: the allies it heals, each by `heal`, instead of the defender (the healer itself). */
+  readonly healed?: readonly string[];
   /** Set for a steal: the defender's item the attacker takes (its index). A steal has no blows. */
   readonly steal?: number;
   /** The experience the fight gave, shown after it; null if nobody gained any. */
@@ -156,7 +158,21 @@ export interface PlayRules extends AiRules {
 
 /** A heal with a staff: played like a fight with no blows, then its experience; finishBattle heals. */
 function healBattle(healer: PlayUnit, target: PlayUnit, heal: PlannedHeal, rules: PlayRules): Battle {
-  return { attacker: healer.id, defender: target.id, strikes: [], attackerItem: heal.item, defenderItem: null, heal: heal.heal, exp: rules.staffExperience?.(healer, heal.item) ?? null };
+  return {
+    attacker: healer.id,
+    defender: target.id,
+    strikes: [],
+    attackerItem: heal.item,
+    defenderItem: null,
+    heal: heal.heal,
+    ...(heal.fortify ? { healed: heal.fortify } : {}),
+    exp: rules.staffExperience?.(healer, heal.item) ?? null,
+  };
+}
+
+/** Fortify, chosen from the Staff menu: it heals every ally it reaches at once (SetStaffUseAction, ExecFortify). */
+function fortifyBattle(view: PlayView, healer: PlayUnit, staff: StaffChoice, rules: PlayRules): PlayView {
+  return { ...view, action: null, battle: healBattle(healer, healer, { target: healer.id, item: staff.item, heal: staff.heal, fortify: staff.targets }, rules) };
 }
 
 /** A steal: played like a fight with no blows, then its experience; finishBattle moves the item. */
@@ -400,6 +416,7 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   if (option === 'staff') {
     const staves = rules.staffChoices?.(unit, view.state) ?? [];
     if (staves.length > 1) return { ...view, action: { kind: 'weapon', unit: unit.id, from: a.from, index: 0, staff: true } };
+    if (staves[0]?.fortify) return fortifyBattle(view, unit, staves[0], rules);
     return staves[0] ? healTargets(view, unit.id, a.from, staves[0]) : view;
   }
   // With more than one weapon that reaches a foe, choose the weapon first, as in FE8.
@@ -436,6 +453,7 @@ export function chooseWeapon(view: PlayView, index: number, rules: PlayRules): P
   if (a.staff) {
     const unit = unitById(view.state, a.unit);
     const staff = unit ? rules.staffChoices?.(unit, view.state)[index] : undefined;
+    if (unit && staff?.fortify) return fortifyBattle(view, unit, staff, rules);
     return staff ? healTargets(view, a.unit, a.from, staff) : view;
   }
   const choice = weaponChoices(view, rules)[index];
@@ -674,7 +692,10 @@ export function finishBattle(view: PlayView): PlayView {
   const last = b.strikes[b.strikes.length - 1];
   const spent = (by: 'attacker' | 'defender') => b.strikes.filter((s) => s.by === by && s.used).length;
   let used = view.state;
-  if (b.heal !== undefined && b.attackerItem !== null) used = spendUses(healUnit(used, b.defender, b.heal), b.attacker, b.attackerItem, 1);
+  if (b.heal !== undefined && b.attackerItem !== null) {
+    for (const id of b.healed ?? [b.defender]) used = healUnit(used, id, b.heal);
+    used = spendUses(used, b.attacker, b.attackerItem, 1);
+  }
   if (b.steal !== undefined) used = stealItem(used, b.attacker, b.defender, b.steal);
   if (b.attackerItem !== null) used = spendUses(used, b.attacker, b.attackerItem, spent('attacker'));
   if (b.defenderItem !== null) used = spendUses(used, b.defender, b.defenderItem, spent('defender'));

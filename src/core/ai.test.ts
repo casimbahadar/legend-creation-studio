@@ -130,6 +130,19 @@ describe("FE8's staff use", () => {
     expect(planAction(get(hurt, 'e'), hurt, rules({ items: { e: [staff, { ...SWORD, item: 1 }] } })).heal).toEqual({ target: 'g', item: 0, heal: 10 });
   });
 
+  it('uses Fortify with more than two of its side set on healing, from the square reaching the most', () => {
+    // Reach 2. From (5,1), f and g at (6,0) and (6,2) are in reach; i, hurt but not set on healing, is
+    // healed too; j, set on healing, is out of reach.
+    const fortify = (u: PlayUnit) => (u.id === 'e' ? [{ item: 0, heal: 12, physic: true, fortify: true, reach: 2, rank: 1 }] : []);
+    const s = play(unit('e', 'enemy', [3, 1]), unit('f', 'enemy', [6, 0]), unit('g', 'enemy', [6, 2]), unit('i', 'enemy', [4, 0]), unit('j', 'enemy', [0, 1]));
+    const hurt = withHp(withHp(s, { f: 4, g: 4, j: 4 }, true), { i: 9 });
+    const r = { ...rules({ items: { e: [staff] } }), healStaves: fortify };
+    expect(planAction(get(hurt, 'e'), hurt, r)).toMatchObject({ to: cell(5, 1), heal: { target: 'e', item: 0, heal: 12, fortify: ['f', 'g', 'i'] } });
+    // With only two set on healing, it doesn't.
+    const two = withHp(withHp(s, { f: 4, g: 4 }, true), { i: 9 });
+    expect(planAction(get(two, 'e'), two, r).heal).toBeUndefined();
+  });
+
   it("leaves alone hurt allies that aren't set on healing", () => {
     const s = withHp(play(unit('e', 'enemy', [3, 1]), unit('f', 'enemy', [4, 1])), { f: 6 });
     expect(planAction(get(s, 'e'), s, rules({ items: { e: [staff] } })).heal).toBeUndefined();

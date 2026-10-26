@@ -419,6 +419,33 @@ describe('healing with a staff', () => {
     expect(pressB(choosing, staffRules).action).toMatchObject({ kind: 'menu', index: 0 });
   });
 
+  it('heals every hurt ally in reach at once with Fortify, with no one to choose', () => {
+    // Fortify reaches the whole field here; Seth and the far-off cleric are hurt, the knight isn't.
+    const fortifyRules: PlayRules = {
+      ...staffRules,
+      staffChoices: (u, s) => {
+        const hurt = s.units.filter((o) => o.id !== u.id && o.team === 'player' && o.hp < o.stats.hp);
+        return u.items[0] === 'fortify' && hurt.length ? [{ item: 0, targets: hurt.map((o) => o.id), heal: 12, fortify: true }] : [];
+      },
+    };
+    const v = start([4, 2], [
+      { id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [2, 0] },
+      { id: 'cleric', class: 'cleric', team: 'player', level: 1, at: [0, 2] },
+      { id: 'knight', class: 'knight', team: 'player', level: 1, at: [0, 0] },
+    ]);
+    const set: PlayView = {
+      ...v,
+      state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['fortify'], uses: [3] } : u.id === 'seth' ? { ...u, hp: 5 } : u.id === 'cleric' ? { ...u, hp: 10 } : u)) },
+    };
+    const healing = chooseOption(moveRight(set), 'staff', fortifyRules);
+    expect(healing.action).toBeNull();
+    expect(healing.battle).toMatchObject({ attacker: 'eirika', defender: 'eirika', heal: 12, healed: ['seth', 'cleric'], exp: { result: { gain: 11 } } });
+    const after = finishBattle(healing);
+    const hp = (id: string) => after.state.units.find((u) => u.id === id)!.hp;
+    expect([hp('seth'), hp('cleric'), hp('knight'), hp('eirika')]).toEqual([17, 18, 18, 18]);
+    expect(eirika(after)).toMatchObject({ uses: [2], moved: true, exp: 11 });
+  });
+
   it("lets the computer's healers heal allies set on healing", () => {
     // The brigand carries a staff; a second brigand, under half its HP, stands below it.
     const v = start([4, 0], [{ id: 'brigand-2', class: 'brigand', team: 'enemy', level: 1, at: [4, 1] }]);

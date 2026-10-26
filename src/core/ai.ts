@@ -10,7 +10,7 @@
 // resets its weapon between foes; the combat score's class bonus reads past its table (always 1); one
 // friend-zone offset is wrong; only player units count as healers to head for; a thief heading for a heal
 // point never attacks on arrival.
-// Not yet: special items (keys, torches), staves other than healing ones.
+// Not yet: special items (keys, torches), staves other than Heal, Mend, Recover, Physic and Fortify.
 
 import { simulateAllHits, type Forecast } from './combat';
 import { shortestRoute, type MoveSearch } from './movement';
@@ -26,11 +26,15 @@ export interface AiItem {
   readonly max: number;
 }
 
-/** A healing staff: its item, how much it heals, how far it reaches (1, or Physic's range) and its rank. */
+/**
+ * A healing staff: its item, how much it heals, how far it reaches (1, or Physic's and Fortify's range)
+ * and its rank. Physic heals one ally in reach, Fortify every hurt one.
+ */
 export interface AiStaff {
   readonly item: number;
   readonly heal: number;
   readonly physic: boolean;
+  readonly fortify?: boolean;
   readonly reach: number;
   readonly rank: number;
 }
@@ -66,18 +70,23 @@ export interface AiRules {
   stealRank?(unit: PlayUnit, index: number): number | null;
 }
 
-/** A staff the player can heal with: its item index, the allies it reaches and how much it heals. */
+/** A staff the player can heal with: its item index, the allies it reaches and how much it heals; Fortify heals them all. */
 export interface StaffChoice {
   readonly item: number;
   readonly targets: readonly string[];
   readonly heal: number;
+  readonly fortify?: boolean;
 }
 
-/** A heal the computer chose: whom, with which item, for how much. */
+/**
+ * A heal the computer chose: whom, with which item, for how much. With Fortify, `target` is the healer
+ * itself and `fortify` lists the allies it heals.
+ */
 export interface PlannedHeal {
   readonly target: string;
   readonly item: number;
   readonly heal: number;
+  readonly fortify?: readonly string[];
 }
 
 export interface Plan {
@@ -372,9 +381,45 @@ function safestBeside(c: Ctx, k: number, reach: ReadonlyMap<number, number>): nu
 }
 
 /**
- * AiTryDoStaff with healing staves (AiStaffHealMendRecover, AiStaffPhysicRescue): the ally set on
- * healing with the lowest HP share (ties to the last found), from the safest square to heal it from.
- * Each staff, in item order, can replace the one before if its rank is no lower.
+ * How many of the unit's side are set on healing (sub_803C364): the units numbered after its phase's
+ * first, which for the green phase reaches into the first 63 enemy units.
+ */
+function sideHealing(c: Ctx): number {
+  const units = inGameOrder(c.state.units);
+  const side = units.filter((u) => u.team === c.unit.team);
+  const more = c.unit.team === 'ally' ? units.filter((u) => u.team === 'enemy').slice(0, 63) : [];
+  return [...side, ...more].filter((u) => u.healing).length;
+}
+
+/**
+ * AiStaffFortify: with more than two of its side set on healing, the square it can reach with the most
+ * allies set on healing within the staff's reach, counting itself where it stands now; the first such
+ * square in the game's scan, and only if it reaches two or more. It heals the hurt allies there.
+ */
+function fortifyFrom(c: Ctx, staff: AiStaff, stay: boolean): { to: number; healed: string[] } | null {
+  if (sideHealing(c) <= 2) return null;
+  const reach = reached(c, stay);
+  let best = 0;
+  let to: number | null = null;
+  for (const k of scan(c.w, c.h)) {
+    if (!reach.has(k) || !free(c, k)) continue;
+    const count = c.state.units.filter((u) => allied(c.unit, u) && wantsHealing(c, u) && distance(c.w, k, cellOf(c.w, u)) <= staff.reach).length;
+    if (count > best) {
+      best = count;
+      to = k;
+    }
+  }
+  if (to === null || best <= 1) return null;
+  // ExecFortify (MakeTargetListForRangedHeal): every hurt ally in reach of the square, not the healer.
+  const healed = c.state.units.filter((u) => u.id !== c.unit.id && allied(c.unit, u) && u.hp < u.stats.hp && distance(c.w, to!, cellOf(c.w, u)) <= staff.reach);
+  return { to, healed: healed.map((u) => u.id) };
+}
+
+/**
+ * AiTryDoStaff with healing staves (AiStaffHealMendRecover, AiStaffPhysicRescue, AiStaffFortify): the
+ * ally set on healing with the lowest HP share (ties to the last found), from the safest square to
+ * heal it from; or Fortify's (fortifyFrom). Each staff, in item order, can replace the one before if
+ * its rank is no lower.
  */
 function tryStaff(c: Ctx, stay: boolean): Plan | null {
   const staves = c.rules.healStaves?.(c.unit) ?? [];
@@ -384,9 +429,12 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
   for (const staff of staves) {
     if (staff.rank < rank) continue;
     let lowest = 100;
-    let found: { to: number; target: PlayUnit } | null = null;
+    let found: { to: number; target: PlayUnit; fortify?: string[] } | null = null;
     const pct = (u: PlayUnit) => Math.trunc((u.hp * 100) / Math.max(1, u.stats.hp));
-    if (!staff.physic) {
+    if (staff.fortify) {
+      const f = fortifyFrom(c, staff, stay);
+      if (f) found = { to: f.to, target: c.unit, fortify: f.healed };
+    } else if (!staff.physic) {
       // The squares it can reach and their edges (MarkMovementMapEdges): a target beside one.
       for (const k of scan(c.w, c.h)) {
         const target = c.occupant.get(k);
@@ -419,7 +467,10 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
         found = { to, target };
       }
     }
-    if (found) plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, heal: { target: found.target.id, item: staff.item, heal: staff.heal } };
+    if (found) {
+      const heal: PlannedHeal = { target: found.target.id, item: staff.item, heal: staff.heal, ...(found.fortify ? { fortify: found.fortify } : {}) };
+      plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, heal };
+    }
     if (plan) rank = staff.rank;
   }
   return plan;

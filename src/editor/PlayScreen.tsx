@@ -600,14 +600,15 @@ export function PlayScreen({
         )}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
         {battle?.heal !== undefined &&
-          (() => {
-            const target = play.units.find((u) => u.id === battle.defender);
+          // Each ally healed: the defender, or with Fortify every one it reaches.
+          (battle.healed ?? [battle.defender]).map((id) => {
+            const target = play.units.find((u) => u.id === id);
             return target ? (
-              <div className="popup heal" style={position(target.at)}>
-                +{Math.min(battle.heal, target.stats.hp - target.hp)}
+              <div key={id} className="popup heal" style={position(target.at)}>
+                +{Math.min(battle.heal!, target.stats.hp - target.hp)}
               </div>
             ) : null;
-          })()}
+          })}
         {battle?.steal !== undefined &&
           (() => {
             // NewPopup_ItemStealing: "Stole <item>" for the player's thief, "<Item> was stolen." for the computer's.

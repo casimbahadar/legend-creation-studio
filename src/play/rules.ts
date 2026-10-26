@@ -35,12 +35,16 @@ export interface ChapterRules {
   preview(attacker: PlayUnit, defender: PlayUnit, at?: readonly [number, number]): FightPreview;
 }
 
-/** Healing staves by item id (GetUnitItemHealAmount, MakeTargetListForRangedHeal): Heal 10, Mend 20, Recover 80, Physic 10 at range. */
-const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean }>> = {
+/**
+ * Healing staves by item id (GetUnitItemHealAmount, MakeTargetListForRangedHeal): Heal 10, Mend 20,
+ * Recover 80, Physic 10 at range, Fortify 10 to everyone at range.
+ */
+const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean; fortify?: boolean }>> = {
   0x4b: { heal: 10, physic: false },
   0x4c: { heal: 20, physic: false },
   0x4d: { heal: 80, physic: false },
   0x4e: { heal: 10, physic: true },
+  0x4f: { heal: 10, physic: true, fortify: true },
 };
 
 /** Stat boosters by item id: Angelic Robe to Body Ring (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON). */
@@ -215,7 +219,16 @@ export function chapterRules(
       u.items.flatMap((_, index) => {
         const staff = healStaff(u, index);
         if (!staff) return [];
-        return [{ item: index, heal: Math.min(80, staff.heal + u.stats.str), physic: staff.physic, reach: staff.physic ? Math.max(5, Math.floor(u.stats.str / 2)) : 1, rank: staff.item.rom.rank }];
+        return [
+          {
+            item: index,
+            heal: Math.min(80, staff.heal + u.stats.str),
+            physic: staff.physic,
+            ...(staff.fortify ? { fortify: true } : {}),
+            reach: staff.physic ? Math.max(5, Math.floor(u.stats.str / 2)) : 1,
+            rank: staff.item.rom.rank,
+          },
+        ];
       }),
     fight: (a, d) => {
       const f = preview(a, d);
@@ -241,14 +254,14 @@ export function chapterRules(
       u.items.forEach((_, index) => {
         const staff = healStaff(u, index);
         if (!staff) return;
-        // Heal, Mend and Recover reach a neighbour; Physic half the healer's Magic, at least 5 (GetUnitMagBy2Range).
+        // Heal, Mend and Recover reach a neighbour; Physic and Fortify half the healer's Magic, at least 5 (GetUnitMagBy2Range).
         const reach = staff.physic ? Math.max(5, Math.floor(u.stats.str / 2)) : 1;
         const targets = state.units
           .filter((o) => o.id !== u.id && !areFoes(o.team, u.team) && o.hp < o.stats.hp && distance(u, o) >= 1 && distance(u, o) <= reach)
           .sort((x, y) => distance(u, x) - distance(u, y))
           .map((o) => o.id);
         // GetUnitItemHealAmount: the staff's amount plus the healer's Magic, at most 80.
-        if (targets.length) choices.push({ item: index, targets, heal: Math.min(80, staff.heal + u.stats.str) });
+        if (targets.length) choices.push({ item: index, targets, heal: Math.min(80, staff.heal + u.stats.str), ...(staff.fortify ? { fortify: true } : {}) });
       });
       return choices;
     },
