@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attackSpeed, characterStatsAtLevel, withBonus, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
+import { attackSpeed, characterStatsAtLevel, withBonus, withinCaps, forecast, randomNumbers, resolveBattle, rollHit, statsAtLevel, triangle, type Combatant, type Stats, type Weapon } from './combat';
 
 const stats = (s: Partial<Stats>): Stats => ({ hp: 20, str: 5, skl: 5, spd: 5, def: 3, res: 1, lck: 4, con: 7, ...s });
 const weapon = (w: Partial<Weapon>): Weapon => ({ name: 'w', kind: 'sword', magic: false, might: 5, hit: 90, crit: 0, weight: 5, minRange: 1, maxRange: 1, ...w });
@@ -122,5 +122,14 @@ describe('resolveBattle', () => {
     expect(xs).toEqual(Array.from({ length: 200 }, () => b()));
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...xs)).toBeLessThanOrEqual(99);
+  });
+});
+
+describe('withinCaps', () => {
+  it("cuts stats to the class's caps, HP to its own cap and luck to 30", () => {
+    const caps = { hp: 60, str: 20, skl: 20, spd: 20, def: 20, res: 20, lck: 30, con: 20 };
+    const high = { hp: 70, str: 46, skl: 19, spd: 25, def: 5, res: 3, lck: 40, con: 25 };
+    expect(withinCaps(high, caps, 60)).toEqual({ hp: 60, str: 20, skl: 19, spd: 20, def: 5, res: 3, lck: 30, con: 20 });
+    expect(withinCaps(high, caps, 120).hp).toBe(70);
   });
 });

@@ -45,6 +45,23 @@ export function withBonus(stats: Stats, bonus: Partial<Stats> | undefined): Stat
   return { hp: add('hp', 1), str: add('str', 0), skl: add('skl', 0), spd: add('spd', 0), def: add('def', 0), res: add('res', 0), lck: add('lck', 0), con: add('con', 0) };
 }
 
+/**
+ * Stats cut to their caps, as FE8 cuts a unit's when it loads (UnitCheckStatCaps): HP to `hpCap` (60,
+ * or 120 for enemies), luck to 30, the rest to the class's maximums in `caps`.
+ */
+export function withinCaps(stats: Stats, caps: Stats, hpCap: number): Stats {
+  return {
+    hp: Math.min(stats.hp, hpCap),
+    str: Math.min(stats.str, caps.str),
+    skl: Math.min(stats.skl, caps.skl),
+    spd: Math.min(stats.spd, caps.spd),
+    def: Math.min(stats.def, caps.def),
+    res: Math.min(stats.res, caps.res),
+    lck: Math.min(stats.lck, 30),
+    con: Math.min(stats.con, caps.con),
+  };
+}
+
 export type WeaponKind = 'sword' | 'lance' | 'axe' | 'bow' | 'staff' | 'anima' | 'light' | 'dark' | 'other';
 
 export interface Weapon {
