@@ -9,7 +9,7 @@ import { areFoes, unitAt, type PlayState, type PlayUnit } from '../core/play';
 import type { AiItem } from '../core/ai';
 import type { ExpAward, ItemUse, PlayRules, StaffChoice } from '../core/play-input';
 import type { RomCharacter } from '../rom/fe8-characters';
-import { CA_BOSS, CA_LORD, CA_MAXLEVEL10, CA_PROMOTED, CA_THIEF } from '../rom/fe8-classes';
+import { CA_BOSS, CA_LORD, CA_MAXLEVEL10, CA_PROMOTED, CA_STEAL, CA_THIEF } from '../rom/fe8-classes';
 import { isStaff } from '../rom/fe8-items';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { distance, IA_MAGIC, inReach, toWeapon, usable, weaponsOf, type ClassArt, type GameItem } from './catalog';
@@ -45,6 +45,16 @@ const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean }>> =
 
 /** Stat boosters by item id: Angelic Robe to Body Ring (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON). */
 const BOOSTERS = new Set([0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63]);
+/**
+ * The items the computer steals, most wanted first, by item id (gAiStealPriorityItemList): Member Card,
+ * Silver Card, Hoplon Guard, Delphi Shield, Lockpick, Metis's Tome, Master Seal, the promotion items,
+ * Heaven Seal, item 0xC1, White Gem, the four Sacred Stones items, the stat boosters, Juna Fruit, Blue
+ * and Red Gems, Elixir, Chest and Door Keys, Pure Water, Torch, Vulnerary, Antitoxin, Mine, Light Rune.
+ */
+const AI_STEAL_PRIORITY = [
+  0x72, 0x73, 0x7c, 0x71, 0x6b, 0x89, 0x88, 0x64, 0x65, 0x66, 0x67, 0x68, 0x8a, 0xc1, 0x74, 0x7d, 0x7e, 0x7f, 0x80, 0x5d, 0x5f, 0x5b,
+  0x60, 0x5c, 0x5e, 0x61, 0x62, 0x63, 0xb7, 0x75, 0x76, 0x6d, 0x69, 0x6a, 0x6e, 0x70, 0x6c, 0x6f, 0x7a, 0x7b,
+];
 /** FE8's movement cap (UNIT_MOV_MAX). */
 const MOV_CAP = 15;
 
@@ -194,6 +204,12 @@ export function chapterRules(
     },
     terrainAt: (cell) => map.terrain[cell] ?? 0,
     isLord: (u) => (((artByName.get(u.class)?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0)) & CA_LORD) !== 0,
+    steals: (u) => (((artByName.get(u.class)?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0)) & CA_STEAL) !== 0,
+    stealRank: (u, index) => {
+      const item = items.find((i) => i.entry.name === u.items[index]);
+      const rank = item ? AI_STEAL_PRIORITY.indexOf(item.rom.id) : -1;
+      return rank < 0 ? null : rank;
+    },
     carriesMagic: (u) => weaponsOf(artByName.get(u.class), u.items, items).some((w) => (w.rom.attributes & IA_MAGIC) !== 0),
     healStaves: (u) =>
       u.items.flatMap((_, index) => {

@@ -21,6 +21,9 @@ interface Setup {
   readonly terrain?: Record<number, number>;
   readonly lords?: readonly string[];
   readonly forts?: readonly number[];
+  /** Units that can steal, and the steal rank of each item name. */
+  readonly thieves?: readonly string[];
+  readonly ranks?: Record<string, number>;
 }
 function rules(setup: Setup = {}): AiRules {
   const itemsOf = (u: PlayUnit) => setup.items?.[u.id] ?? [SWORD];
@@ -46,6 +49,8 @@ function rules(setup: Setup = {}): AiRules {
     terrainAt: (cell) => (setup.forts?.includes(cell) ? 0x0a : 0),
     isLord: (u) => setup.lords?.includes(u.id) ?? false,
     healStaves: (u) => itemsOf(u).filter((i) => i.staff).map((i) => ({ item: i.item, heal: 10, physic: false, reach: 1, rank: 1 })),
+    steals: (u) => setup.thieves?.includes(u.id) ?? false,
+    stealRank: (u, i) => setup.ranks?.[u.items[i]!] ?? null,
   };
 }
 const unit = (id: string, team: ProjectUnit['team'], at: [number, number], ai?: Behaviour): ProjectUnit => ({ id, class: 'c', team, level: 1, at, ...(ai ? { ai } : {}) });
@@ -56,6 +61,10 @@ const withHp = (s: PlayState, hp: Record<string, number>, healing = false): Play
   units: s.units.map((u) => (hp[u.id] !== undefined ? { ...u, hp: hp[u.id]!, ...(healing ? { healing: true } : {}) } : u)),
 });
 const cell = (x: number, y: number) => y * W + x;
+const carrying = (s: PlayState, items: Record<string, readonly string[]>): PlayState => ({
+  ...s,
+  units: s.units.map((u) => (items[u.id] ? { ...u, items: items[u.id]!, uses: items[u.id]!.map(() => null) } : u)),
+});
 
 describe("FE8's attack choice", () => {
   it('walks to a square in reach of the foe and attacks it', () => {
@@ -176,5 +185,58 @@ describe('healing itself', () => {
     expect(plan).toMatchObject({ to: cell(5, 1), attack: null });
     // Lords stay put and fight on.
     expect(planAction(get(s, 'e'), s, rules({ forts: [cell(6, 1)], lords: ['e'] })).to).not.toBe(cell(5, 1));
+  });
+});
+
+describe('stealing', () => {
+  const ranks = { 'member-card': 0, 'speedwing': 25, 'vulnerary': 36, 'elixir': 31 };
+
+  it('walks beside the foe and takes its listed item, before attacking, from the cheapest square', () => {
+    const s = carrying(play(unit('p', 'player', [1, 1]), unit('t', 'enemy', [4, 1])), { p: ['iron-sword', 'vulnerary'] });
+    // (2,1) costs 2 and is the only square beside p it reaches.
+    expect(planAction(get(s, 't'), s, rules({ thieves: ['t'], ranks }))).toMatchObject({ to: cell(2, 1), attack: null, steal: { target: 'p', item: 1 } });
+  });
+
+  it('takes the highest listed item, the last of equals, and leaves unlisted ones', () => {
+    const s = carrying(play(unit('p', 'player', [2, 1]), unit('t', 'enemy', [3, 1])), { p: ['vulnerary', 'elixir', 'iron-sword', 'elixir'] });
+    expect(planAction(get(s, 't'), s, rules({ thieves: ['t'], ranks })).steal).toEqual({ target: 'p', item: 3 });
+    const none = carrying(s, { p: ['iron-sword'] });
+    expect(planAction(get(none, 't'), none, rules({ thieves: ['t'], ranks }))).toMatchObject({ attack: 'p' });
+    expect(planAction(get(none, 't'), none, rules({ thieves: ['t'], ranks })).steal).toBeUndefined();
+  });
+
+  it('goes for the foe with the most wanted item, ties to the last in the scan from the bottom right', () => {
+    const s = carrying(play(unit('p', 'player', [2, 0]), unit('q', 'player', [2, 2]), unit('t', 'enemy', [3, 1])), { p: ['vulnerary'], q: ['speedwing'] });
+    expect(planAction(get(s, 't'), s, rules({ thieves: ['t'], ranks })).steal?.target).toBe('q');
+    const even = carrying(s, { q: ['vulnerary'] });
+    expect(planAction(get(even, 't'), even, rules({ thieves: ['t'], ranks })).steal?.target).toBe('p');
+  });
+
+  it("leaves a faster foe alone, and doesn't steal with five items", () => {
+    const s = carrying(play(unit('p', 'player', [2, 1]), unit('t', 'enemy', [3, 1])), { p: ['vulnerary'] });
+    const fast = { ...s, units: s.units.map((u) => (u.id === 'p' ? { ...u, stats: { ...u.stats, spd: 6 } } : u)) };
+    expect(planAction(get(fast, 't'), fast, rules({ thieves: ['t'], ranks })).steal).toBeUndefined();
+    const full = carrying(s, { t: ['iron-sword', 'iron-sword', 'iron-sword', 'iron-sword', 'iron-sword'] });
+    expect(planAction(get(full, 't'), full, rules({ thieves: ['t'], ranks })).steal).toBeUndefined();
+  });
+
+  it('steals with its whole movement even when set to Hold', () => {
+    const s = carrying(play(unit('p', 'player', [1, 1]), unit('t', 'enemy', [3, 1], 'hold')), { p: ['vulnerary'] });
+    expect(planAction(get(s, 't'), s, rules({ thieves: ['t'], ranks }))).toMatchObject({ to: cell(2, 1), steal: { target: 'p', item: 0 } });
+  });
+
+  it('goes before lords in the phase, by movement plus 60', () => {
+    const s = play(unit('lord', 'enemy', [0, 0]), unit('t', 'enemy', [1, 0]), unit('f', 'enemy', [2, 0]));
+    expect(phaseOrder(s.units, s, rules({ lords: ['lord'], thieves: ['t'] }))).toEqual(['f', 't', 'lord']);
+  });
+
+  it('heading for a heal point, neither steals nor attacks there', () => {
+    // On its fort, beside a bowman who can't strike back: anyone else attacks him.
+    const bow: AiItem = { item: 0, staff: false, might: 5, min: 2, max: 2 };
+    const s = carrying(withHp(play(unit('p', 'player', [5, 1]), unit('e', 'enemy', [6, 1])), { e: 3 }, true), { p: ['vulnerary'] });
+    const setup = { forts: [cell(6, 1)], items: { p: [bow] }, ranks };
+    expect(planAction(get(s, 'e'), s, rules(setup))).toMatchObject({ to: cell(6, 1), attack: 'p' });
+    const plan = planAction(get(s, 'e'), s, rules({ ...setup, thieves: ['e'] }));
+    expect(plan).toEqual({ to: cell(6, 1), route: [cell(6, 1)], attack: null });
   });
 });

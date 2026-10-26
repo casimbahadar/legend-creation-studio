@@ -75,6 +75,7 @@ function terrainTable(rom: GbaRom, at: number): Uint8Array | null {
 }
 
 /** FE8's attribute bits that play uses (include/bmunit.h). */
+export const CA_STEAL = 1 << 2;
 export const CA_THIEF = 1 << 3;
 export const CA_PROMOTED = 1 << 8;
 export const CA_LORD = 1 << 13;

@@ -246,6 +246,23 @@ describe('enemy and ally phases', () => {
     expect(v.state.units.find((u) => u.id === 'brigand-1')).toMatchObject({ at: [4, 0], moved: true });
   });
 
+  it('has an enemy thief walk up and steal, the item and its uses going to the end of its items', () => {
+    const thief: PlayRules = { ...rules, steals: (u) => u.id === 'brigand-1', stealRank: (u, i) => (u.items[i] === 'vulnerary' ? 36 : null) };
+    const v0 = start([3, 1], [SETH]);
+    const carrying: PlayView = {
+      ...v0,
+      state: { ...v0.state, units: v0.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['rapier', 'vulnerary'], uses: [40, 3] } : u.id === 'brigand-1' ? { ...u, items: ['iron-axe'], uses: [45] } : u)) },
+    };
+    let v = stepAI(stepAI(endPlayerTurn(carrying, thief), thief), thief);
+    expect(v.walking).toMatchObject({ id: 'brigand-1', route: [8, 7], then: null, thenSteal: { target: 'eirika', item: 1 } });
+    v = finishWalk(v, thief);
+    expect(v.battle).toMatchObject({ attacker: 'brigand-1', defender: 'eirika', strikes: [], steal: 1, exp: null });
+    v = finishBattle(v);
+    const get = (id: string) => v.state.units.find((u) => u.id === id)!;
+    expect(get('eirika')).toMatchObject({ items: ['rapier'], uses: [40], hp: 18 });
+    expect(get('brigand-1')).toMatchObject({ items: ['iron-axe', 'vulnerary'], uses: [45, 3], moved: true, at: [2, 1] });
+  });
+
   it("doesn't end the turn in the middle of an action", () => {
     const menu = moveRight(start());
     expect(endPlayerTurn(menu, rules)).toBe(menu);

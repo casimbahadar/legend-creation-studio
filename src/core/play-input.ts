@@ -5,14 +5,14 @@
 // then the ally phase (decision 24), each unit acting by its behaviour, one step at a time through
 // stepAI.
 
-import { isHealing, phaseOrder, planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
+import { isHealing, phaseOrder, planAction, type AiRules, type PlannedHeal, type PlannedSteal, type StaffChoice } from './ai';
 import { MAX_ITEMS } from './project';
 
 export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, discardItem, seize, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, boostUnit, discardItem, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -87,6 +87,8 @@ export interface Battle extends Fight {
   readonly defender: string;
   /** Set for a heal: the HP the attacker's staff (attackerItem) gives the defender. A heal has no blows. */
   readonly heal?: number;
+  /** Set for a steal: the defender's item the attacker takes (its index). A steal has no blows. */
+  readonly steal?: number;
   /** The experience the fight gave, shown after it; null if nobody gained any. */
   readonly exp: ExpAward | null;
 }
@@ -100,8 +102,8 @@ export interface PlayView {
   readonly route: readonly number[] | null;
   /**
    * A unit walking its route to the square it was just moved to, from `from`. Input waits until
-   * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`, or uses the item
-   * per `thenUse`) on arrival, if set.
+   * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`, uses the item per
+   * `thenUse` or steals per `thenSteal`) on arrival, if set.
    */
   readonly walking: {
     readonly id: string;
@@ -110,6 +112,7 @@ export interface PlayView {
     readonly then?: string | null;
     readonly thenHeal?: PlannedHeal;
     readonly thenUse?: { readonly item: number; readonly heal: number };
+    readonly thenSteal?: PlannedSteal;
   } | null;
   readonly action: Action | null;
   /** A fight being shown. Input waits until finishBattle. */
@@ -146,6 +149,11 @@ export interface PlayRules extends AiRules {
 /** A heal with a staff: played like a fight with no blows, then its experience; finishBattle heals. */
 function healBattle(healer: PlayUnit, target: PlayUnit, heal: PlannedHeal, rules: PlayRules): Battle {
   return { attacker: healer.id, defender: target.id, strikes: [], attackerItem: heal.item, defenderItem: null, heal: heal.heal, exp: rules.staffExperience?.(healer, heal.item) ?? null };
+}
+
+/** A steal: played like a fight with no blows; finishBattle moves the item. */
+function stealBattle(thief: PlayUnit, target: PlayUnit, item: number): Battle {
+  return { attacker: thief.id, defender: target.id, strikes: [], attackerItem: null, defenderItem: null, steal: item, exp: null };
 }
 
 /** A fight between two units, with the experience it gives. */
@@ -519,6 +527,8 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   const ally = unitById(view.state, w.thenHeal?.target ?? null);
   if (unit && ally && w.thenHeal) return { ...done, cursor: unit.at, battle: healBattle(unit, ally, w.thenHeal, rules) };
   if (unit && w.thenUse) return { ...done, cursor: unit.at, state: finishAction(useHealItem(view.state, unit.id, w.thenUse.item, w.thenUse.heal), unit.id) };
+  const robbed = unitById(view.state, w.thenSteal?.target ?? null);
+  if (unit && robbed && w.thenSteal) return { ...done, cursor: unit.at, battle: stealBattle(unit, robbed, w.thenSteal.item) };
   const target = unitById(view.state, w.then ?? null);
   if (unit && target) return { ...done, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
   return { ...done, state: finishAction(view.state, w.id), cursor: unit ? unit.at : view.cursor };
@@ -574,11 +584,13 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   const start = unit.at[1] * rules.width + unit.at[0];
   if (plan.to !== start) {
     const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
-    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem } };
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem, thenSteal: plan.steal } };
   }
   if (plan.useItem) return { ...view, queue: rest, cursor: unit.at, state: finishAction(useHealItem(marked, unit.id, plan.useItem.item, plan.useItem.heal), unit.id) };
   const ally = unitById(armed, plan.heal?.target ?? null);
   if (ally && plan.heal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
+  const robbed = unitById(armed, plan.steal?.target ?? null);
+  if (robbed && plan.steal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: stealBattle(unit, robbed, plan.steal.item) };
   const target = unitById(armed, plan.attack);
   if (target) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: startBattle(unit, target, armed, rules) };
   return { ...view, queue: rest, cursor: unit.at, state: finishAction(armed, unit.id) };
@@ -607,6 +619,7 @@ export function finishBattle(view: PlayView): PlayView {
   const spent = (by: 'attacker' | 'defender') => b.strikes.filter((s) => s.by === by && s.used).length;
   let used = view.state;
   if (b.heal !== undefined && b.attackerItem !== null) used = spendUses(healUnit(used, b.defender, b.heal), b.attacker, b.attackerItem, 1);
+  if (b.steal !== undefined) used = stealItem(used, b.attacker, b.defender, b.steal);
   if (b.attackerItem !== null) used = spendUses(used, b.attacker, b.attackerItem, spent('attacker'));
   if (b.defenderItem !== null) used = spendUses(used, b.defender, b.defenderItem, spent('defender'));
   // Without blows (a heal, or a fight nobody could strike in) HP stay as they are now.

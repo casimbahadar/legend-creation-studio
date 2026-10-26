@@ -46,6 +46,9 @@ export interface PlayState {
 
 export type Outcome = { readonly result: 'victory' } | { readonly result: 'defeat'; readonly fallen: PlayUnit | null };
 
+/** Items a unit can carry in play (UNIT_ITEM_COUNT); it starts with at most four (MAX_ITEMS). */
+export const UNIT_ITEM_COUNT = 5;
+
 /** Player and ally units are on one side; enemies on the other. */
 export function areFoes(a: Team, b: Team): boolean {
   return (a === 'enemy') !== (b === 'enemy');
@@ -149,6 +152,27 @@ export function tradeItems(state: PlayState, a: string, index: number, b: string
       u.id === a
         ? { ...u, items: u.items.filter((_, k) => k !== index), uses: u.uses.filter((_, k) => k !== index) }
         : u.id === b
+          ? { ...u, items: [...u.items, item], uses: [...u.uses, uses] }
+          : u,
+    ),
+  };
+}
+
+/**
+ * Unit `thief` steals item `index` of unit `target` (ActionSteal, AiStartStealAction): the item, with
+ * its uses, leaves the target's items and goes to the end of the thief's.
+ */
+export function stealItem(state: PlayState, thief: string, target: string, index: number): PlayState {
+  const from = state.units.find((u) => u.id === target);
+  if (!from || index >= from.items.length || !state.units.some((u) => u.id === thief)) return state;
+  const item = from.items[index]!;
+  const uses = from.uses[index] ?? null;
+  return {
+    ...state,
+    units: state.units.map((u) =>
+      u.id === target
+        ? { ...u, items: u.items.filter((_, i) => i !== index), uses: u.uses.filter((_, i) => i !== index) }
+        : u.id === thief
           ? { ...u, items: [...u.items, item], uses: [...u.uses, uses] }
           : u,
     ),

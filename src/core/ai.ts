@@ -8,12 +8,13 @@
 // script (Charge moves toward the nearest enemy; the others don't move). The phase's units act in
 // FE8's order (cp_order.c). FE8's quirks are kept, as the patched game has them: the danger map never
 // resets its weapon between foes; the combat score's class bonus reads past its table (always 1); one
-// friend-zone offset is wrong; only player units count as healers to head for.
-// Not yet: stealing (thieves), special items (keys, torches), staves other than healing ones.
+// friend-zone offset is wrong; only player units count as healers to head for; a thief heading for a heal
+// point never attacks on arrival.
+// Not yet: special items (keys, torches), staves other than healing ones.
 
 import { simulateAllHits, type Forecast } from './combat';
 import { shortestRoute, type MoveSearch } from './movement';
-import { areFoes, type PlayState, type PlayUnit } from './play';
+import { areFoes, UNIT_ITEM_COUNT, type PlayState, type PlayUnit } from './play';
 
 /** A usable weapon or staff in a unit's items. */
 export interface AiItem {
@@ -59,6 +60,10 @@ export interface AiRules {
   selfHealItem?(unit: PlayUnit): { readonly item: number; readonly heal: number } | null;
   /** Each staff the player can heal with from where the unit stands (the player's Staff menu). */
   staffChoices?(unit: PlayUnit, state: PlayState): StaffChoice[];
+  /** Whether the unit's class can steal (CA_STEAL). */
+  steals?(unit: PlayUnit): boolean;
+  /** Where the unit's item `index` is in FE8's list of items the computer steals (gAiStealPriorityItemList), 0 first; null if not listed. */
+  stealRank?(unit: PlayUnit, index: number): number | null;
 }
 
 /** A staff the player can heal with: its item index, the allies it reaches and how much it heals. */
@@ -87,6 +92,14 @@ export interface Plan {
   readonly heal?: PlannedHeal;
   /** Or a healing item to use on itself there. */
   readonly useItem?: { readonly item: number; readonly heal: number };
+  /** Or a foe beside it to steal item `item` from there. */
+  readonly steal?: PlannedSteal;
+}
+
+/** A steal the computer chose: from whom, and which of their items (its index). */
+export interface PlannedSteal {
+  readonly target: string;
+  readonly item: number;
 }
 
 const FORT = 0x0a;
@@ -110,13 +123,14 @@ const inGameOrder = (units: readonly PlayUnit[]) => [...units].sort((a, b) => TE
 /**
  * The order a phase's units act in (BuildAiUnitList, GetUnitAiPriority, SortAiUnitList): by priority,
  * lowest first, ties keeping their order. Priority is the unit's movement, plus, unless it is set on
- * healing: 87 for a lord; else 72 if it has a usable staff (the first usable item that is one), 40 for
- * a ranged weapon, 20 for only melee ones, 87 with neither.
+ * healing: 60 for a unit that can steal; else 87 for a lord; else 72 if it has a usable staff (the
+ * first usable item that is one), 40 for a ranged weapon, 20 for only melee ones, 87 with neither.
  */
 export function phaseOrder(units: readonly PlayUnit[], state: PlayState, rules: AiRules): string[] {
   const priority = (u: PlayUnit) => {
     const mov = rules.searchOf(u, state).mov;
     if (u.healing) return mov;
+    if (rules.steals?.(u)) return mov + 60;
     if (rules.isLord(u)) return mov + 87;
     const items = rules.aiItems(u);
     // GetUnitBattleAiPriority returns 72 at the first usable staff it meets, whatever came before.
@@ -326,19 +340,27 @@ function besideReached(c: Ctx, k: number, reach: ReadonlyMap<number, number>): b
   return (x > 0 && reach.has(k - 1)) || (x < c.w - 1 && reach.has(k + 1)) || (y > 0 && reach.has(k - c.w)) || (y < c.h - 1 && reach.has(k + c.w));
 }
 
+/** The 4 squares beside a square, in the order FE8 looks at them. */
+const BESIDE = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
+
+/** The squares beside cell `k` that are on the map, in FE8's order. */
+function* beside(c: Ctx, k: number) {
+  const [x, y] = xy(c.w, k);
+  for (const [dx, dy] of BESIDE) {
+    if (x + dx >= 0 && y + dy >= 0 && x + dx < c.w && y + dy < c.h) yield (y + dy) * c.w + x + dx;
+  }
+}
+
 /** GetAiSafestAccessibleAdjacentPosition: of the 4 squares beside `k`, the first best by terrain, friends and danger. */
 function safestBeside(c: Ctx, k: number, reach: ReadonlyMap<number, number>): number | null {
   let best: number | null = null;
   let bestScore = -Infinity;
-  for (const [dx, dy] of [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ] as const) {
-    const [x, y] = xy(c.w, k);
-    if (x + dx < 0 || y + dy < 0 || x + dx >= c.w || y + dy >= c.h) continue;
-    const n = (y + dy) * c.w + x + dx;
+  for (const n of beside(c, k)) {
     if (!reach.has(n) || !free(c, n)) continue;
     const score = c.rules.terrainScore(c.unit, n) + friendZonePosition(c, n) - Math.floor(c.danger[n]! / 8);
     if (score > bestScore) {
@@ -401,6 +423,58 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
     if (plan) rank = staff.rank;
   }
   return plan;
+}
+
+/**
+ * AiFindBestAdjacentPositionByFunc with AiAttemptStealAction_GetMovementAt: of the 4 squares beside
+ * `k`, the free one the unit can reach for the least movement, the first of equals.
+ */
+function cheapestBeside(c: Ctx, k: number): number | null {
+  let best: number | null = null;
+  let least = 0xff;
+  for (const n of beside(c, k)) {
+    const cost = c.search.reached.get(n);
+    if (cost === undefined || cost >= MOVEMENT_MAX || !free(c, n) || least <= cost) continue;
+    least = cost;
+    best = n;
+  }
+  return best;
+}
+
+/**
+ * AiAttemptStealActionWithinMovement, which AiAttemptOffensiveAction tries before attacking for a unit
+ * that can steal and carries fewer than 5 items. It looks with the unit's whole movement, even when it
+ * holds its square. Of the units not on its side beside a square it can reach, no faster than it (Spd),
+ * it takes the one carrying the item highest in FE8's steal list, ties going to the last in the game's
+ * scan, from the cheapest free square beside it. The item is the target's highest listed one, the last
+ * of equals (AiGetUnitStealItemSlot); only listed items are taken.
+ */
+function trySteal(c: Ctx): Plan | null {
+  const { unit, rules } = c;
+  if (!rules.steals?.(unit) || unit.items.length >= UNIT_ITEM_COUNT) return null;
+  const rankOf = (u: PlayUnit, i: number) => rules.stealRank?.(u, i) ?? 0xff;
+  let rank = 0xff;
+  let found: { to: number; steal: PlannedSteal } | null = null;
+  for (const k of scan(c.w, c.h)) {
+    const target = c.occupant.get(k);
+    if (!target || allied(unit, target)) continue;
+    // MarkMovementMapEdges marks the squares beside the reachable ones, where foes stand.
+    if (!c.search.reached.has(k) && !besideReached(c, k, c.search.reached)) continue;
+    const to = cheapestBeside(c, k);
+    if (to === null || unit.stats.spd < target.stats.spd || !target.items.length) continue;
+    let item = 0;
+    let itemRank = 0xff;
+    target.items.forEach((_, i) => {
+      if (itemRank < rankOf(target, i)) return;
+      itemRank = rankOf(target, i);
+      item = i;
+    });
+    if (rank < itemRank) continue;
+    rank = itemRank;
+    found = { to, steal: { target: target.id, item } };
+  }
+  if (rank === 0xff || !found) return null;
+  return { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, steal: found.steal };
 }
 
 /** Units within 3 squares of cell `k` that aren't the unit's allies (AiCountNearbyEnemyUnits). */
@@ -505,15 +579,19 @@ export function planAction(unit: PlayUnit, state: PlayState, rules: AiRules): Pl
       const fastest = Math.max(0, ...state.units.filter((u) => u.team === 'player').map((u) => rules.searchOf(u, state).mov));
       const to = tryMoveTowards(c, point, 0, fastest);
       if (to !== null) {
-        const after = attackAfterMove(c, to);
+        // AiTryActionAfterMove: for a unit that can steal, AiTryDoStealAdjacent always reports success (it
+        // compares a 0 or 1 result with -1), and the map it builds leaves no square to steal from, so the
+        // unit neither steals nor attacks.
+        const after = rules.steals?.(unit) ? null : attackAfterMove(c, to);
         return moveTo(to, after ? { attack: after.target.id, attackItem: after.item } : {});
       }
     }
   }
 
-  // AI1: the standard action (AiScriptCmd_05), or Hold's without moving (AiScriptCmd_07).
+  // AI1: the standard action (AiScriptCmd_05), or Hold's without moving (AiScriptCmd_07), but for a
+  // steal, which AiAttemptOffensiveAction tries first with the unit's whole movement.
   const inPlace = unit.ai === 'hold';
-  const action = tryStaff(c, inPlace) ?? tryAttack(c, inPlace);
+  const action = tryStaff(c, inPlace) ?? trySteal(c) ?? tryAttack(c, inPlace);
   if (action) return action;
 
   // AI2: Charge moves toward the nearest enemy (AiScriptCmd_12_MoveTowardsEnemy); the others stay.

@@ -549,7 +549,7 @@ export function PlayScreen({
               </>
             );
           })()}
-        {battle && hud && battle.heal === undefined && (
+        {battle && hud && battle.heal === undefined && battle.steal === undefined && (
           <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />
         )}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
@@ -561,6 +561,23 @@ export function PlayScreen({
                 +{Math.min(battle.heal, target.stats.hp - target.hp)}
               </div>
             ) : null;
+          })()}
+        {battle?.steal !== undefined &&
+          (() => {
+            // NewPopup_ItemStealing: "Stole <item>" for the player's thief, "<Item> was stolen." for the computer's.
+            const name = play.units.find((u) => u.id === battle.defender)?.items[battle.steal];
+            if (!name) return null;
+            const item = data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name;
+            const byPlayer = play.units.find((u) => u.id === battle.attacker)?.team === 'player';
+            return (
+              <div className="fe-window broke-window" role="status">
+                <span className="fe-line">
+                  {byPlayer ? <FeText text="Stole " /> : null}
+                  <FeText text={item} colour="blue" />
+                  {byPlayer ? null : <FeText text=" was stolen." />}
+                </span>
+              </div>
+            );
           })()}
         {award && expShow?.phase === 'bar' && <ExpWindow exp={expShow.exp} frame={expShow.frame} art={data.expBar} />}
         {broke && (
