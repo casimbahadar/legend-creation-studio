@@ -28,7 +28,7 @@ import {
   type PlayView,
 } from '../core/play-input';
 import type { ProjectChapter } from '../core/project';
-import { toCanvas, unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
+import { fullUses, toCanvas, unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
 import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } from '../play/draw';
 import { followCamera, VIEW_HEIGHT, VIEW_WIDTH } from '../play/camera';
 import { chapterRules, maxLevel } from '../play/rules';
@@ -91,6 +91,7 @@ export function PlayScreen({
         },
         // Only player units gain experience, as in FE8.
         (u) => (u.team === 'player' ? startingExp(u.level, maxLevel(artByName.get(u.class), characters.get(u.id))) : null),
+        (item) => fullUses(item, data.items),
       ),
     );
   };
@@ -399,7 +400,7 @@ export function PlayScreen({
           </div>
         )}
       </div>
-      <UnitStrip unit={under} weapon={under && weaponsOf(artByName.get(under.class), under.items, data.items)[0]?.entry.gameName} />
+      <UnitStrip unit={under} weapon={under && weaponsOf(artByName.get(under.class), under.items, data.items)[0]} />
       <GbaControls
         onDirection={(dx, dy) => setView((v) => moveCursor(v, dx, dy, rules))}
         onA={() => onAPress.current()}

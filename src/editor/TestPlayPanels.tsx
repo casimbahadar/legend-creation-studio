@@ -7,6 +7,7 @@ import type { Forecast } from '../core/combat';
 import type { PlayState, PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
 import type { StatGains } from '../core/experience';
+import type { GameItem } from '../play/catalog';
 import { FeText } from './FeText';
 import { goalBox, MapBox, Place, unitBox, WindowArtContext } from './FeWindow';
 import { TEAM_LABELS } from './labels';
@@ -99,8 +100,10 @@ export function UnitWindow({ unit, label, corner, portrait }: { unit: PlayUnit; 
   );
 }
 
-/** The rest of what FE shows on its status screen, in a strip under the game screen: level, experience, weapon and stats. */
-export function UnitStrip({ unit, weapon }: { unit: PlayUnit | undefined; weapon: string | undefined }) {
+/** The rest of what FE shows on its status screen, in a strip under the game screen: level, experience, weapon and its uses, and stats. */
+export function UnitStrip({ unit, weapon }: { unit: PlayUnit | undefined; weapon: GameItem | undefined }) {
+  const index = unit && weapon ? unit.items.indexOf(weapon.entry.name) : -1;
+  const uses = unit && index >= 0 ? unit.uses[index] : null;
   return (
     <div className={`unit-strip${unit ? ` team-${unit.team}` : ''}`} aria-live="polite">
       {unit && (
@@ -108,7 +111,7 @@ export function UnitStrip({ unit, weapon }: { unit: PlayUnit | undefined; weapon
           <FeText text="Lv" colour="gold" />
           <FeText text={` ${unit.level} `} />
           <FeText text="E" colour="gold" />
-          <FeText text={` ${unit.exp ?? '--'}  ${weapon ?? 'No weapon'}   `} />
+          <FeText text={` ${unit.exp ?? '--'}  ${weapon?.entry.gameName ?? 'No weapon'}${uses !== null && uses !== undefined ? ` ${uses}` : ''}   `} />
           {(['str', 'skl', 'spd', 'lck', 'def', 'res'] as const).map((k) => (
             <span key={k} className="fe-stat">
               <FeText text={k[0]!.toUpperCase() + k.slice(1)} colour="gold" />
