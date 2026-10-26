@@ -679,6 +679,15 @@ h3 {
   -webkit-user-select: text;
 }
 
+/* Play's item list: each item's name and uses, wider than the action menu; an item's options beside it. */
+.fe-window.action-menu.item-list { min-width: 46%; }
+.fe-window.action-menu.item-options { top: 34%; }
+.fe-window.action-menu.item-options.right { right: 50%; }
+.fe-window.action-menu.item-options.left { left: 50%; }
+.action-menu.item-list button { display: flex; align-items: center; }
+.item-uses { position: relative; margin-left: auto; padding-left: 0.6em; }
+.game.real-frames .fe-window.action-menu.item-list { width: calc(104 * var(--gba-px, 1.5px)); }
+
 /* FE8's phase intro from the player's ROM (PhaseIntro.tsx): its images placed in GBA pixels. */
 .phase-intro {
   position: absolute;

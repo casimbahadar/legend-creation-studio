@@ -11,10 +11,13 @@ import { attackRange } from '../core/movement';
 import { startPlay, unitAt } from '../core/play';
 import {
   canMove as unitCanMove,
+  chooseItem,
+  chooseItemOption,
   chooseOption,
   endPlayerTurn,
   finishBattle,
   finishWalk,
+  itemOptions,
   menuOptions,
   moveCursor,
   pressA,
@@ -25,6 +28,8 @@ import {
   tapAt,
   visibleRoute,
   walkPosition,
+  type ItemOption,
+  type MenuOption,
   type PlayView,
 } from '../core/play-input';
 import type { ProjectChapter } from '../core/project';
@@ -47,6 +52,8 @@ import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, LevelUpW
 /** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
 const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
+const MENU_LABELS: Record<MenuOption, string> = { attack: 'Attack', item: 'Item', wait: 'Wait' };
+const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
 
 export function PlayScreen({
@@ -325,7 +332,7 @@ export function PlayScreen({
     <div className={data.windows ? 'game real-frames' : 'game'} style={{ ['--gba-px' as string]: `${gbaPx}px`, ...(data.windows ? frameStyle(data.windows) : {}) }}>
       <div className="game-screen" ref={screen} style={{ aspectRatio: `${viewW} / ${viewH}` }}>
         <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
-        {!battle && !view.banner && !view.outcome && a?.kind !== 'target' && a?.kind !== 'menu' && (
+        {!battle && !view.banner && !view.outcome && !a && (
           <>
             {under && (
               <UnitWindow
@@ -355,10 +362,50 @@ export function PlayScreen({
               <div className={`fe-window action-menu ${menuSide}`} role="menu">
                 {menuOptions(view, rules).map((o, i) => (
                   <button key={o} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseOption(v, o, rules))}>
-                    <FeText text={o === 'attack' ? 'Attack' : 'Wait'} />
+                    <FeText text={MENU_LABELS[o]} />
                   </button>
                 ))}
               </div>
+            );
+          })()}
+        {(a?.kind === 'items' || a?.kind === 'item') &&
+          (() => {
+            const u = play.units.find((x) => x.id === a.unit);
+            if (!u) return null;
+            const menuSide = u.at[0] - cam[0] >= viewW / 2 ? 'left' : 'right';
+            const equipped = u.items.findIndex((_, i) => rules.itemUse?.(u, i).equip);
+            const chosen = a.kind === 'items' ? a.index : a.item;
+            return (
+              <>
+                <div className={`fe-window action-menu item-list ${menuSide}`} role="menu" aria-label="Items">
+                  {u.items.map((name, i) => {
+                    const item = data.items.find((x) => x.entry.name === name);
+                    const uses = u.uses[i];
+                    return (
+                      <button
+                        key={`${i}:${name}`}
+                        type="button"
+                        role="menuitem"
+                        aria-current={chosen === i}
+                        onClick={() => setView((v) => chooseItem(v.action?.kind === 'item' ? { ...v, action: { kind: 'items', unit: a.unit, from: a.from, index: i } } : v, i))}
+                      >
+                        <FeText text={item?.entry.gameName ?? name} />
+                        {i === equipped && <FeText text=" E" colour="gold" />}
+                        <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour="blue" />}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {a.kind === 'item' && (
+                  <div className={`fe-window action-menu item-options ${menuSide}`} role="menu" aria-label="Item options">
+                    {itemOptions(view, rules).map((o, i) => (
+                      <button key={o} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseItemOption(v, o, rules))}>
+                        <FeText text={ITEM_OPTION_LABELS[o]} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             );
           })()}
         {battle && hud && <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />}
