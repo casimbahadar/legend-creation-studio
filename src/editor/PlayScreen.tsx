@@ -50,14 +50,14 @@ import { PhaseIntro } from './PhaseIntro';
 import { Chibi } from './Portrait';
 import { shortClassLabel } from './labels';
 import { unitCharacters, type EditorRom } from './project-io';
-import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
+import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, HealWindow, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
 /** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
 const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
 /** How long the notice that a weapon broke shows (A closes it sooner). */
 const BROKE_MS = 1500;
-const MENU_LABELS: Record<MenuOption, string> = { attack: 'Attack', item: 'Item', wait: 'Wait' };
+const MENU_LABELS: Record<MenuOption, string> = { attack: 'Attack', staff: 'Staff', item: 'Item', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
 
@@ -350,7 +350,19 @@ export function PlayScreen({
     setView(tapAt(view, x, y, rules));
   }
 
-  const phase: PlayPhase = view.outcome ? 'over' : view.phase !== 'player' ? view.phase : view.battle ? 'battle' : view.walking ? 'walk' : (view.action?.kind ?? null);
+  const phase: PlayPhase = view.outcome
+    ? 'over'
+    : view.phase !== 'player'
+      ? view.phase
+      : view.battle
+        ? 'battle'
+        : view.walking
+          ? 'walk'
+          : view.action?.kind === 'target' && view.action.staff
+            ? 'heal'
+            : view.action?.kind === 'weapon' && view.action.staff
+              ? 'staves'
+              : (view.action?.kind ?? null);
   /** The screen position, in percent, of the top middle of a map square. */
   const position = (at: readonly [number, number]) => ({ left: `${((at[0] - cam[0] + 0.5) / viewW) * 100}%`, top: `${((at[1] - cam[1]) / viewH) * 100}%` });
   const under = unitAt(play, view.cursor[0], view.cursor[1]);
@@ -380,6 +392,7 @@ export function PlayScreen({
             const atk = play.units.find((u) => u.id === a.unit);
             const def = play.units.find((u) => u.id === a.targets[a.index]);
             if (!atk || !def) return null;
+            if (a.staff) return <HealWindow unit={def} label={unitLabel(def)} heal={a.staff.heal} staff={data.items.find((x) => x.entry.name === atk.items[a.staff!.item])?.entry.gameName} corner={`top-${side}`} />;
             const f = chapterPlay.preview(atk, def);
             return <ForecastWindow a={atk} d={def} f={f.forecast} aWeapon={f.attackerWeapon?.entry.gameName} dWeapon={f.defenderWeapon?.entry.gameName} label={unitLabel} corner={`top-${side}`} />;
           })()}
@@ -404,7 +417,7 @@ export function PlayScreen({
             if (!u) return null;
             const menuSide = u.at[0] - cam[0] >= viewW / 2 ? 'left' : 'right';
             return (
-              <div className={`fe-window action-menu item-list ${menuSide}`} role="menu" aria-label="Weapons">
+              <div className={`fe-window action-menu item-list ${menuSide}`} role="menu" aria-label={a.staff ? 'Staves' : 'Weapons'}>
                 {weaponChoices(view, rules).map((c, i) => {
                   const name = u.items[c.item]!;
                   const uses = u.uses[c.item];
@@ -458,8 +471,19 @@ export function PlayScreen({
               </>
             );
           })()}
-        {battle && hud && <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />}
+        {battle && hud && battle.heal === undefined && (
+          <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />
+        )}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
+        {battle?.heal !== undefined &&
+          (() => {
+            const target = play.units.find((u) => u.id === battle.defender);
+            return target ? (
+              <div className="popup heal" style={position(target.at)}>
+                +{Math.min(battle.heal, target.stats.hp - target.hp)}
+              </div>
+            ) : null;
+          })()}
         {award && expShow?.phase === 'bar' && <ExpWindow exp={expShow.exp} />}
         {broke && (
           <div className="fe-window broke-window" role="status">

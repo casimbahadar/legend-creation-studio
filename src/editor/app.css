@@ -643,6 +643,7 @@ h3 {
 
 .popup.crit { color: #ffe680; }
 .popup.miss { color: #c8d0e0; }
+.popup.heal { color: #9cf09c; }
 
 @keyframes popup-rise {
   from { margin-top: 6px; opacity: 0; }

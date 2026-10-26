@@ -13,7 +13,7 @@ import { goalBox, MapBox, Place, unitBox, WindowArtContext } from './FeWindow';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
-export type PlayPhase = 'walk' | 'menu' | 'weapon' | 'items' | 'item' | 'target' | 'battle' | 'enemy' | 'ally' | 'over' | null;
+export type PlayPhase = 'walk' | 'menu' | 'weapon' | 'staves' | 'items' | 'item' | 'target' | 'heal' | 'battle' | 'enemy' | 'ally' | 'over' | null;
 
 /** One line under the controls saying what to do next. */
 export function PlayHint({
@@ -36,6 +36,8 @@ export function PlayHint({
   else if (phase === 'enemy') hint = 'Enemy phase: the enemies are moving.';
   else if (phase === 'ally') hint = 'Ally phase: the green units are moving.';
   else if (phase === 'menu') hint = 'Choose an action with ▲▼ and A, or tap it. B takes the move back.';
+  else if (phase === 'staves') hint = 'Choose the staff to heal with, then whom to heal. B goes back.';
+  else if (phase === 'heal') hint = 'Choose whom to heal with the arrows or by tapping them, then press A. B goes back.';
   else if (phase === 'weapon') hint = 'Choose the weapon to attack with, then a target. B goes back.';
   else if (phase === 'items') hint = 'Choose an item with ▲▼ and A, or tap it. B goes back.';
   else if (phase === 'item') hint = 'Equip puts a weapon first, so the unit fights with it. Use heals and ends the turn. B goes back.';
@@ -328,6 +330,28 @@ export function LevelUpWindow({ unit, label, level, gains }: { unit: PlayUnit; l
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** The heal a staff will give, shown while choosing whom to heal: the ally, its HP now and after. */
+export function HealWindow({ unit, label, heal, staff, corner }: { unit: PlayUnit; label: string; heal: number; staff: string | undefined; corner: Corner }) {
+  return (
+    <div className={`fe-window heal-window at-${corner}`}>
+      <span className="fe-line">
+        <FeText text={label} />
+      </span>
+      {staff && (
+        <span className="fe-line">
+          <FeText text={staff} />
+        </span>
+      )}
+      <span className="fe-line">
+        <FeText text="HP" colour="gold" />
+        <FeText text={` ${unit.hp} `} />
+        <FeText text="->" colour="gold" />
+        <FeText text={` ${Math.min(unit.stats.hp, unit.hp + heal)}`} />
+      </span>
     </div>
   );
 }
