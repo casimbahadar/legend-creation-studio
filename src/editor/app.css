@@ -681,6 +681,29 @@ h3 {
   -webkit-user-select: text;
 }
 
+/* The trade window: the two units' items side by side across the top of the screen. */
+.trade-window {
+  position: absolute;
+  z-index: 3;
+  top: 3%;
+  left: 2%;
+  right: 2%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3%;
+}
+
+.trade-window .fe-window.action-menu.trade-side {
+  position: static;
+  min-width: 0;
+  width: auto;
+}
+
+.trade-side button { display: flex; align-items: center; }
+.trade-side button.picked { outline: 2px solid #ffe680; outline-offset: -2px; }
+.trade-name { justify-content: center; }
+.trade-empty { min-height: 40px; }
+
 /* Play's item list: each item's name and uses, wider than the action menu; an item's options beside it. */
 .fe-window.action-menu.item-list { min-width: 46%; }
 .fe-window.action-menu.item-options { top: 34%; }

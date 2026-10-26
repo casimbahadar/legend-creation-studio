@@ -15,6 +15,7 @@ import {
   chooseItem,
   chooseItemOption,
   chooseOption,
+  chooseTradeSlot,
   chooseWeapon,
   endPlayerTurn,
   finishBattle,
@@ -28,6 +29,8 @@ import {
   startView,
   stepAI,
   tapAt,
+  tradeSlotOpen,
+  TRADE_SLOTS,
   visibleRoute,
   walkPosition,
   weaponChoices,
@@ -57,7 +60,7 @@ const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
 /** How long the notice that a weapon broke shows (A closes it sooner). */
 const BROKE_MS = 1500;
-const MENU_LABELS: Record<MenuOption, string> = { attack: 'Attack', staff: 'Staff', item: 'Item', wait: 'Wait' };
+const MENU_LABELS: Record<MenuOption, string> = { attack: 'Attack', staff: 'Staff', item: 'Item', trade: 'Trade', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
 
@@ -360,6 +363,8 @@ export function PlayScreen({
           ? 'walk'
           : view.action?.kind === 'target' && view.action.staff
             ? 'heal'
+            : view.action?.kind === 'target' && view.action.trade
+              ? 'tradeWith'
             : view.action?.kind === 'weapon' && view.action.staff
               ? 'staves'
               : (view.action?.kind ?? null);
@@ -392,6 +397,17 @@ export function PlayScreen({
             const atk = play.units.find((u) => u.id === a.unit);
             const def = play.units.find((u) => u.id === a.targets[a.index]);
             if (!atk || !def) return null;
+            if (a.trade)
+              return (
+                <div className={`fe-window heal-window at-top-${side}`}>
+                  <span className="fe-line">
+                    <FeText text="Trade with" colour="gold" />
+                  </span>
+                  <span className="fe-line">
+                    <FeText text={unitLabel(def)} />
+                  </span>
+                </div>
+              );
             if (a.staff) return <HealWindow unit={def} label={unitLabel(def)} heal={a.staff.heal} staff={data.items.find((x) => x.entry.name === atk.items[a.staff!.item])?.entry.gameName} corner={`top-${side}`} />;
             const f = chapterPlay.preview(atk, def);
             return <ForecastWindow a={atk} d={def} f={f.forecast} aWeapon={f.attackerWeapon?.entry.gameName} dWeapon={f.defenderWeapon?.entry.gameName} label={unitLabel} corner={`top-${side}`} />;
@@ -428,6 +444,42 @@ export function PlayScreen({
                     </button>
                   );
                 })}
+              </div>
+            );
+          })()}
+        {a?.kind === 'trade' &&
+          (() => {
+            const sides = [a.unit, a.partner].map((id) => play.units.find((u) => u.id === id));
+            return (
+              <div className="trade-window" role="menu" aria-label="Trade">
+                {sides.map((u, s) =>
+                  u ? (
+                    <div key={u.id} className="fe-window action-menu trade-side">
+                      <span className="fe-line trade-name">
+                        <FeText text={unitLabel(u)} colour="gold" />
+                      </span>
+                      {Array.from({ length: TRADE_SLOTS }, (_, row) => {
+                        const slot = s * TRADE_SLOTS + row;
+                        const name = u.items[row];
+                        const uses = u.uses[row];
+                        if (!tradeSlotOpen(play, a.unit, a.partner, slot)) return <div key={slot} className="trade-empty" />;
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            role="menuitem"
+                            aria-current={a.index === slot}
+                            className={a.picked === slot ? 'picked' : undefined}
+                            onClick={() => setView((v) => chooseTradeSlot(v.action?.kind === 'trade' ? { ...v, action: { ...v.action, index: slot } } : v, slot))}
+                          >
+                            <FeText text={name ? (data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name) : '-'} />
+                            <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour="blue" />}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null,
+                )}
               </div>
             );
           })()}

@@ -13,7 +13,7 @@ import { goalBox, MapBox, Place, unitBox, WindowArtContext } from './FeWindow';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
-export type PlayPhase = 'walk' | 'menu' | 'weapon' | 'staves' | 'items' | 'item' | 'target' | 'heal' | 'battle' | 'enemy' | 'ally' | 'over' | null;
+export type PlayPhase = 'walk' | 'menu' | 'weapon' | 'staves' | 'items' | 'item' | 'target' | 'heal' | 'tradeWith' | 'trade' | 'battle' | 'enemy' | 'ally' | 'over' | null;
 
 /** One line under the controls saying what to do next. */
 export function PlayHint({
@@ -36,6 +36,8 @@ export function PlayHint({
   else if (phase === 'enemy') hint = 'Enemy phase: the enemies are moving.';
   else if (phase === 'ally') hint = 'Ally phase: the green units are moving.';
   else if (phase === 'menu') hint = 'Choose an action with ▲▼ and A, or tap it. B takes the move back.';
+  else if (phase === 'tradeWith') hint = 'Choose whom to trade with, then press A. B goes back.';
+  else if (phase === 'trade') hint = 'Choose an item, then an item or empty slot on the other side to swap or give it. B steps back.';
   else if (phase === 'staves') hint = 'Choose the staff to heal with, then whom to heal. B goes back.';
   else if (phase === 'heal') hint = 'Choose whom to heal with the arrows or by tapping them, then press A. B goes back.';
   else if (phase === 'weapon') hint = 'Choose the weapon to attack with, then a target. B goes back.';
