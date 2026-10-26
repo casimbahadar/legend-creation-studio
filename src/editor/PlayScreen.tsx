@@ -14,6 +14,7 @@ import {
   chooseItem,
   chooseItemOption,
   chooseOption,
+  chooseWeapon,
   endPlayerTurn,
   finishBattle,
   finishWalk,
@@ -28,6 +29,7 @@ import {
   tapAt,
   visibleRoute,
   walkPosition,
+  weaponChoices,
   type ItemOption,
   type MenuOption,
   type PlayView,
@@ -365,6 +367,26 @@ export function PlayScreen({
                     <FeText text={MENU_LABELS[o]} />
                   </button>
                 ))}
+              </div>
+            );
+          })()}
+        {a?.kind === 'weapon' &&
+          (() => {
+            const u = play.units.find((x) => x.id === a.unit);
+            if (!u) return null;
+            const menuSide = u.at[0] - cam[0] >= viewW / 2 ? 'left' : 'right';
+            return (
+              <div className={`fe-window action-menu item-list ${menuSide}`} role="menu" aria-label="Weapons">
+                {weaponChoices(view, rules).map((c, i) => {
+                  const name = u.items[c.item]!;
+                  const uses = u.uses[c.item];
+                  return (
+                    <button key={`${c.item}:${name}`} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseWeapon(v, i, rules))}>
+                      <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} />
+                      <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour="blue" />}</span>
+                    </button>
+                  );
+                })}
               </div>
             );
           })()}

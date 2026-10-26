@@ -13,7 +13,7 @@ import { goalBox, MapBox, Place, unitBox, WindowArtContext } from './FeWindow';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
-export type PlayPhase = 'walk' | 'menu' | 'items' | 'item' | 'target' | 'battle' | 'enemy' | 'ally' | 'over' | null;
+export type PlayPhase = 'walk' | 'menu' | 'weapon' | 'items' | 'item' | 'target' | 'battle' | 'enemy' | 'ally' | 'over' | null;
 
 /** One line under the controls saying what to do next. */
 export function PlayHint({
@@ -36,6 +36,7 @@ export function PlayHint({
   else if (phase === 'enemy') hint = 'Enemy phase: the enemies are moving.';
   else if (phase === 'ally') hint = 'Ally phase: the green units are moving.';
   else if (phase === 'menu') hint = 'Choose an action with ▲▼ and A, or tap it. B takes the move back.';
+  else if (phase === 'weapon') hint = 'Choose the weapon to attack with, then a target. B goes back.';
   else if (phase === 'items') hint = 'Choose an item with ▲▼ and A, or tap it. B goes back.';
   else if (phase === 'item') hint = 'Equip puts a weapon first, so the unit fights with it. Use heals and ends the turn. B goes back.';
   else if (phase === 'target') hint = 'Choose a target with the arrows or by tapping it, then press A to attack. B goes back.';
