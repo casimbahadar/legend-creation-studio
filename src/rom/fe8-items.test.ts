@@ -7,13 +7,14 @@ function romWithItems(table: number, count: number) {
   const bytes = new Uint8Array(table + (count + 2) * ITEM_STRIDE + 0x400);
   const view = new DataView(bytes.buffer);
   for (let i = 0; i < count; i++) bytes[table + i * ITEM_STRIDE + 6] = i;
-  // Item 1: "Iron Sword" (text 1), a sword, weapon, 46 uses, Mt 5, Hit 90, Wt 5, Crit 0, range 1-1, rank E.
+  // Item 1: "Iron Sword" (text 1), a sword, weapon, 46 uses, Mt 5, Hit 90, Wt 5, Crit 0, range 1-1, rank E, 10 a use.
   const a = table + ITEM_STRIDE;
   view.setUint16(a, 1, true);
   bytes[a + 7] = 0;
   view.setUint32(a + 8, 1, true);
   bytes.set([46, 5, 90, 5, 0, 0x11], a + 0x14);
   bytes[a + 0x1c] = 1;
+  view.setUint16(a + 0x1a, 10, true); // 10 gold a use
   // Item 2: a staff with range 1-2 written as 0x12.
   const b = table + 2 * ITEM_STRIDE;
   bytes[b + 7] = 4;
@@ -54,6 +55,7 @@ describe('FE8 items', () => {
       minRange: 1,
       maxRange: 1,
       rank: 1,
+      costPerUse: 10,
     });
     expect(isWeapon(items[0]!)).toBe(true);
     expect(isStaff(items[1]!)).toBe(true);

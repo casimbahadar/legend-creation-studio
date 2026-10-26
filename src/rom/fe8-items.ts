@@ -32,6 +32,8 @@ export interface RomItem {
   readonly maxRange: number;
   /** Weapon rank needed, as FE stores it (E = 1, D = 31, C = 71, B = 121, A = 181, S = 251). */
   readonly rank: number;
+  /** Price of one use (costPerUse); staff experience depends on it. */
+  readonly costPerUse: number;
 }
 
 /** Offset of the item table, found by its numbered records, or null. */
@@ -67,6 +69,7 @@ export function readItems(rom: GbaRom, text: TextTable, table: number): RomItem[
       minRange: range >> 4,
       maxRange: range & 15,
       rank: rom.u8(a + 0x1c),
+      costPerUse: rom.u16(a + 0x1a),
     });
   }
   return out;
