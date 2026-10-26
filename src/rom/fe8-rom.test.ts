@@ -17,7 +17,8 @@ import { readMapCursor, readMenuHand } from './fe8-cursor';
 import { readPhaseBanner } from './fe8-phase';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
-import { buildFe8Rom, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { FE8U_GET_DEFEAT_TALK_ENTRY, findDefeatTalkList, readDefeatTalks } from './fe8-death-quotes';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
 import { decodeText, decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, findTextTable } from './text';
@@ -267,5 +268,17 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(goal(ROUT_GOAL_CHAPTER)).toEqual([0x1ac, 0x19e, 1, 0]); // Defeat all enemy units / Defeat enemy
     expect(goal(SEIZE_THRONE_GOAL_CHAPTER)).toEqual([0x1a5, 0x1a1, 0, 0]); // Seize the throne / Seize throne
     expect(goal(SEIZE_GATE_GOAL_CHAPTER)).toEqual([0x1a3, 0x19f, 0, 0]); // Seize the castle gate / Seize gate
+    expect(goal(DEFEAT_BOSS_GOAL_CHAPTER)).toEqual([0x1bd, 0x19d, 3, 0]); // Defeat boss / Defeat boss
+  });
+
+  it("finds the death quotes through GetDefeatTalkEntry's literal pool", () => {
+    const found = findDefeatTalkList(rom)!;
+    expect(found).not.toBeNull();
+    // The pool sits inside the function, before the next one (GetSupportTalkEntry, 0x84748).
+    expect(found.literal).toBeGreaterThan(FE8U_GET_DEFEAT_TALK_ENTRY);
+    expect(found.literal).toBeLessThan(0x84748);
+    const list = readDefeatTalks(rom, found.table)!;
+    expect(list).toHaveLength(79); // src/data_battlequotes.c
+    expect(list.at(-1)).toMatchObject({ pid: 0x21, route: 0xff, chapter: 0xff, msg: 0xc43 }); // Syrene
   });
 });

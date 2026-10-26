@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mapRef, type ProjectChapter } from '../core/project';
-import { AI_BYTES, buildFe8Rom, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { AI_BYTES, buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { FE8U_GET_DEFEAT_TALK_ENTRY, readDefeatTalks } from './fe8-death-quotes';
 import { ASSET_TABLE, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readUnitList } from './fe8-chapters';
 import { GENERIC_ENEMY } from './fe8-character-names';
 import { CHARACTER_STRIDE, FE8_US_CHARACTER_TABLE } from './fe8-characters';
@@ -32,6 +33,25 @@ function fakeClean(): Uint8Array {
   bytes.set([0xac, 0x01, 0x9e, 0x01, 1, 0, 0, 0xff, 0], rout + 0x88);
   const throne = CHAPTER_TABLE + SEIZE_THRONE_GOAL_CHAPTER * CHAPTER_STRIDE;
   bytes.set([0xa5, 0x01, 0xa1, 0x01, 0, 0, 0, 0xff, 0], throne + 0x88);
+  const boss = CHAPTER_TABLE + DEFEAT_BOSS_GOAL_CHAPTER * CHAPTER_STRIDE;
+  bytes.set([0xbd, 0x01, 0x9d, 0x01, 3, 0, 0, 0xff, 0], boss + 0x88);
+  // GetDefeatTalkEntry: a push, then "ldr r0, [pc, #4]" whose literal points to the death quotes:
+  // O'Neill in the Prologue (as vanilla's first), Breguet in chapter 1, Seth anywhere, then the end.
+  view.setUint16(FE8U_GET_DEFEAT_TALK_ENTRY, 0xb570, true);
+  view.setUint16(FE8U_GET_DEFEAT_TALK_ENTRY + 2, 0x4801, true);
+  u32(((FE8U_GET_DEFEAT_TALK_ENTRY + 2 + 4) & ~3) + 4, ROM_BASE + 0x260000);
+  const quote = (k: number, pid: number, route: number, ch: number, flag: number, msg: number) => {
+    const a = 0x260000 + k * 12;
+    view.setUint16(a, pid, true);
+    bytes[a + 2] = route;
+    bytes[a + 3] = ch;
+    view.setUint16(a + 4, flag, true);
+    view.setUint16(a + 6, msg, true);
+  };
+  quote(0, 0x68, 0xff, 0, 2, 0x917);
+  quote(1, 0x46, 0xff, 1, 2, 0x936);
+  quote(2, 0x02, 0xff, 0xff, 0, 0xc25);
+  view.setUint16(0x260000 + 3 * 12, 0xffff, true);
 
   const GROUP = 0x200000;
   u32(ASSET_TABLE + 0x20 * 4, ROM_BASE + GROUP);
@@ -154,6 +174,27 @@ describe('FE8 builder', () => {
     expect(Array.from(out.bytes.subarray(CHAPTER_TABLE + 0x88, CHAPTER_TABLE + 0x91))).toEqual([0xa5, 0x01, 0xa1, 0x01, 0, 0, 0, 0xff, 0]);
     // A Rout chapter's location list stays empty.
     expect(words(rom, rom.u32(group + EVENT_GROUP.location), 1)).toEqual([0]);
+  });
+
+  it("wins on Defeat boss when the boss's own death quote, first in a moved list, sets the boss flag", () => {
+    const c: ProjectChapter = { ...chapter(), goal: 'boss', boss: 'fighter-1' };
+    c.units[2]!.character = 'breguet';
+    const out = readRom(buildFe8Rom(readRom(clean), TEXT, c).bytes);
+    const g = groupOf(out);
+    const ending = out.u32(g + EVENT_GROUP.endingScene) >>> 0;
+    // DefeatBoss(ending): AFEV(EVFLAG_WIN, ending, EVFLAG_DEFEAT_BOSS), then the game over check.
+    expect(words(out, out.u32(g + EVENT_GROUP.misc), 7)).toEqual([0x00030001, ending, 2, 0x00000001, ROM_BASE + 0x240000, 101, 0]);
+    expect(Array.from(out.bytes.subarray(CHAPTER_TABLE + 0x88, CHAPTER_TABLE + 0x91))).toEqual([0xbd, 0x01, 0x9d, 0x01, 3, 0, 0, 0xff, 0]);
+    // Breguet's entry for the Prologue comes first with his chapter 1 quote; O'Neill's Prologue entry is gone.
+    const literal = ((FE8U_GET_DEFEAT_TALK_ENTRY + 2 + 4) & ~3) + 4;
+    expect(out.u32(literal)).toBeGreaterThanOrEqual(ROM_BASE + EXPANSION);
+    expect(readDefeatTalks(out, out.offsetOf(out.u32(literal)))!.map((e) => [e.pid, e.route, e.chapter, e.flag, e.msg])).toEqual([
+      [0x46, 0xff, 0, 2, 0x936],
+      [0x46, 0xff, 1, 2, 0x936],
+      [0x02, 0xff, 0xff, 0, 0xc25],
+    ]);
+    // A Rout chapter leaves the death quotes alone.
+    expect(rom.u32(literal)).toBe(ROM_BASE + 0x260000);
   });
 
   it("refuses a goal that still needs something, and goals the patch can't carry yet", () => {

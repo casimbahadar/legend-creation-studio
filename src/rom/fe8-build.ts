@@ -13,7 +13,11 @@
 // enemy and ally units, a misc list with vanilla's game over check, and an ending scene that moves on
 // to the chapter the slot's vanilla ending moves on to. The goal (decision 36) is vanilla's too: Rout
 // is the misc list's DefeatAll; Seize is a location-list Seize(x, y), which sets the win flag when the
-// lord seizes, after which the game runs the ending scene itself (MaybeCallEndEvent).
+// lord seizes, after which the game runs the ending scene itself (MaybeCallEndEvent); Defeat boss is
+// the misc list's DefeatBoss, waiting for the flag the boss's death quote sets. The boss gets an entry
+// of its own at the head of the death-quote list for the chapter's slot (the list is copied to the
+// added area), saying its own vanilla quote, and the replaced chapter's boss entries are dropped so no
+// other boss's fall ends the chapter.
 
 import { characterStatsAtLevel, withBonus } from '../core/combat';
 import { goalProblem, goalWindowText } from '../core/goals';
@@ -22,6 +26,7 @@ import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP,
 import { FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
 import { BASE_LEVEL, BASE_STATS, characterRecord, readCharacterStats } from './fe8-characters';
 import { readClassStats } from './fe8-classes';
+import { ANY, defeatTalkBytes, findDefeatTalkList, readDefeatTalks, type DefeatTalk } from './fe8-death-quotes';
 import { FE8_ITEM_NAMES } from './fe8-item-names';
 import { readChapterMap } from './fe8-maps';
 import { FE8_CLASS_NAMES } from './fe8-names';
@@ -53,6 +58,8 @@ export const ROUT_GOAL_CHAPTER = 10;
  */
 export const SEIZE_THRONE_GOAL_CHAPTER = 3;
 export const SEIZE_GATE_GOAL_CHAPTER = 1;
+/** A vanilla Defeat boss chapter whose objective ("Defeat boss", goal window "Defeat boss") the patch reuses: chapter index 25, Ephraim's chapter 11. */
+export const DEFEAT_BOSS_GOAL_CHAPTER = 25;
 
 /** Event groups' remaining offsets (EVENT_GROUP has the ones the reader uses). */
 const GROUP_SELECT_UNIT = 0x10;
@@ -63,6 +70,7 @@ const GROUP_TRAPS = 0x20;
 const GROUP_TRAPS_HARD = 0x24;
 
 /** Event flags (include/constants/event-flags.h). */
+const EVFLAG_DEFEAT_BOSS = 2;
 const EVFLAG_WIN = 3;
 const EVFLAG_DEFEAT_ALL = 6;
 const EVFLAG_GAMEOVER = 101;
@@ -209,16 +217,34 @@ export function findFlagEvent(rom: GbaRom, list: number, flag: number, maxEntrie
   return null;
 }
 
+/**
+ * The death-quote list for a Defeat boss chapter in `slot`, written into the added area: an entry for
+ * the boss in this slot first, setting EVFLAG_DEFEAT_BOSS and saying the boss's own quote (the replaced
+ * chapter's, or else the boss's first boss quote), then the vanilla list without the replaced
+ * chapter's boss entries. Returns the literal to repoint and the new list's pointer.
+ */
+function bossDeathQuotes(clean: GbaRom, pid: number, slot: number, w: Writer): { literal: number; pointer: number } {
+  const found = findDefeatTalkList(clean);
+  const vanilla = found && readDefeatTalks(clean, found.table);
+  if (!found || !vanilla) throw new Error("This ROM's death quotes aren't where this tool expects them, so it can't make a Defeat boss chapter.");
+  const own = vanilla.find((e) => e.pid === pid && e.chapter === slot);
+  const quote = own ?? vanilla.find((e) => e.pid === pid && e.flag === EVFLAG_DEFEAT_BOSS && e.msg !== 0);
+  const entry: DefeatTalk = { pid, route: ANY, chapter: slot, flag: EVFLAG_DEFEAT_BOSS, msg: quote?.msg ?? 0, event: own?.event ?? 0 };
+  const rest = vanilla.filter((e) => !(e.chapter === slot && e.flag === EVFLAG_DEFEAT_BOSS));
+  return { literal: found.literal, pointer: w.bytes(defeatTalkBytes([entry, ...rest])) };
+}
+
 /** Why the chapter's goal stops the patch from being made, in plain words; null if it doesn't. */
 export function goalBlocker(chapter: ProjectChapter): string | null {
   const problem = goalProblem(chapter);
   if (problem) return problem;
-  if (chapter.goal === 'boss' || chapter.goal === 'survive') return `The ${chapter.goal === 'boss' ? 'Defeat boss' : 'Survive'} goal isn't in the patch yet.`;
+  if (chapter.goal === 'survive') return "The Survive goal isn't in the patch yet.";
   return null;
 }
 
 /** The vanilla chapter whose objective fields the chapter's goal reuses, its goal window text matching test play's. */
 export function goalChapter(clean: GbaRom, chapter: ProjectChapter, source: number): number {
+  if (chapter.goal === 'boss') return DEFEAT_BOSS_GOAL_CHAPTER;
   if (chapter.goal !== 'seize') return ROUT_GOAL_CHAPTER;
   const map = readChapterMap(clean, source);
   const text = goalWindowText({ kind: 'seize', at: chapter.seizeAt ?? null, lord: null }, (x, y) => map?.terrain[y * map.width + x] ?? 0);
@@ -303,8 +329,11 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const emptyList = w.words([LIST_END]);
   const seizeAt = chapter.goal === 'seize' ? chapter.seizeAt : undefined;
   const locationList = seizeAt ? w.words([LIST_LOCA | (EVFLAG_WIN << 16), EVENT_NOSCRIPT, seizeAt[0] | (seizeAt[1] << 8) | (TILE_COMMAND_SEIZE << 16), LIST_END]) : emptyList;
-  const defeatAll = chapter.goal === 'rout' ? [LIST_FLAG | (EVFLAG_WIN << 16), endingScene, EVFLAG_DEFEAT_ALL] : [];
-  const miscList = w.words([...defeatAll, LIST_FLAG, gameOver, EVFLAG_GAMEOVER, LIST_END]);
+  const winOn = chapter.goal === 'rout' ? EVFLAG_DEFEAT_ALL : chapter.goal === 'boss' ? EVFLAG_DEFEAT_BOSS : null;
+  const win = winOn === null ? [] : [LIST_FLAG | (EVFLAG_WIN << 16), endingScene, winOn];
+  const miscList = w.words([...win, LIST_FLAG, gameOver, EVFLAG_GAMEOVER, LIST_END]);
+  const bossId = chapter.goal === 'boss' && chapter.boss ? characters.get(chapter.boss) : undefined;
+  const deathQuotes = bossId === undefined ? null : bossDeathQuotes(clean, bossId, slot, w);
   const noTutorial = w.words([0]);
   const noTraps = w.bytes([0]);
 
@@ -360,6 +389,7 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   bytes.set(w.out, EXPANSION);
   const view = new DataView(bytes.buffer);
   view.setUint32(groupEntry, newGroup, true);
+  if (deathQuotes) view.setUint32(deathQuotes.literal, deathQuotes.pointer, true);
   // Re-encoded game texts first, then the names, which win where a name's text is one of them.
   if (moved) {
     for (const m of moved.texts) view.setUint32(text.table + m.id * 4, m.pointer, true);
