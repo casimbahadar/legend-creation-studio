@@ -113,12 +113,18 @@ export function chapterRules(
     };
   }
 
+  /** The unit's weapons it can use (CanUnitUseWeapon): a silenced unit can't use magic ones. */
+  function weaponsFor(u: PlayUnit, names: readonly string[] = u.items): GameItem[] {
+    return weaponsOf(artByName.get(u.class), names, items).filter((w) => u.status?.kind !== 'silence' || (w.rom.attributes & IA_MAGIC) === 0);
+  }
+
   function preview(unit: PlayUnit, d: PlayUnit, at: readonly [number, number] = unit.at, slot?: number): FightPreview {
     const a = { ...unit, at };
     const dist = distance(a, d);
-    const choices = weaponsOf(artByName.get(a.class), slot === undefined ? a.items : [a.items[slot] ?? ''], items);
+    const choices = weaponsFor(a, slot === undefined ? a.items : [a.items[slot] ?? '']);
     const attackerWeapon = choices.find((w) => inReach(w, dist));
-    const defenderWeapon = weaponsOf(artByName.get(d.class), d.items, items)[0];
+    // A sleeping defender fights with no weapon and can't strike back (SetBattleUnitWeapon).
+    const defenderWeapon = d.status?.kind === 'sleep' ? undefined : weaponsFor(d)[0];
     const attacker = combatantOf(a, attackerWeapon);
     const defender = combatantOf(d, defenderWeapon);
     return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender, attackerItem: itemIndex(a, attackerWeapon), defenderItem: itemIndex(d, defenderWeapon) };
@@ -126,7 +132,7 @@ export function chapterRules(
 
   /** Foes the unit could attack from square `at`, nearest first. */
   function targetsAt(u: PlayUnit, at: readonly [number, number], state: PlayState): PlayUnit[] {
-    const weapons = weaponsOf(artByName.get(u.class), u.items, items);
+    const weapons = weaponsFor(u);
     const from = { ...u, at };
     return state.units
       .filter((o) => o.id !== u.id && areFoes(o.team, u.team) && weapons.some((w) => inReach(w, distance(from, o))))
@@ -177,7 +183,8 @@ export function chapterRules(
     const item = items.find((i) => i.entry.name === u.items[index]);
     const art = artByName.get(u.class);
     const staff = item ? HEAL_STAVES[item.rom.id] : undefined;
-    return item && staff && art && isStaff(item.rom) && usable(art, item) ? { item, ...staff } : null;
+    // CanUnitUseStaff: not while asleep, berserk or silenced.
+    return item && staff && art && isStaff(item.rom) && usable(art, item) && !u.status ? { item, ...staff } : null;
   }
 
   const rules: PlayRules = {
@@ -196,8 +203,8 @@ export function chapterRules(
       return u.items.flatMap((name, item): AiItem[] => {
         const it = items.find((i) => i.entry.name === name);
         if (!it || !usable(art, it)) return [];
-        if (isStaff(it.rom)) return [{ item, staff: true, might: 0, min: it.rom.minRange, max: it.rom.maxRange }];
-        return weaponsOf(art, [name], items).length ? [{ item, staff: false, might: it.rom.might, min: it.rom.minRange, max: it.rom.maxRange }] : [];
+        if (isStaff(it.rom)) return u.status ? [] : [{ item, staff: true, might: 0, min: it.rom.minRange, max: it.rom.maxRange }];
+        return weaponsFor(u, [name]).length ? [{ item, staff: false, might: it.rom.might, min: it.rom.minRange, max: it.rom.maxRange }] : [];
       });
     },
     forecastWith: (u, at, item, target) => preview(u, target, at, item).forecast,
@@ -214,7 +221,7 @@ export function chapterRules(
       const rank = item ? AI_STEAL_PRIORITY.indexOf(item.rom.id) : -1;
       return rank < 0 ? null : rank;
     },
-    carriesMagic: (u) => weaponsOf(artByName.get(u.class), u.items, items).some((w) => (w.rom.attributes & IA_MAGIC) !== 0),
+    carriesMagic: (u) => weaponsFor(u).some((w) => (w.rom.attributes & IA_MAGIC) !== 0),
     healStaves: (u) =>
       u.items.flatMap((_, index) => {
         const staff = healStaff(u, index);
@@ -239,7 +246,7 @@ export function chapterRules(
       const art = artByName.get(u.class);
       const choices: { item: number; targets: string[] }[] = [];
       u.items.forEach((name, item) => {
-        const [weapon] = weaponsOf(art, [name], items);
+        const [weapon] = weaponsFor(u, [name]);
         if (!weapon) return;
         const targets = state.units
           .filter((o) => o.id !== u.id && areFoes(o.team, u.team) && inReach(weapon, distance(u, o)))
@@ -288,7 +295,7 @@ export function chapterRules(
     itemUse: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);
       const art = artByName.get(u.class);
-      const equip = !!item && weaponsOf(art, [item.entry.name], items).length > 0;
+      const equip = !!item && weaponsFor(u, [item.entry.name]).length > 0;
       const use: ItemUse = { equip, heal: item ? (HEAL_ITEMS[item.rom.id] ?? 0) : 0 };
       const b = item && BOOSTERS.has(item.rom.id) ? item.rom.statBonuses : null;
       if (!b || !art) return use;

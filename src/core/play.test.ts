@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBattle, areFoes, endTurn, finishAction, moveUnit, outcomeOf, spendUses, startPlay, unitAt } from './play';
+import { applyBattle, areFoes, cannotAct, endTurn, finishAction, moveUnit, outcomeOf, setStatus, spendUses, startPlay, tickStatuses, unitAt } from './play';
 import type { Stats } from './combat';
 import type { ProjectChapter } from './project';
 
@@ -67,5 +67,27 @@ describe('play session', () => {
     expect(lost).toMatchObject({ result: 'defeat', fallen: { id: 'eirika' } });
     const unmarked = startPlay(chapter, statsOf);
     expect(outcomeOf(applyBattle(unmarked, 'brigand-1', 'eirika', 18, 0))).toEqual({ result: 'defeat', fallen: null });
+  });
+});
+
+describe('statuses', () => {
+  it("last five of the unit's own phases: each start takes one off, and the fifth ends it", () => {
+    let s = setStatus(startPlay(chapter, statsOf), 'eirika', 'sleep');
+    expect(unitAt(s, 1, 1)?.status).toEqual({ kind: 'sleep', turns: 5 });
+    s = tickStatuses(s, 'enemy');
+    expect(unitAt(s, 1, 1)?.status?.turns).toBe(5);
+    for (const left of [4, 3, 2, 1]) {
+      s = tickStatuses(s, 'player');
+      expect(unitAt(s, 1, 1)?.status).toEqual({ kind: 'sleep', turns: left });
+    }
+    s = tickStatuses(s, 'player');
+    expect(unitAt(s, 1, 1)).not.toHaveProperty('status');
+  });
+
+  it('keeps asleep and berserk units from acting, but not silenced ones', () => {
+    const s = startPlay(chapter, statsOf);
+    expect(cannotAct(unitAt(setStatus(s, 'eirika', 'sleep'), 1, 1)!)).toBe(true);
+    expect(cannotAct(unitAt(setStatus(s, 'eirika', 'berserk'), 1, 1)!)).toBe(true);
+    expect(cannotAct(unitAt(setStatus(s, 'eirika', 'silence'), 1, 1)!)).toBe(false);
   });
 });

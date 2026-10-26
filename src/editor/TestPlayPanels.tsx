@@ -4,7 +4,7 @@
 import { Fragment, useContext, type CSSProperties, type ReactNode } from 'react';
 import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
-import type { PlayState, PlayUnit } from '../core/play';
+import { cannotAct, type PlayState, type PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
 import type { StatGains } from '../core/experience';
 import { levelUpAt } from '../core/battle-anim';
@@ -47,7 +47,8 @@ export function PlayHint({
   label: (u: PlayUnit) => string;
 }) {
   const yours = play.units.filter((u) => u.team === 'player');
-  const allMoved = yours.length > 0 && yours.every((u) => u.moved);
+  // Units asleep or berserk can't act, as FE8 counts (GetPhaseAbleUnitCount).
+  const allMoved = yours.length > 0 && yours.every((u) => u.moved || cannotAct(u));
   let hint: string;
   if (phase === 'over') hint = 'The chapter is over.';
   else if (phase === 'enemy') hint = 'Enemy phase: the enemies are moving.';

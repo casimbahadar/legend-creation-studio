@@ -12,7 +12,7 @@ export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, discardItem, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, boostUnit, cannotAct, discardItem, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -198,9 +198,9 @@ export function selectedUnit(view: PlayView): PlayUnit | undefined {
   return unitById(view.state, view.selected);
 }
 
-/** A player unit that hasn't acted this turn can be moved; anything else only shows its range. */
+/** A player unit that hasn't acted this turn, and isn't asleep or berserk, can be moved; anything else only shows its range. */
 export function canMove(unit: PlayUnit | undefined): boolean {
-  return !!unit && unit.team === 'player' && !unit.moved;
+  return !!unit && unit.team === 'player' && !unit.moved && !cannotAct(unit);
 }
 
 /** Player input is ignored while a unit walks, a battle plays, a banner shows, or the computer has the turn. */
@@ -614,10 +614,13 @@ function markHealing(state: PlayState, team: PlayUnit['team']): PlayState {
   return { ...state, units: state.units.map((u) => (u.team !== team || isHealing(u) === !!u.healing ? u : { ...u, healing: isHealing(u) })) };
 }
 
-/** A computer phase's start: its units' healing settings, then their order (UpdateAllPhaseHealingAIStatus, CpOrder). */
+/**
+ * A computer phase's start: its units' statuses tick (TickActiveFactionTurn), their healing settings
+ * update, then their order, leaving out units asleep or berserk (UpdateAllPhaseHealingAIStatus, CpOrder).
+ */
 function phaseQueue(state: PlayState, team: PlayUnit['team'], rules: PlayRules): { state: PlayState; queue: string[] } {
-  const marked = markHealing(state, team);
-  return { state: marked, queue: phaseOrder(marked.units.filter((u) => u.team === team), marked, rules) };
+  const marked = markHealing(tickStatuses(state, team), team);
+  return { state: marked, queue: phaseOrder(marked.units.filter((u) => u.team === team && !cannotAct(u)), marked, rules) };
 }
 
 /** End turn: every unit is ready again and the enemy phase begins. */
@@ -641,7 +644,7 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
       const { state, queue } = phaseQueue(readyAll(view.state), 'ally', rules);
       return { ...view, state, phase: 'ally', queue, banner: queue.length ? 'ally' : null };
     }
-    const state = endTurn(view.state);
+    const state = tickStatuses(endTurn(view.state), 'player');
     const first = state.units.find((u) => u.team === 'player');
     // A Survive goal is won as the turn after the last begins.
     const outcome = outcomeOf(state);

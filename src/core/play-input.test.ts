@@ -265,6 +265,33 @@ describe('enemy and ally phases', () => {
     expect(get('brigand-1')).toMatchObject({ items: ['iron-axe', 'vulnerary'], uses: [45, 3], moved: true, at: [2, 1] });
   });
 
+  it('leaves asleep units out of their phase, their status ticking as it begins', () => {
+    const v = start([4, 0], [{ id: 'brigand-2', class: 'brigand', team: 'enemy', level: 1, at: [4, 2] }]);
+    const asleep = (turns1: number, turns2: number): PlayView => ({
+      ...v,
+      state: {
+        ...v.state,
+        units: v.state.units.map((u) =>
+          u.id === 'brigand-1' ? { ...u, status: { kind: 'sleep' as const, turns: turns1 } } : u.id === 'brigand-2' ? { ...u, status: { kind: 'sleep' as const, turns: turns2 } } : u,
+        ),
+      },
+    });
+    // brigand-1 wakes as the phase begins; brigand-2 sleeps on.
+    const phase = endPlayerTurn(asleep(1, 2), rules);
+    expect(phase.queue).toEqual(['brigand-1']);
+    expect(phase.state.units.find((u) => u.id === 'brigand-1')).not.toHaveProperty('status');
+    expect(phase.state.units.find((u) => u.id === 'brigand-2')?.status).toEqual({ kind: 'sleep', turns: 1 });
+  });
+
+  it("can't select an asleep player unit to move, and ticks its status as the player phase begins", () => {
+    const v = start([4, 0]);
+    const asleep: PlayView = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, status: { kind: 'sleep' as const, turns: 2 } } : u)) } };
+    expect(canMove(eirika(asleep))).toBe(false);
+    let w = endPlayerTurn(asleep, rules);
+    while (w.phase !== 'player') w = stepAI(w.walking ? finishWalk(w, rules) : w.battle ? finishBattle(w) : w, rules);
+    expect(eirika(w).status).toEqual({ kind: 'sleep', turns: 1 });
+  });
+
   it("doesn't end the turn in the middle of an action", () => {
     const menu = moveRight(start());
     expect(endPlayerTurn(menu, rules)).toBe(menu);

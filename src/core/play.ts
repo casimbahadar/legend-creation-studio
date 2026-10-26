@@ -31,7 +31,21 @@ export interface PlayUnit {
   readonly moved: boolean;
   /** For computer-controlled units: whether it is set on healing itself (see ai.ts); not if left out. */
   readonly healing?: boolean;
+  /** A status from a staff, if any. */
+  readonly status?: Status;
 }
+
+/** The statuses staves give (UNIT_STATUS_SLEEP, UNIT_STATUS_SILENCED, UNIT_STATUS_BERSERK). */
+export type StatusKind = 'sleep' | 'silence' | 'berserk';
+
+/** A status and how many more of the unit's own phases begin before it wears off (statusDuration). */
+export interface Status {
+  readonly kind: StatusKind;
+  readonly turns: number;
+}
+
+/** How long a status lasts (SetUnitStatus). */
+export const STATUS_TURNS = 5;
 
 export interface PlayState {
   readonly turn: number;
@@ -248,6 +262,30 @@ export function outcomeOf(state: PlayState): Outcome | null {
 /** The lord seizes: the unit is done and the chapter is won. */
 export function seize(state: PlayState, id: string): PlayState {
   return { ...finishAction(state, id), seized: true };
+}
+
+/** A unit gets a status, lasting STATUS_TURNS of its own phases (SetUnitStatus). */
+export function setStatus(state: PlayState, id: string, kind: StatusKind): PlayState {
+  return { ...state, units: state.units.map((u) => (u.id === id ? { ...u, status: { kind, turns: STATUS_TURNS } } : u)) };
+}
+
+/** The start of a team's phase (TickActiveFactionTurn): each of its statuses has a phase less left, and goes at none. */
+export function tickStatuses(state: PlayState, team: PlayUnit['team']): PlayState {
+  return {
+    ...state,
+    units: state.units.map((u) => {
+      if (u.team !== team || !u.status) return u;
+      const turns = u.status.turns - 1;
+      if (turns > 0) return { ...u, status: { ...u.status, turns } };
+      const { status: _gone, ...rest } = u;
+      return rest;
+    }),
+  };
+}
+
+/** Asleep or berserk units don't act in their side's phase (BuildAiUnitList; the player can't select them). */
+export function cannotAct(unit: PlayUnit): boolean {
+  return unit.status?.kind === 'sleep' || unit.status?.kind === 'berserk';
 }
 
 /** Every unit ready to act again, as at the start of each phase in FE. */
