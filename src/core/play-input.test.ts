@@ -56,11 +56,16 @@ const rules: PlayRules = {
       return !o ? null : (o.team === 'enemy') !== (u.team === 'enemy') ? 'foe' : 'friend';
     }),
   targetsOf: (u, s) => foesNextTo(u, u.at, s).map((o) => o.id),
-  targetsAt: foesNextTo,
-  forecastAt: () => ({
+  // The AI's view: every unit fights with a might-5 weapon reaching 1 square, as its item 0.
+  costMapFrom: (_u, from) => searchMoves({ width: 5, height: 3, terrain: new Array(15).fill(0) }, () => 1, 124, [from % 5, Math.floor(from / 5)], () => null).reached,
+  aiItems: () => [{ item: 0, staff: false, might: 5, min: 1, max: 1 }],
+  forecastWith: () => ({
     attacker: { canAttack: true, damage: 99, hit: 100, crit: 0, doubles: false, attackSpeed: 5 },
     defender: { canAttack: true, damage: 1, hit: 100, crit: 0, doubles: false, attackSpeed: 5 },
   }),
+  terrainScore: () => 0,
+  terrainAt: () => 0,
+  isLord: () => false,
   fight: (a) => ({ strikes: [{ by: 'attacker', hit: true, crit: false, damage: 99, attackerHp: a.hp, defenderHp: 0, used: true }], attackerItem: null, defenderItem: null }),
 };
 const eirika = (v: PlayView) => v.state.units.find((u) => u.id === 'eirika')!;
@@ -211,7 +216,7 @@ describe('attacking', () => {
 describe('enemy and ally phases', () => {
   it('runs the enemy phase after End turn, then hands back to the player', () => {
     // The brigand at (3,1) can step to (2,1), next to Eirika at (1,1), and attack.
-    let v = endPlayerTurn(start([3, 1], [SETH]));
+    let v = endPlayerTurn(start([3, 1], [SETH]), rules);
     expect(v).toMatchObject({ phase: 'enemy', banner: 'enemy', queue: ['brigand-1'] });
     expect(moveCursor(v, 1, 0, rules)).toBe(v);
     v = stepAI(v, rules); // banner cleared
@@ -234,7 +239,7 @@ describe('enemy and ally phases', () => {
   });
 
   it('lets an enemy with nothing in reach wait where it is', () => {
-    let v = stepAI(endPlayerTurn(start([4, 0])), rules);
+    let v = stepAI(endPlayerTurn(start([4, 0]), rules), rules);
     v = stepAI(v, rules);
     expect(v.walking).toBeNull();
     expect(v.battle).toBeNull();
@@ -243,7 +248,7 @@ describe('enemy and ally phases', () => {
 
   it("doesn't end the turn in the middle of an action", () => {
     const menu = moveRight(start());
-    expect(endPlayerTurn(menu)).toBe(menu);
+    expect(endPlayerTurn(menu, rules)).toBe(menu);
   });
 });
 
@@ -254,12 +259,12 @@ describe('winning and losing', () => {
     v = finishBattle(pressA(v, rules));
     expect(v.outcome).toEqual({ result: 'victory' });
     expect(moveCursor(v, 1, 0, rules)).toBe(v);
-    expect(endPlayerTurn(v)).toBe(v);
+    expect(endPlayerTurn(v, rules)).toBe(v);
     expect(stepAI(v, rules)).toBe(v);
   });
 
   it('loses when the enemy defeats the last player unit, stopping the enemy phase', () => {
-    let v = stepAI(stepAI(endPlayerTurn(start([3, 1])), rules), rules);
+    let v = stepAI(stepAI(endPlayerTurn(start([3, 1]), rules), rules), rules);
     v = finishBattle(finishWalk(v, rules));
     expect(v.outcome).toEqual({ result: 'defeat', fallen: null });
     expect(stepAI(v, rules)).toBe(v);
@@ -395,8 +400,8 @@ describe('healing with a staff', () => {
     expect(pressB(choosing, staffRules).action).toMatchObject({ kind: 'menu', index: 0 });
   });
 
-  it("lets the computer's healers heal their side", () => {
-    // The brigand carries a staff; a second, hurt brigand stands next to it.
+  it("lets the computer's healers heal allies set on healing", () => {
+    // The brigand carries a staff; a second brigand, under half its HP, stands below it.
     const v = start([4, 0], [{ id: 'brigand-2', class: 'brigand', team: 'enemy', level: 1, at: [4, 1] }]);
     const set: PlayView = {
       ...v,
@@ -404,12 +409,15 @@ describe('healing with a staff', () => {
     };
     const enemyRules: PlayRules = {
       ...staffRules,
-      staffChoices: (u, s) => {
-        const hurt = s.units.filter((o) => o.id !== u.id && o.team === u.team && o.hp < o.stats.hp && Math.abs(o.at[0] - u.at[0]) + Math.abs(o.at[1] - u.at[1]) === 1);
-        return u.items[0] === 'heal' && hurt.length ? [{ item: 0, targets: hurt.map((o) => o.id), heal: 10 }] : [];
-      },
+      aiItems: (u) => (u.items[0] === 'heal' ? [{ item: 0, staff: true, might: 0, min: 1, max: 1 }] : rules.aiItems(u)),
+      healStaves: (u) => (u.items[0] === 'heal' ? [{ item: 0, heal: 10, physic: false, reach: 1, rank: 1 }] : []),
     };
-    const acting = stepAI(stepAI(endPlayerTurn(set), enemyRules), enemyRules);
+    // The hurt brigand, set on healing, acts first (its priority is only its movement) and waits; then
+    // the healer heals it from where it stands, its only square beside it within its 1 movement.
+    let acting = endPlayerTurn(set, enemyRules);
+    expect(acting.queue).toEqual(['brigand-2', 'brigand-1']);
+    acting = stepAI(stepAI(stepAI(acting, enemyRules), enemyRules), enemyRules);
+    expect(acting.walking).toBeNull();
     expect(acting.battle).toMatchObject({ attacker: 'brigand-1', defender: 'brigand-2', heal: 10 });
     const after = finishBattle(acting);
     expect(after.state.units.find((u) => u.id === 'brigand-2')!.hp).toBe(14);
@@ -423,9 +431,8 @@ describe('healing with a staff', () => {
     const healRules: PlayRules = {
       ...rules,
       selfHealItem: (u) => (u.items[0] === 'vulnerary' ? { item: 0, heal: 10 } : null),
-      threatOf: (foe, s) => ({ power: 5, mov: 1, weapons: [{ might: 5, min: 1, max: 1 }], reached: rules.searchOf(foe, s).reached.keys() }),
     };
-    let w = stepAI(stepAI(endPlayerTurn(hurt), healRules), healRules);
+    let w = stepAI(stepAI(endPlayerTurn(hurt, rules), healRules), healRules);
     // From (2,1) it reaches (2,0), (2,2) and (3,1), all within Eirika's strike but (3,1).
     expect(w.walking).toMatchObject({ id: 'brigand-1', route: [7, 8], thenUse: { item: 0, heal: 10 } });
     w = finishWalk(w, healRules);
@@ -526,7 +533,7 @@ describe('chapter goals', () => {
     let v = view(chapter({ goal: 'survive', surviveTurns: 2 }));
     for (let turn = 1; turn <= 2; turn++) {
       expect(v.outcome).toBeNull();
-      v = endPlayerTurn(v);
+      v = endPlayerTurn(v, rules);
       while ((v.phase !== 'player' || v.banner) && !v.outcome) v = stepAI(v, rules);
     }
     expect(v.state.turn).toBe(3);

@@ -6,12 +6,13 @@ import { forecast, hpCapFor, resolveBattle, withinCaps, type Combatant, type For
 import { addExp, expGain, rollLevelUp, staffExp, type ExpProfile } from '../core/experience';
 import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, unitAt, type PlayState, type PlayUnit } from '../core/play';
+import type { AiItem } from '../core/ai';
 import type { ExpAward, ItemUse, PlayRules, StaffChoice } from '../core/play-input';
 import type { RomCharacter } from '../rom/fe8-characters';
-import { CA_BOSS, CA_MAXLEVEL10, CA_PROMOTED, CA_THIEF } from '../rom/fe8-classes';
+import { CA_BOSS, CA_LORD, CA_MAXLEVEL10, CA_PROMOTED, CA_THIEF } from '../rom/fe8-classes';
 import { isStaff } from '../rom/fe8-items';
 import type { ChapterMap } from '../rom/fe8-maps';
-import { distance, inReach, toWeapon, usable, weaponsOf, type ClassArt, type GameItem } from './catalog';
+import { distance, IA_MAGIC, inReach, toWeapon, usable, weaponsOf, type ClassArt, type GameItem } from './catalog';
 
 export interface FightPreview {
   readonly forecast: Forecast;
@@ -98,10 +99,11 @@ export function chapterRules(
     };
   }
 
-  function preview(unit: PlayUnit, d: PlayUnit, at: readonly [number, number] = unit.at): FightPreview {
+  function preview(unit: PlayUnit, d: PlayUnit, at: readonly [number, number] = unit.at, slot?: number): FightPreview {
     const a = { ...unit, at };
     const dist = distance(a, d);
-    const attackerWeapon = weaponsOf(artByName.get(a.class), a.items, items).find((w) => inReach(w, dist));
+    const choices = weaponsOf(artByName.get(a.class), slot === undefined ? a.items : [a.items[slot] ?? ''], items);
+    const attackerWeapon = choices.find((w) => inReach(w, dist));
     const defenderWeapon = weaponsOf(artByName.get(d.class), d.items, items)[0];
     const attacker = combatantOf(a, attackerWeapon);
     const defender = combatantOf(d, defenderWeapon);
@@ -168,9 +170,37 @@ export function chapterRules(
     width: map.width,
     height: map.height,
     searchOf,
-    targetsAt,
     targetsOf: (u, state) => targetsAt(u, u.at, state).map((o) => o.id),
-    forecastAt: (u, at, target) => preview(u, target, at).forecast,
+    costMapFrom: (u, from) => {
+      const art = artByName.get(u.class);
+      const costs = art?.moveCosts;
+      return searchMoves(map, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), 124, [from % map.width, Math.floor(from / map.width)], () => null).reached;
+    },
+    aiItems: (u) => {
+      const art = artByName.get(u.class);
+      if (!art) return [];
+      return u.items.flatMap((name, item): AiItem[] => {
+        const it = items.find((i) => i.entry.name === name);
+        if (!it || !usable(art, it)) return [];
+        if (isStaff(it.rom)) return [{ item, staff: true, might: 0, min: it.rom.minRange, max: it.rom.maxRange }];
+        return weaponsOf(art, [name], items).length ? [{ item, staff: false, might: it.rom.might, min: it.rom.minRange, max: it.rom.maxRange }] : [];
+      });
+    },
+    forecastWith: (u, at, item, target) => preview(u, target, at, item).forecast,
+    terrainScore: (u, cell) => {
+      const art = artByName.get(u.class);
+      const t = map.terrain[cell] ?? 0;
+      return (art?.terrainAvoid?.[t] ?? 0) + (art?.terrainDef?.[t] ?? 0) + (art?.terrainRes?.[t] ?? 0);
+    },
+    terrainAt: (cell) => map.terrain[cell] ?? 0,
+    isLord: (u) => (((artByName.get(u.class)?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0)) & CA_LORD) !== 0,
+    carriesMagic: (u) => weaponsOf(artByName.get(u.class), u.items, items).some((w) => (w.rom.attributes & IA_MAGIC) !== 0),
+    healStaves: (u) =>
+      u.items.flatMap((_, index) => {
+        const staff = healStaff(u, index);
+        if (!staff) return [];
+        return [{ item: index, heal: Math.min(80, staff.heal + u.stats.str), physic: staff.physic, reach: staff.physic ? Math.max(5, Math.floor(u.stats.str / 2)) : 1, rank: staff.item.rom.rank }];
+      }),
     fight: (a, d) => {
       const f = preview(a, d);
       return { strikes: resolveBattle(f.attacker, f.defender, f.forecast, rn), attackerItem: f.attackerItem, defenderItem: f.defenderItem };
@@ -213,15 +243,6 @@ export function chapterRules(
         if (item && SELF_HEAL_ITEMS.has(item.rom.id)) return { item: index, heal: HEAL_ITEMS[item.rom.id]! };
       }
       return null;
-    },
-    threatOf: (foe, state) => {
-      const search = searchOf(foe, state);
-      return {
-        power: foe.stats.str,
-        mov: search.mov,
-        weapons: weaponsOf(artByName.get(foe.class), foe.items, items).map((w) => ({ might: w.rom.might, min: w.rom.minRange, max: w.rom.maxRange })),
-        reached: search.reached.keys(),
-      };
     },
     staffExperience: (u, index) => {
       const staff = healStaff(u, index);

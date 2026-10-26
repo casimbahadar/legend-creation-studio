@@ -198,6 +198,26 @@ export function resolveBattle(attacker: Combatant, defender: Combatant, f: Forec
   return strikes;
 }
 
+/**
+ * The HP after a fight as FE8's AI simulates it (BattleGenerateSimulation): every strike lands, even
+ * at 0% hit, and none is critical, in the same order as resolveBattle, stopping when one side falls.
+ */
+export function simulateAllHits(f: Forecast, attackerHp: number, defenderHp: number): { attackerHp: number; defenderHp: number } {
+  let hpA = attackerHp;
+  let hpD = defenderHp;
+  const order: ('attacker' | 'defender')[] = ['attacker', 'defender'];
+  if (f.attacker.doubles) order.push('attacker');
+  else if (f.defender.doubles) order.push('defender');
+  for (const by of order) {
+    if (hpA <= 0 || hpD <= 0) break;
+    const s = by === 'attacker' ? f.attacker : f.defender;
+    if (!s.canAttack) continue;
+    if (by === 'attacker') hpD = Math.max(0, hpD - s.damage);
+    else hpA = Math.max(0, hpA - s.damage);
+  }
+  return { attackerHp: hpA, defenderHp: hpD };
+}
+
 /** A seedable random number generator returning whole numbers 0 to 99 (mulberry32). */
 export function randomNumbers(seed: number): () => number {
   let t = seed >>> 0;

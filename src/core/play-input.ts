@@ -5,7 +5,7 @@
 // then the ally phase (decision 24), each unit acting by its behaviour, one step at a time through
 // stepAI.
 
-import { isHealing, planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
+import { isHealing, phaseOrder, planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
 import { MAX_ITEMS } from './project';
 
 export type { StaffChoice } from './ai';
@@ -524,13 +524,23 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   return { ...done, state: finishAction(view.state, w.id), cursor: unit ? unit.at : view.cursor };
 }
 
-const idsOf = (state: PlayState, team: PlayUnit['team']) => state.units.filter((u) => u.team === team).map((u) => u.id);
+
+/** Every unit of `team` with its healing setting brought up to date (isHealing). */
+function markHealing(state: PlayState, team: PlayUnit['team']): PlayState {
+  return { ...state, units: state.units.map((u) => (u.team !== team || isHealing(u) === !!u.healing ? u : { ...u, healing: isHealing(u) })) };
+}
+
+/** A computer phase's start: its units' healing settings, then their order (UpdateAllPhaseHealingAIStatus, CpOrder). */
+function phaseQueue(state: PlayState, team: PlayUnit['team'], rules: PlayRules): { state: PlayState; queue: string[] } {
+  const marked = markHealing(state, team);
+  return { state: marked, queue: phaseOrder(marked.units.filter((u) => u.team === team), marked, rules) };
+}
 
 /** End turn: every unit is ready again and the enemy phase begins. */
-export function endPlayerTurn(view: PlayView): PlayView {
+export function endPlayerTurn(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view) || view.action) return view;
-  const state = readyAll(view.state);
-  return { ...view, state, selected: null, route: null, phase: 'enemy', queue: idsOf(state, 'enemy'), banner: 'enemy' };
+  const { state, queue } = phaseQueue(readyAll(view.state), 'enemy', rules);
+  return { ...view, state, selected: null, route: null, phase: 'enemy', queue, banner: 'enemy' };
 }
 
 /**
@@ -544,9 +554,8 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   const [next, ...rest] = view.queue;
   if (next === undefined) {
     if (view.phase === 'enemy') {
-      const state = readyAll(view.state);
-      const allies = idsOf(state, 'ally');
-      return { ...view, state, phase: 'ally', queue: allies, banner: allies.length ? 'ally' : null };
+      const { state, queue } = phaseQueue(readyAll(view.state), 'ally', rules);
+      return { ...view, state, phase: 'ally', queue, banner: queue.length ? 'ally' : null };
     }
     const state = endTurn(view.state);
     const first = state.units.find((u) => u.team === 'player');
@@ -556,22 +565,23 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   }
   const before = unitById(view.state, next);
   if (!before) return { ...view, queue: rest };
-  // Whether it is set on healing itself carries over from turn to turn, as FE8's AI flag does.
-  const healing = isHealing(before);
-  const marked = healing === !!before.healing ? view.state : { ...view.state, units: view.state.units.map((u) => (u.id === before.id ? { ...u, healing } : u)) };
-  const unit = unitById(marked, next)!;
-  const plan = planAction(unit, marked, rules);
+  // FE8 updates its side's healing settings before each unit decides (UpdateAllPhaseHealingAIStatus).
+  const marked = markHealing(view.state, before.team);
+  const plan = planAction(unitById(marked, next)!, marked, rules);
+  // The weapon it attacks with is equipped, as FE8's action does.
+  const armed = plan.attack && plan.attackItem !== undefined ? equipItem(marked, next, plan.attackItem) : marked;
+  const unit = unitById(armed, next)!;
   const start = unit.at[1] * rules.width + unit.at[0];
   if (plan.to !== start) {
     const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
-    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(marked, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem } };
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem } };
   }
   if (plan.useItem) return { ...view, queue: rest, cursor: unit.at, state: finishAction(useHealItem(marked, unit.id, plan.useItem.item, plan.useItem.heal), unit.id) };
-  const ally = unitById(marked, plan.heal?.target ?? null);
-  if (ally && plan.heal) return { ...view, state: marked, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
-  const target = unitById(marked, plan.attack);
-  if (target) return { ...view, state: marked, queue: rest, cursor: unit.at, battle: startBattle(unit, target, marked, rules) };
-  return { ...view, queue: rest, cursor: unit.at, state: finishAction(marked, unit.id) };
+  const ally = unitById(armed, plan.heal?.target ?? null);
+  if (ally && plan.heal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
+  const target = unitById(armed, plan.attack);
+  if (target) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: startBattle(unit, target, armed, rules) };
+  return { ...view, queue: rest, cursor: unit.at, state: finishAction(armed, unit.id) };
 }
 
 /** The weapons that broke in a fight: each side's item that ran out of uses (GetItemAfterUse leaves none). */

@@ -158,7 +158,7 @@ export function toWeapon(item: GameItem): Weapon {
   };
 }
 
-const IA_MAGIC = 1 << 1;
+export const IA_MAGIC = 1 << 1;
 const IA_UNBREAKABLE = 1 << 3;
 const IA_UNCOUNTERABLE = 1 << 7;
 

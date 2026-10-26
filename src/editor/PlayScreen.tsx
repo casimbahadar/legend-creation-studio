@@ -635,7 +635,7 @@ export function PlayScreen({
         onDirection={(dx, dy) => setView((v) => moveCursor(v, dx, dy, rules))}
         onA={() => onAPress.current()}
         onB={() => setView((v) => pressB(v, rules))}
-        extra={[{ label: 'End turn', onPress: () => setView((v) => endPlayerTurn(v)), disabled: phase !== null }]}
+        extra={[{ label: 'End turn', onPress: () => setView((v) => endPlayerTurn(v, rules)), disabled: phase !== null }]}
       />
       <PlayHint play={play} selected={selectedUnit} canMove={canMove} phase={phase} label={(u) => artByName.get(u.class)?.entry.label ?? u.class} />
       <p className="note">
