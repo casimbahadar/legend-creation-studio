@@ -34,6 +34,29 @@ export interface RomItem {
   readonly rank: number;
   /** Price of one use (costPerUse); staff experience depends on it. */
   readonly costPerUse: number;
+  /** The stats it adds (pStatBonuses): a booster's for good when used, a weapon's while held; null for none. */
+  readonly statBonuses: ItemStatBonuses | null;
+}
+
+/** ItemStatBonuses in the decompilation's include/bmitem.h. */
+export interface ItemStatBonuses {
+  readonly hp: number;
+  readonly str: number;
+  readonly skl: number;
+  readonly spd: number;
+  readonly def: number;
+  readonly res: number;
+  readonly lck: number;
+  readonly mov: number;
+  readonly con: number;
+}
+
+function readStatBonuses(rom: GbaRom, pointer: number): ItemStatBonuses | null {
+  if (!rom.isPointer(pointer)) return null;
+  const a = rom.offsetOf(pointer);
+  if (a + 9 > rom.size) return null;
+  const b = (k: number) => (rom.u8(a + k) << 24) >> 24;
+  return { hp: b(0), str: b(1), skl: b(2), spd: b(3), def: b(4), res: b(5), lck: b(6), mov: b(7), con: b(8) };
 }
 
 /** Offset of the item table, found by its numbered records, or null. */
@@ -70,6 +93,7 @@ export function readItems(rom: GbaRom, text: TextTable, table: number): RomItem[
       maxRange: range & 15,
       rank: rom.u8(a + 0x1c),
       costPerUse: rom.u16(a + 0x1a),
+      statBonuses: readStatBonuses(rom, rom.u32(a + 0x0c)),
     });
   }
   return out;

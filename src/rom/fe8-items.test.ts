@@ -20,6 +20,10 @@ function romWithItems(table: number, count: number) {
   bytes[b + 7] = 4;
   view.setUint32(b + 8, 5, true);
   bytes[b + 0x19] = 0x12;
+  // Its stat bonuses: HP +7, Skl -1, Con +2.
+  const bonuses = table + (count + 1) * ITEM_STRIDE;
+  bytes.set([7, 0, 0xff, 0, 0, 0, 0, 0, 2], bonuses);
+  view.setUint32(b + 0x0c, ROM_BASE + bonuses, true);
   const strings = 0x10;
   bytes.set([...'Iron Sword'].map((c) => c.charCodeAt(0)).concat(0x1f, 0), strings);
   view.setUint32(0x40 + 4, (ROM_BASE + strings) | 0x80000000, true);
@@ -56,8 +60,10 @@ describe('FE8 items', () => {
       maxRange: 1,
       rank: 1,
       costPerUse: 10,
+      statBonuses: null,
     });
     expect(isWeapon(items[0]!)).toBe(true);
+    expect(items[1]!.statBonuses).toEqual({ hp: 7, str: 0, skl: -1, spd: 0, def: 0, res: 0, lck: 0, mov: 0, con: 2 });
     expect(isStaff(items[1]!)).toBe(true);
     expect([items[1]!.minRange, items[1]!.maxRange]).toEqual([1, 2]);
   });
