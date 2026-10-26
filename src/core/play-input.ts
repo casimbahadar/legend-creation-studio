@@ -6,16 +6,17 @@
 // stepAI.
 
 import { planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
+import { MAX_ITEMS } from './project';
 
 export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, discardItem, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, boostUnit, discardItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
-export type MenuOption = 'attack' | 'staff' | 'item' | 'wait';
+export type MenuOption = 'attack' | 'staff' | 'item' | 'trade' | 'wait';
 
 /** What can be done with one item, as in FE8's item menu. */
 export type ItemOption = 'equip' | 'use' | 'discard';
@@ -32,8 +33,8 @@ export interface ItemUse {
 }
 
 export type Action =
-  /** The action menu for a unit that has just moved from `from`. */
-  | { readonly kind: 'menu'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
+  /** The action menu for a unit that has just moved from `from`; once it has traded (`locked`) the move can't be taken back. */
+  | { readonly kind: 'menu'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number; readonly locked?: boolean }
   /** Choosing which enemy to attack, or with `staff`, which ally to heal with that item. */
   | {
       readonly kind: 'target';
@@ -42,6 +43,22 @@ export type Action =
       readonly targets: readonly string[];
       readonly index: number;
       readonly staff?: StaffChoice;
+      /** Choosing whom to trade with instead. */
+      readonly trade?: boolean;
+      readonly locked?: boolean;
+    }
+  /**
+   * Trading with `partner`: slots 0 to 3 are the unit's items, 4 to 7 the partner's (an empty slot past
+   * the last item takes one); `picked` is the slot chosen to move, if any.
+   */
+  | {
+      readonly kind: 'trade';
+      readonly unit: string;
+      readonly from: readonly [number, number];
+      readonly partner: string;
+      readonly index: number;
+      readonly picked: number | null;
+      readonly locked?: boolean;
     }
   /** Choosing which weapon to attack with (or with `staff`, which staff to heal with), `index` highlighted among the choices. */
   | { readonly kind: 'weapon'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number; readonly staff?: boolean }
@@ -168,8 +185,42 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
   if (rules.targetsOf(unit, view.state).length) options.push('attack');
   if (rules.staffChoices?.(unit, view.state).length) options.push('staff');
   if (unit.items.length) options.push('item');
+  if (tradePartners(view.state, unit).length) options.push('trade');
   options.push('wait');
   return options;
+}
+
+/** Units the unit can trade with (TryAddUnitToTradeTargetList): next to it, on its side, one of the two carrying something. */
+export function tradePartners(state: PlayState, unit: PlayUnit): string[] {
+  return state.units
+    .filter((o) => o.id !== unit.id && o.team === unit.team && Math.abs(o.at[0] - unit.at[0]) + Math.abs(o.at[1] - unit.at[1]) === 1 && (o.items.length > 0 || unit.items.length > 0))
+    .map((o) => o.id);
+}
+
+/** Slots per side in the trade window. */
+export const TRADE_SLOTS = MAX_ITEMS;
+
+/** Whether trade slot `slot` can be chosen: one holding an item, or the first empty one of a side with room. */
+export function tradeSlotOpen(state: PlayState, unit: string, partner: string, slot: number): boolean {
+  const side = unitById(state, slot < TRADE_SLOTS ? unit : partner);
+  const i = slot % TRADE_SLOTS;
+  return !!side && (i < side.items.length || (i === side.items.length && i < TRADE_SLOTS));
+}
+
+/**
+ * A slot chosen in the trade window: picks an item, or with one picked from the other side, trades
+ * them (or moves it into an empty slot). Choosing on the same side picks again.
+ */
+export function chooseTradeSlot(view: PlayView, slot: number): PlayView {
+  const a = view.action;
+  if (busy(view) || a?.kind !== 'trade' || !tradeSlotOpen(view.state, a.unit, a.partner, slot)) return view;
+  const sideOf = (k: number) => (k < TRADE_SLOTS ? a.unit : a.partner);
+  if (a.picked === null || sideOf(a.picked) === sideOf(slot)) {
+    const side = unitById(view.state, sideOf(slot))!;
+    return slot % TRADE_SLOTS < side.items.length ? { ...view, action: { ...a, index: slot, picked: slot } } : view;
+  }
+  const state = tradeItems(view.state, sideOf(a.picked), a.picked % TRADE_SLOTS, sideOf(slot), slot % TRADE_SLOTS);
+  return { ...view, state, action: { ...a, index: slot, picked: null, locked: true } };
 }
 
 /**
@@ -232,6 +283,22 @@ export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRu
             : (unitById(view.state, a.unit)?.items.length ?? 0);
     return dy && n ? { ...view, action: { ...a, index: (a.index + dy + n) % n } } : view;
   }
+  if (a?.kind === 'trade') {
+    // Up and down within a side, left and right between them (to the same row or the nearest open one above).
+    const open = (k: number) => tradeSlotOpen(view.state, a.unit, a.partner, k);
+    const row = a.index % TRADE_SLOTS;
+    const side = a.index < TRADE_SLOTS ? 0 : TRADE_SLOTS;
+    if (dx) {
+      const other = side ? 0 : TRADE_SLOTS;
+      for (let r = row; r >= 0; r--) if (open(other + r)) return { ...view, action: { ...a, index: other + r } };
+      return view;
+    }
+    for (let i = 1; dy && i <= TRADE_SLOTS; i++) {
+      const k = side + (((row + dy * i) % TRADE_SLOTS) + TRADE_SLOTS) % TRADE_SLOTS;
+      if (open(k)) return { ...view, action: { ...a, index: k } };
+    }
+    return view;
+  }
   if (a?.kind === 'target') {
     const n = a.targets.length;
     const index = (a.index + (dx + dy > 0 ? 1 : -1) + n) % n;
@@ -269,6 +336,12 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   if (!unit) return view;
   if (option === 'wait') return { ...view, state: finishAction(view.state, unit.id), action: null };
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
+  if (option === 'trade') {
+    const partners = tradePartners(view.state, unit);
+    const first = unitById(view.state, partners[0] ?? null);
+    if (!first) return view;
+    return { ...view, action: { kind: 'target', unit: unit.id, from: a.from, targets: partners, index: 0, trade: true, locked: a.locked }, cursor: first.at };
+  }
   if (option === 'staff') {
     const staves = rules.staffChoices?.(unit, view.state) ?? [];
     if (staves.length > 1) return { ...view, action: { kind: 'weapon', unit: unit.id, from: a.from, index: 0, staff: true } };
@@ -355,6 +428,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     return option ? chooseOption(view, option, rules) : view;
   }
   if (a?.kind === 'items') return chooseItem(view, a.index);
+  if (a?.kind === 'trade') return chooseTradeSlot(view, a.index);
   if (a?.kind === 'weapon') return chooseWeapon(view, a.index, rules);
   if (a?.kind === 'item') {
     const option = itemOptions(view, rules)[a.index];
@@ -364,6 +438,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     const attacker = unitById(view.state, a.unit);
     const defender = unitById(view.state, a.targets[a.index] ?? null);
     if (!attacker || !defender) return view;
+    if (a.trade) return { ...view, action: { kind: 'trade', unit: attacker.id, from: a.from, partner: defender.id, index: 0, picked: null, locked: a.locked } };
     if (a.staff) return { ...view, action: null, battle: healBattle(attacker, defender, { target: defender.id, item: a.staff.item, heal: a.staff.heal }, rules) };
     return { ...view, action: null, battle: startBattle(attacker, defender, view.state, rules) };
   }
@@ -393,13 +468,22 @@ export function pressB(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view)) return view;
   const a = view.action;
   if (a?.kind === 'item') return { ...view, action: { kind: 'items', unit: a.unit, from: a.from, index: a.item } };
+  if (a?.kind === 'trade') {
+    if (a.picked !== null) return { ...view, action: { ...a, picked: null } };
+    const unit = unitById(view.state, a.unit);
+    const menu = backToMenu(view, a.unit, a.from, rules, 'trade');
+    return { ...menu, action: menu.action?.kind === 'menu' ? { ...menu.action, locked: a.locked } : menu.action, cursor: unit ? unit.at : view.cursor };
+  }
   if (a?.kind === 'items') return backToMenu(view, a.unit, a.from, rules, 'item');
   if (a?.kind === 'weapon') return backToMenu(view, a.unit, a.from, rules, a.staff ? 'staff' : 'attack');
   if (a?.kind === 'target') {
     const unit = unitById(view.state, a.unit);
-    return { ...backToMenu(view, a.unit, a.from, rules, a.staff ? 'staff' : 'attack'), cursor: unit ? unit.at : view.cursor };
+    const menu = backToMenu(view, a.unit, a.from, rules, a.trade ? 'trade' : a.staff ? 'staff' : 'attack');
+    return { ...menu, action: menu.action?.kind === 'menu' ? { ...menu.action, locked: a.locked } : menu.action, cursor: unit ? unit.at : view.cursor };
   }
   if (a?.kind === 'menu') {
+    // After a trade the move stays, as in FE8.
+    if (a.locked) return view;
     const unit = unitById(view.state, a.unit);
     if (!unit) return { ...view, action: null };
     const dest = unit.at;

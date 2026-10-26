@@ -119,6 +119,34 @@ export function equipItem(state: PlayState, id: string, index: number): PlayStat
   return { ...state, units: state.units.map((u) => (u.id === id && index > 0 && index < u.items.length ? { ...u, items: move(u.items), uses: move(u.uses) } : u)) };
 }
 
+/**
+ * Trades item `index` of unit `a` with slot `slot` of unit `b`, as FE8's trade menu does: two items
+ * swap; an item put on an empty slot (past the last item) moves to the end of the other's items.
+ */
+export function tradeItems(state: PlayState, a: string, index: number, b: string, slot: number): PlayState {
+  const ua = state.units.find((u) => u.id === a);
+  const ub = state.units.find((u) => u.id === b);
+  if (!ua || !ub || index >= ua.items.length) return state;
+  const item = ua.items[index]!;
+  const uses = ua.uses[index] ?? null;
+  if (slot < ub.items.length) {
+    const other = ub.items[slot]!;
+    const otherUses = ub.uses[slot] ?? null;
+    const put = (u: PlayUnit, i: number, name: string, n: number | null): PlayUnit => ({ ...u, items: u.items.map((x, k) => (k === i ? name : x)), uses: u.uses.map((x, k) => (k === i ? n : x)) });
+    return { ...state, units: state.units.map((u) => (u.id === a ? put(u, index, other, otherUses) : u.id === b ? put(u, slot, item, uses) : u)) };
+  }
+  return {
+    ...state,
+    units: state.units.map((u) =>
+      u.id === a
+        ? { ...u, items: u.items.filter((_, k) => k !== index), uses: u.uses.filter((_, k) => k !== index) }
+        : u.id === b
+          ? { ...u, items: [...u.items, item], uses: [...u.uses, uses] }
+          : u,
+    ),
+  };
+}
+
 /** Drops a unit's item `index`. */
 export function discardItem(state: PlayState, id: string, index: number): PlayState {
   return { ...state, units: state.units.map((u) => (u.id === id ? { ...u, items: u.items.filter((_, i) => i !== index), uses: u.uses.filter((_, i) => i !== index) } : u)) };

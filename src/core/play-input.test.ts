@@ -5,6 +5,7 @@ import { startPlay, type PlayState, type PlayUnit } from './play';
 import {
   brokenWeapons,
   canMove,
+  chooseTradeSlot,
   chooseWeapon,
   itemOptions,
   endPlayerTurn,
@@ -382,7 +383,7 @@ describe('healing with a staff', () => {
 
   it('offers Staff with a hurt ally in reach, heals it, spends a use and gives experience', () => {
     const menu = moveRight(setUp());
-    expect(menuOptions(menu, staffRules)).toEqual(['staff', 'item', 'wait']);
+    expect(menuOptions(menu, staffRules)).toEqual(['staff', 'item', 'trade', 'wait']);
     const choosing = pressA(menu, staffRules);
     expect(choosing.action).toMatchObject({ kind: 'target', targets: ['seth'], staff: { item: 0, heal: 15 } });
     expect(choosing.cursor).toEqual([2, 0]);
@@ -418,6 +419,59 @@ describe('healing with a staff', () => {
   it('offers no Staff with nobody hurt in reach', () => {
     const v = setUp();
     const fine = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'seth' ? { ...u, hp: 18 } : u)) } };
-    expect(menuOptions(moveRight(fine), staffRules)).toEqual(['item', 'wait']);
+    expect(menuOptions(moveRight(fine), staffRules)).toEqual(['item', 'trade', 'wait']);
+  });
+});
+
+describe('trading', () => {
+  // Eirika (sword, vulnerary) moves next to Seth (lance).
+  const setUp = (): PlayView => {
+    const v = start([4, 2], [{ id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [2, 0] }]);
+    return {
+      ...v,
+      state: {
+        ...v.state,
+        units: v.state.units.map((u) =>
+          u.id === 'eirika' ? { ...u, items: ['iron-sword', 'vulnerary'], uses: [46, 3] } : u.id === 'seth' ? { ...u, items: ['iron-lance'], uses: [45] } : u,
+        ),
+      },
+    };
+  };
+  const seth = (v: PlayView) => v.state.units.find((u) => u.id === 'seth')!;
+  const tradeMenu = () => {
+    const menu = moveRight(setUp());
+    expect(menuOptions(menu, rules)).toEqual(['item', 'trade', 'wait']);
+    const choosing = pressA(moveCursor(menu, 0, 1, rules), rules);
+    expect(choosing.action).toMatchObject({ kind: 'target', targets: ['seth'], trade: true });
+    return pressA(choosing, rules);
+  };
+
+  it('swaps two items, uses and all', () => {
+    const t = tradeMenu();
+    expect(t.action).toMatchObject({ kind: 'trade', partner: 'seth', index: 0, picked: null });
+    const swapped = chooseTradeSlot(chooseTradeSlot(t, 0), 4);
+    expect(eirika(swapped)).toMatchObject({ items: ['iron-lance', 'vulnerary'], uses: [45, 3] });
+    expect(seth(swapped)).toMatchObject({ items: ['iron-sword'], uses: [46] });
+  });
+
+  it('gives an item into the first empty slot, and only there', () => {
+    const t = tradeMenu();
+    expect(chooseTradeSlot(chooseTradeSlot(t, 1), 6).state).toBe(t.state); // slot 2 of Seth's side is past the first empty one
+    const given = chooseTradeSlot(chooseTradeSlot(t, 1), 5);
+    expect(eirika(given).items).toEqual(['iron-sword']);
+    expect(seth(given)).toMatchObject({ items: ['iron-lance', 'vulnerary'], uses: [45, 3] });
+  });
+
+  it('moves between sides with the D-pad, and after a trade the move stays', () => {
+    const t = tradeMenu();
+    expect(moveCursor(t, 1, 0, rules).action).toMatchObject({ index: 4 });
+    expect(moveCursor(moveCursor(t, 0, 1, rules), 1, 0, rules).action).toMatchObject({ index: 5 }); // Seth's empty slot
+    const traded = chooseTradeSlot(chooseTradeSlot(t, 0), 4);
+    const menu = pressB(traded, rules);
+    expect(menu.action).toMatchObject({ kind: 'menu', locked: true });
+    expect(pressB(menu, rules)).toBe(menu);
+    // Without a trade, B goes back to the menu and B again takes the move back.
+    const untouched = pressB(t, rules);
+    expect(pressB(untouched, rules).action).toBeNull();
   });
 });
