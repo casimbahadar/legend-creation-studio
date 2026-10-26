@@ -1,7 +1,7 @@
 // GBA-style controls for test play: a cursor moved one square at a time, A to act, B to cancel.
 // While a unit is being moved the cursor stays inside its reach; after it moves, FE's action menu
-// (Attack, Item, Wait) opens, B undoes the move, Attack picks a target and Item opens the unit's
-// items. While a unit walks or a battle plays, input waits. End turn hands over to the enemy phase,
+// (Attack, Steal, Item, Wait and others) opens, B undoes the move, Attack picks a target and Item
+// opens the unit's items. While a unit walks or a battle plays, input waits. End turn hands over to the enemy phase,
 // then the ally phase (decision 24), each unit acting by its behaviour, one step at a time through
 // stepAI.
 
@@ -12,11 +12,11 @@ export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, discardItem, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, boostUnit, discardItem, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
-export type MenuOption = 'seize' | 'attack' | 'staff' | 'item' | 'trade' | 'wait';
+export type MenuOption = 'seize' | 'attack' | 'staff' | 'steal' | 'item' | 'trade' | 'wait';
 
 /** What can be done with one item, as in FE8's item menu. */
 export type ItemOption = 'equip' | 'use' | 'discard';
@@ -45,6 +45,8 @@ export type Action =
       readonly staff?: StaffChoice;
       /** Choosing whom to trade with instead. */
       readonly trade?: boolean;
+      /** Or whom to steal from. */
+      readonly steal?: boolean;
       readonly locked?: boolean;
     }
   /**
@@ -62,6 +64,8 @@ export type Action =
     }
   /** Choosing which weapon to attack with (or with `staff`, which staff to heal with), `index` highlighted among the choices. */
   | { readonly kind: 'weapon'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number; readonly staff?: boolean }
+  /** Choosing which of `target`'s items to steal, `index` highlighted. */
+  | { readonly kind: 'steal'; readonly unit: string; readonly from: readonly [number, number]; readonly target: string; readonly index: number; readonly locked?: boolean }
   /** The unit's items, `index` highlighted. */
   | { readonly kind: 'items'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
   /** What to do with item `item`, option `index` highlighted. */
@@ -144,6 +148,10 @@ export interface PlayRules extends AiRules {
   staffExperience?(unit: PlayUnit, index: number): ExpAward | null;
   /** What the unit can do with its item `index` (none if left out). */
   itemUse?(unit: PlayUnit, index: number): ItemUse;
+  /** Whether the unit's item `index` can be stolen (IsItemStealable); none can if left out. */
+  stealable?(unit: PlayUnit, index: number): boolean;
+  /** The experience stealing gives the unit, if any. */
+  stealExperience?(unit: PlayUnit): ExpAward | null;
 }
 
 /** A heal with a staff: played like a fight with no blows, then its experience; finishBattle heals. */
@@ -151,9 +159,9 @@ function healBattle(healer: PlayUnit, target: PlayUnit, heal: PlannedHeal, rules
   return { attacker: healer.id, defender: target.id, strikes: [], attackerItem: heal.item, defenderItem: null, heal: heal.heal, exp: rules.staffExperience?.(healer, heal.item) ?? null };
 }
 
-/** A steal: played like a fight with no blows; finishBattle moves the item. */
-function stealBattle(thief: PlayUnit, target: PlayUnit, item: number): Battle {
-  return { attacker: thief.id, defender: target.id, strikes: [], attackerItem: null, defenderItem: null, steal: item, exp: null };
+/** A steal: played like a fight with no blows, then its experience; finishBattle moves the item. */
+function stealBattle(thief: PlayUnit, target: PlayUnit, item: number, exp: ExpAward | null = null): Battle {
+  return { attacker: thief.id, defender: target.id, strikes: [], attackerItem: null, defenderItem: null, steal: item, exp };
 }
 
 /** A fight between two units, with the experience it gives. */
@@ -197,10 +205,32 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
   if (goal?.kind === 'seize' && goal.lord === unit.id && goal.at && goal.at[0] === unit.at[0] && goal.at[1] === unit.at[1]) options.push('seize');
   if (rules.targetsOf(unit, view.state).length) options.push('attack');
   if (rules.staffChoices?.(unit, view.state).length) options.push('staff');
+  if (stealTargets(view.state, unit, rules).length) options.push('steal');
   if (unit.items.length) options.push('item');
   if (tradePartners(view.state, unit).length) options.push('trade');
   options.push('wait');
   return options;
+}
+
+/**
+ * Whether a menu option shows but can't be chosen (MENU_DISABLED): Steal with a full inventory
+ * (StealCommandUsability).
+ */
+export function optionDisabled(view: PlayView, option: MenuOption): boolean {
+  const unit = view.action ? unitById(view.state, view.action.unit) : undefined;
+  return option === 'steal' && !!unit && unit.items.length >= UNIT_ITEM_COUNT;
+}
+
+/**
+ * Enemies the unit can steal from (MakeTargetListForSteal, AddAsTarget_IfCanStealFrom): if its class
+ * can steal, those next to it, no faster than it (Spd), carrying an item that can be stolen.
+ */
+export function stealTargets(state: PlayState, unit: PlayUnit, rules: PlayRules): string[] {
+  if (!rules.steals?.(unit)) return [];
+  return state.units
+    .filter((o) => o.team === 'enemy' && Math.abs(o.at[0] - unit.at[0]) + Math.abs(o.at[1] - unit.at[1]) === 1 && unit.stats.spd >= o.stats.spd)
+    .filter((o) => o.items.some((_, i) => rules.stealable?.(o, i)))
+    .map((o) => o.id);
 }
 
 /** Units the unit can trade with (TryAddUnitToTradeTargetList): next to it, on its side, one of the two carrying something. */
@@ -285,7 +315,7 @@ export function cursorTo(view: PlayView, x: number, y: number, rules: PlayRules)
 export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRules): PlayView {
   if (busy(view)) return view;
   const a = view.action;
-  if (a?.kind === 'menu' || a?.kind === 'items' || a?.kind === 'item' || a?.kind === 'weapon') {
+  if (a?.kind === 'menu' || a?.kind === 'items' || a?.kind === 'item' || a?.kind === 'weapon' || a?.kind === 'steal') {
     const n =
       a.kind === 'menu'
         ? menuOptions(view, rules).length
@@ -293,7 +323,7 @@ export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRu
           ? itemOptions(view, rules).length
           : a.kind === 'weapon'
             ? weaponChoices(view, rules).length
-            : (unitById(view.state, a.unit)?.items.length ?? 0);
+            : (unitById(view.state, a.kind === 'steal' ? a.target : a.unit)?.items.length ?? 0);
     return dy && n ? { ...view, action: { ...a, index: (a.index + dy + n) % n } } : view;
   }
   if (a?.kind === 'trade') {
@@ -353,6 +383,14 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
     return { ...view, state, action: null, outcome: outcomeOf(state) };
   }
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
+  if (option === 'steal') {
+    // With a full inventory, FE8 only says so (StealCommandEffect).
+    if (optionDisabled(view, option)) return view;
+    const targets = stealTargets(view.state, unit, rules);
+    const first = unitById(view.state, targets[0] ?? null);
+    if (!first) return view;
+    return { ...view, action: { kind: 'target', unit: unit.id, from: a.from, targets, index: 0, steal: true, locked: a.locked }, cursor: first.at };
+  }
   if (option === 'trade') {
     const partners = tradePartners(view.state, unit);
     const first = unitById(view.state, partners[0] ?? null);
@@ -407,6 +445,16 @@ export function chooseWeapon(view: PlayView, index: number, rules: PlayRules): P
   return { ...view, state, action: { kind: 'target', unit: a.unit, from: a.from, targets: choice.targets, index: 0 }, cursor: first.at };
 }
 
+/** Steals the target's item `index` if it can be stolen (StealItemMenuCommand_Effect), ending the thief's action. */
+export function chooseStealItem(view: PlayView, index: number, rules: PlayRules): PlayView {
+  const a = view.action;
+  if (busy(view) || a?.kind !== 'steal') return view;
+  const thief = unitById(view.state, a.unit);
+  const target = unitById(view.state, a.target);
+  if (!thief || !target || index >= target.items.length || !rules.stealable?.(target, index)) return view;
+  return { ...view, action: null, battle: stealBattle(thief, target, index, rules.stealExperience?.(thief) ?? null) };
+}
+
 /** Picks an item in the item menu, opening what can be done with it. */
 export function chooseItem(view: PlayView, index: number): PlayView {
   const a = view.action;
@@ -445,6 +493,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     return option ? chooseOption(view, option, rules) : view;
   }
   if (a?.kind === 'items') return chooseItem(view, a.index);
+  if (a?.kind === 'steal') return chooseStealItem(view, a.index, rules);
   if (a?.kind === 'trade') return chooseTradeSlot(view, a.index);
   if (a?.kind === 'weapon') return chooseWeapon(view, a.index, rules);
   if (a?.kind === 'item') {
@@ -456,6 +505,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     const defender = unitById(view.state, a.targets[a.index] ?? null);
     if (!attacker || !defender) return view;
     if (a.trade) return { ...view, action: { kind: 'trade', unit: attacker.id, from: a.from, partner: defender.id, index: 0, picked: null, locked: a.locked } };
+    if (a.steal) return { ...view, action: { kind: 'steal', unit: attacker.id, from: a.from, target: defender.id, index: 0, locked: a.locked } };
     if (a.staff) return { ...view, action: null, battle: healBattle(attacker, defender, { target: defender.id, item: a.staff.item, heal: a.staff.heal }, rules) };
     return { ...view, action: null, battle: startBattle(attacker, defender, view.state, rules) };
   }
@@ -492,10 +542,16 @@ export function pressB(view: PlayView, rules: PlayRules): PlayView {
     return { ...menu, action: menu.action?.kind === 'menu' ? { ...menu.action, locked: a.locked } : menu.action, cursor: unit ? unit.at : view.cursor };
   }
   if (a?.kind === 'items') return backToMenu(view, a.unit, a.from, rules, 'item');
+  // From the steal menu, back to the action menu, as FE8's ItemMenu_ButtonBPressed does.
+  if (a?.kind === 'steal') {
+    const unit = unitById(view.state, a.unit);
+    const menu = backToMenu(view, a.unit, a.from, rules, 'steal');
+    return { ...menu, action: menu.action?.kind === 'menu' ? { ...menu.action, locked: a.locked } : menu.action, cursor: unit ? unit.at : view.cursor };
+  }
   if (a?.kind === 'weapon') return backToMenu(view, a.unit, a.from, rules, a.staff ? 'staff' : 'attack');
   if (a?.kind === 'target') {
     const unit = unitById(view.state, a.unit);
-    const menu = backToMenu(view, a.unit, a.from, rules, a.trade ? 'trade' : a.staff ? 'staff' : 'attack');
+    const menu = backToMenu(view, a.unit, a.from, rules, a.trade ? 'trade' : a.staff ? 'staff' : a.steal ? 'steal' : 'attack');
     return { ...menu, action: menu.action?.kind === 'menu' ? { ...menu.action, locked: a.locked } : menu.action, cursor: unit ? unit.at : view.cursor };
   }
   if (a?.kind === 'menu') {

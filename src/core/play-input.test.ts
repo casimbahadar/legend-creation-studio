@@ -5,6 +5,7 @@ import { startPlay, type PlayState, type PlayUnit } from './play';
 import {
   brokenWeapons,
   canMove,
+  chooseOption,
   chooseTradeSlot,
   chooseWeapon,
   itemOptions,
@@ -13,6 +14,7 @@ import {
   finishWalk,
   menuOptions,
   moveCursor,
+  optionDisabled,
   pressA,
   pressB,
   selectedUnit,
@@ -555,5 +557,64 @@ describe('chapter goals', () => {
     }
     expect(v.state.turn).toBe(3);
     expect(v.outcome).toEqual({ result: 'victory' });
+  });
+});
+
+describe('stealing', () => {
+  // Eirika can steal; vulneraries can be stolen, weapons can't. A steal gives 10 experience.
+  const thief: PlayRules = {
+    ...rules,
+    steals: (u) => u.id === 'eirika',
+    stealable: (u, i) => u.items[i] === 'vulnerary',
+    stealExperience: (u) => ({ unit: u.id, level: u.level, exp: u.exp ?? 0, result: { gain: 10, exp: 10, level: 1, levelUp: null } }),
+  };
+  /** The brigand beside Eirika carries `brigand`; she carries `own`; the action menu is open where she stands. */
+  const menuWith = (brigand: string[], own: string[] = [], spd = STATS.spd) => {
+    const v = start([2, 1], [SETH]);
+    const set: PlayView = {
+      ...v,
+      state: {
+        ...v.state,
+        units: v.state.units.map((u) =>
+          u.id === 'brigand-1' ? { ...u, items: brigand, uses: brigand.map(() => 3), stats: { ...u.stats, spd } } : u.id === 'eirika' ? { ...u, items: own, uses: own.map(() => 1) } : u,
+        ),
+      },
+    };
+    return pressA(pressA(set, thief), thief);
+  };
+
+  it('offers Steal after Staff, next to an enemy no faster carrying something stealable', () => {
+    expect(menuOptions(menuWith(['iron-axe', 'vulnerary']), thief)).toEqual(['attack', 'steal', 'wait']);
+    expect(menuOptions(menuWith(['iron-axe']), thief)).toEqual(['attack', 'wait']);
+    expect(menuOptions(menuWith(['vulnerary'], [], STATS.spd + 1), thief)).toEqual(['attack', 'wait']);
+    // A unit whose class can't steal.
+    expect(menuOptions(menuWith(['vulnerary']), rules)).toEqual(['attack', 'wait']);
+  });
+
+  it("picks whom to steal from, then an item; weapons can't be taken; the item and 10 experience go to the thief", () => {
+    let v = chooseOption(menuWith(['iron-axe', 'vulnerary']), 'steal', thief);
+    expect(v.action).toMatchObject({ kind: 'target', steal: true, targets: ['brigand-1'] });
+    v = pressA(v, thief);
+    expect(v.action).toMatchObject({ kind: 'steal', target: 'brigand-1', index: 0 });
+    expect(pressA(v, thief)).toBe(v); // the axe
+    v = pressA(moveCursor(v, 0, 1, thief), thief);
+    expect(v.battle).toMatchObject({ attacker: 'eirika', defender: 'brigand-1', strikes: [], steal: 1, exp: { result: { gain: 10 } } });
+    v = finishBattle(v);
+    expect(eirika(v)).toMatchObject({ items: ['vulnerary'], uses: [3], exp: 10, moved: true });
+    expect(v.state.units.find((u) => u.id === 'brigand-1')).toMatchObject({ items: ['iron-axe'], uses: [3], hp: 18 });
+  });
+
+  it('goes back to the action menu with B, on Steal', () => {
+    const steal = pressA(chooseOption(menuWith(['vulnerary']), 'steal', thief), thief);
+    const back = pressB(steal, thief);
+    expect(back.action).toMatchObject({ kind: 'menu', index: 1 });
+    expect(pressB(chooseOption(menuWith(['vulnerary']), 'steal', thief), thief).action).toMatchObject({ kind: 'menu', index: 1 });
+  });
+
+  it('shows Steal greyed out with five items, and does nothing on it', () => {
+    const full = menuWith(['vulnerary'], ['rapier', 'rapier', 'rapier', 'rapier', 'rapier']);
+    expect(menuOptions(full, thief)).toContain('steal');
+    expect(optionDisabled(full, 'steal')).toBe(true);
+    expect(chooseOption(full, 'steal', thief)).toBe(full);
   });
 });

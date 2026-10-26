@@ -16,6 +16,7 @@ import {
   chooseItem,
   chooseItemOption,
   chooseOption,
+  chooseStealItem,
   chooseTradeSlot,
   chooseWeapon,
   endPlayerTurn,
@@ -31,6 +32,7 @@ import {
   stepAI,
   tapAt,
   tradeSlotOpen,
+  optionDisabled,
   TRADE_SLOTS,
   visibleRoute,
   walkPosition,
@@ -61,7 +63,7 @@ const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
 /** How long the notice that a weapon broke shows (A closes it sooner). */
 const BROKE_MS = 1500;
-const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', item: 'Item', trade: 'Trade', wait: 'Wait' };
+const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', steal: 'Steal', item: 'Item', trade: 'Trade', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
 
@@ -391,6 +393,8 @@ export function PlayScreen({
             ? 'heal'
             : view.action?.kind === 'target' && view.action.trade
               ? 'tradeWith'
+            : view.action?.kind === 'target' && view.action.steal
+              ? 'stealFrom'
             : view.action?.kind === 'weapon' && view.action.staff
               ? 'staves'
               : (view.action?.kind ?? null);
@@ -434,6 +438,20 @@ export function PlayScreen({
                   </span>
                 </div>
               );
+            if (a.steal)
+              // StealMapSelect: the target's items, the ones that can be stolen in white.
+              return (
+                <div className={`fe-window heal-window at-top-${side}`}>
+                  <span className="fe-line">
+                    <FeText text={unitLabel(def)} colour="gold" />
+                  </span>
+                  {def.items.map((name, i) => (
+                    <span key={`${i}:${name}`} className="fe-line">
+                      <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} colour={rules.stealable?.(def, i) ? 'white' : 'gray'} />
+                    </span>
+                  ))}
+                </div>
+              );
             if (a.staff) return <HealWindow unit={def} label={unitLabel(def)} heal={a.staff.heal} staff={data.items.find((x) => x.entry.name === atk.items[a.staff!.item])?.entry.gameName} corner={`top-${side}`} />;
             const f = chapterPlay.preview(atk, def);
             return <ForecastWindow a={atk} d={def} f={f.forecast} aWeapon={f.attackerWeapon?.entry.gameName} dWeapon={f.defenderWeapon?.entry.gameName} label={unitLabel} corner={`top-${side}`} />;
@@ -446,8 +464,8 @@ export function PlayScreen({
             return (
               <div className={`fe-window action-menu ${menuSide}`} role="menu">
                 {menuOptions(view, rules).map((o, i) => (
-                  <button key={o} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseOption(v, o, rules))}>
-                    <FeText text={MENU_LABELS[o]} />
+                  <button key={o} type="button" role="menuitem" aria-current={a.index === i} aria-disabled={optionDisabled(view, o)} onClick={() => setView((v) => chooseOption(v, o, rules))}>
+                    <FeText text={MENU_LABELS[o]} colour={optionDisabled(view, o) ? 'gray' : 'white'} />
                   </button>
                 ))}
               </div>
@@ -506,6 +524,34 @@ export function PlayScreen({
                     </div>
                   ) : null,
                 )}
+              </div>
+            );
+          })()}
+        {a?.kind === 'steal' &&
+          (() => {
+            const u = play.units.find((x) => x.id === a.unit);
+            const target = play.units.find((x) => x.id === a.target);
+            if (!u || !target) return null;
+            const menuSide = u.at[0] - cam[0] >= viewW / 2 ? 'left' : 'right';
+            return (
+              <div className={`fe-window action-menu item-list ${menuSide}`} role="menu" aria-label="Steal">
+                {target.items.map((name, i) => {
+                  const uses = target.uses[i];
+                  const can = rules.stealable?.(target, i) ?? false;
+                  return (
+                    <button
+                      key={`${i}:${name}`}
+                      type="button"
+                      role="menuitem"
+                      aria-current={a.index === i}
+                      aria-disabled={!can}
+                      onClick={() => setView((v) => chooseStealItem(v.action?.kind === 'steal' ? { ...v, action: { ...v.action, index: i } } : v, i, rules))}
+                    >
+                      <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} colour={can ? 'white' : 'gray'} />
+                      <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour={can ? 'blue' : 'gray'} />}</span>
+                    </button>
+                  );
+                })}
               </div>
             );
           })()}

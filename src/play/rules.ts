@@ -10,7 +10,7 @@ import type { AiItem } from '../core/ai';
 import type { ExpAward, ItemUse, PlayRules, StaffChoice } from '../core/play-input';
 import type { RomCharacter } from '../rom/fe8-characters';
 import { CA_BOSS, CA_LORD, CA_MAXLEVEL10, CA_PROMOTED, CA_STEAL, CA_THIEF } from '../rom/fe8-classes';
-import { isStaff } from '../rom/fe8-items';
+import { isStaff, isStealable } from '../rom/fe8-items';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { distance, IA_MAGIC, inReach, toWeapon, usable, weaponsOf, type ClassArt, type GameItem } from './catalog';
 
@@ -266,6 +266,12 @@ export function chapterRules(
       const attributes = (artByName.get(u.class)?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0);
       return award(u, staffExp((attributes & CA_PROMOTED) !== 0, staff.item.rom.costPerUse));
     },
+    stealable: (u, index) => {
+      const item = items.find((i) => i.entry.name === u.items[index]);
+      return !!item && isStealable(item.rom);
+    },
+    // BattleApplyMiscActionExpGains: 10 for a steal.
+    stealExperience: (u) => award(u, 10),
     itemUse: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);
       const art = artByName.get(u.class);

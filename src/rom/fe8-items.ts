@@ -101,3 +101,5 @@ export function readItems(rom: GbaRom, text: TextTable, table: number): RomItem[
 
 export const isWeapon = (item: RomItem) => (item.attributes & 1) !== 0;
 export const isStaff = (item: RomItem) => (item.attributes & 4) !== 0;
+/** IsItemStealable: only plain items (ITYPE_ITEM, type 9) can be stolen, not weapons or staves. */
+export const isStealable = (item: RomItem) => item.type === 9;
