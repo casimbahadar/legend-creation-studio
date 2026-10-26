@@ -50,7 +50,7 @@ export type Action =
       readonly locked?: boolean;
     }
   /**
-   * Trading with `partner`: slots 0 to 3 are the unit's items, 4 to 7 the partner's (an empty slot past
+   * Trading with `partner`: slots 0 to 4 are the unit's items, 5 to 9 the partner's (an empty slot past
    * the last item takes one); `picked` is the slot chosen to move, if any.
    */
   | {
@@ -241,7 +241,7 @@ export function tradePartners(state: PlayState, unit: PlayUnit): string[] {
 }
 
 /** Slots per side in the trade window. */
-export const TRADE_SLOTS = MAX_ITEMS;
+export const TRADE_SLOTS = UNIT_ITEM_COUNT;
 
 /** Whether trade slot `slot` can be chosen: one holding an item, or the first empty one of a side with room. */
 export function tradeSlotOpen(state: PlayState, unit: string, partner: string, slot: number): boolean {

@@ -492,24 +492,32 @@ describe('trading', () => {
   it('swaps two items, uses and all', () => {
     const t = tradeMenu();
     expect(t.action).toMatchObject({ kind: 'trade', partner: 'seth', index: 0, picked: null });
-    const swapped = chooseTradeSlot(chooseTradeSlot(t, 0), 4);
+    const swapped = chooseTradeSlot(chooseTradeSlot(t, 0), 5);
     expect(eirika(swapped)).toMatchObject({ items: ['iron-lance', 'vulnerary'], uses: [45, 3] });
     expect(seth(swapped)).toMatchObject({ items: ['iron-sword'], uses: [46] });
   });
 
   it('gives an item into the first empty slot, and only there', () => {
     const t = tradeMenu();
-    expect(chooseTradeSlot(chooseTradeSlot(t, 1), 6).state).toBe(t.state); // slot 2 of Seth's side is past the first empty one
-    const given = chooseTradeSlot(chooseTradeSlot(t, 1), 5);
+    expect(chooseTradeSlot(chooseTradeSlot(t, 1), 7).state).toBe(t.state); // slot 2 of Seth's side is past the first empty one
+    const given = chooseTradeSlot(chooseTradeSlot(t, 1), 6);
     expect(eirika(given).items).toEqual(['iron-sword']);
     expect(seth(given)).toMatchObject({ items: ['iron-lance', 'vulnerary'], uses: [45, 3] });
   });
 
+  it('has five slots a side, as FE8, so a full side can still trade', () => {
+    const t = tradeMenu();
+    const full: PlayView = { ...t, state: { ...t.state, units: t.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['iron-sword', 'iron-lance', 'vulnerary', 'rapier', 'elixir'], uses: [46, 45, 3, 40, 1] } : u)) } };
+    const given = chooseTradeSlot(chooseTradeSlot(full, 4), 6);
+    expect(eirika(given).items).toEqual(['iron-sword', 'iron-lance', 'vulnerary', 'rapier']);
+    expect(seth(given).items).toEqual(['iron-lance', 'elixir']);
+  });
+
   it('moves between sides with the D-pad, and after a trade the move stays', () => {
     const t = tradeMenu();
-    expect(moveCursor(t, 1, 0, rules).action).toMatchObject({ index: 4 });
-    expect(moveCursor(moveCursor(t, 0, 1, rules), 1, 0, rules).action).toMatchObject({ index: 5 }); // Seth's empty slot
-    const traded = chooseTradeSlot(chooseTradeSlot(t, 0), 4);
+    expect(moveCursor(t, 1, 0, rules).action).toMatchObject({ index: 5 });
+    expect(moveCursor(moveCursor(t, 0, 1, rules), 1, 0, rules).action).toMatchObject({ index: 6 }); // Seth's empty slot
+    const traded = chooseTradeSlot(chooseTradeSlot(t, 0), 5);
     const menu = pressB(traded, rules);
     expect(menu.action).toMatchObject({ kind: 'menu', locked: true });
     expect(pressB(menu, rules)).toBe(menu);

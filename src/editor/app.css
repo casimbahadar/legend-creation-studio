@@ -699,10 +699,11 @@ h3 {
   width: auto;
 }
 
-.trade-side button { display: flex; align-items: center; }
+/* Five rows a side, as FE8 (UNIT_ITEM_COUNT), shorter than the menus' so the window fits the screen. */
+.trade-side button { display: flex; align-items: center; min-height: 32px; }
 .trade-side button.picked { outline: 2px solid #ffe680; outline-offset: -2px; }
 .trade-name { justify-content: center; }
-.trade-empty { min-height: 40px; }
+.trade-empty { min-height: 32px; }
 
 /* Play's item list: each item's name and uses, wider than the action menu; an item's options beside it. */
 .fe-window.action-menu.item-list { min-width: 46%; }
