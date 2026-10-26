@@ -91,7 +91,7 @@ export function GbaControls({
   );
 }
 
-/** A whole number you can type: digits only, applied when it is from `min` to `max`, put back otherwise. */
+/** A whole number you can type: digits only, applied when it is at least `min` (a number past `max` snaps to it), put back otherwise. */
 export function NumberInput({ id, value, min, max, onValue, ariaLabel, className = 'number-input' }: { id?: string; value: number; min: number; max: number; onValue: (v: number) => void; ariaLabel?: string; className?: string }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -106,9 +106,10 @@ export function NumberInput({ id, value, min, max, onValue, ariaLabel, className
       value={draft}
       onChange={(e) => {
         const text = e.target.value.replace(/\D/g, '').slice(0, String(max).length);
-        setDraft(text);
         const n = Number(text);
-        if (text && n >= min && n <= max) onValue(n);
+        // A number past the maximum snaps to it, so what shows is what's kept.
+        setDraft(text && n > max ? String(max) : text);
+        if (text && n >= min) onValue(Math.min(n, max));
       }}
       onBlur={() => setDraft(String(value))}
     />

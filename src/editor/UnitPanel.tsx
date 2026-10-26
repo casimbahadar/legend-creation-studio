@@ -2,7 +2,7 @@
 // removing it.
 
 import { useState } from 'react';
-import { withBonus } from '../core/combat';
+import { hpCapFor, LUCK_CAP, withBonus, withinCaps } from '../core/combat';
 import { BEHAVIOURS, DEFAULT_BEHAVIOUR, MAX_ITEMS, MAX_LEVEL, MAX_STAT, STAT_KEYS, type Behaviour, type ProjectUnit, type StatKey } from '../core/project';
 import { itemStats, unitStats, usable, type ClassArt, type GameItem } from '../play/catalog';
 import { FE8_BOSS_NAMES, FE8_CHARACTER_NAMES } from '../rom/fe8-character-names';
@@ -71,7 +71,10 @@ export function UnitPanel({
   const baseSt = unitStats(art, character, unit.level);
   const baseName = character ? character.name : 'class';
   const custom = unit.statBonus ?? {};
-  const st = withBonus(baseSt, custom);
+  // Each stat stops at its cap, as FE8 cuts a unit's stats when it loads.
+  const hpCap = hpCapFor(unit.team);
+  const capOf = (k: StatKey) => (k === 'hp' ? hpCap : k === 'lck' ? LUCK_CAP : (art?.caps[k] ?? MAX_STAT));
+  const st = art ? withinCaps(withBonus(baseSt, custom), art.caps, hpCap) : withBonus(baseSt, custom);
   const isCustom = (k: StatKey) => custom[k] !== undefined;
   // Open to start with if the unit has custom stats; after that it stays as the user leaves it.
   const [showCustom, setShowCustom] = useState(() => Object.keys(unit.statBonus ?? {}).length > 0);
@@ -150,13 +153,13 @@ export function UnitPanel({
         <summary>Custom stats</summary>
         <p className="note">
           Type a number to set a stat for this unit only. It is saved as a change from the {baseName} stats (shown in brackets), so it still grows
-          when you raise the level.
+          when you raise the level. Each stat stops at its class&apos;s cap, as in the game.
         </p>
         <div className="stat-grid">
           {STAT_KEYS.map((k) => (
             <label key={k} className={isCustom(k) ? 'custom' : undefined}>
               <span>{STAT_LABELS[k]}</span>
-              <NumberInput value={st[k]} min={k === 'hp' ? 1 : 0} max={MAX_STAT} onValue={(v) => setStat(k, v)} ariaLabel={`${STAT_LABELS[k]}`} />
+              <NumberInput value={st[k]} min={k === 'hp' ? 1 : 0} max={capOf(k)} onValue={(v) => setStat(k, v)} ariaLabel={`${STAT_LABELS[k]}`} />
             </label>
           ))}
         </div>
