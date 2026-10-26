@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dangerMap, isHealing, phaseOrder, planAction, type AiItem, type AiRules } from './ai';
+import { dangerMap, isHealing, phaseOrder, planAction, type AiItem, type AiRules, type AiStaff } from './ai';
 import type { Forecast, Stats } from './combat';
 import { searchMoves } from './movement';
 import { startPlay, type PlayState, type PlayUnit } from './play';
@@ -24,6 +24,9 @@ interface Setup {
   /** Units that can steal, and the steal rank of each item name. */
   readonly thieves?: readonly string[];
   readonly ranks?: Record<string, number>;
+  /** Each unit's staves (by unit id), and a status staff's chance to hit. */
+  readonly staves?: Record<string, readonly AiStaff[]>;
+  readonly accuracy?: number;
 }
 function rules(setup: Setup = {}): AiRules {
   const itemsOf = (u: PlayUnit) => setup.items?.[u.id] ?? [SWORD];
@@ -48,7 +51,8 @@ function rules(setup: Setup = {}): AiRules {
     terrainScore: (_u, cell) => setup.terrain?.[cell] ?? 0,
     terrainAt: (cell) => (setup.forts?.includes(cell) ? 0x0a : 0),
     isLord: (u) => setup.lords?.includes(u.id) ?? false,
-    healStaves: (u) => itemsOf(u).filter((i) => i.staff).map((i) => ({ item: i.item, heal: 10, physic: false, reach: 1, rank: 1 })),
+    aiStaves: (u) => setup.staves?.[u.id] ?? itemsOf(u).filter((i) => i.staff).map((i) => ({ item: i.item, heal: 10, physic: false, reach: 1, rank: 1 })),
+    staffAccuracy: () => setup.accuracy ?? 50,
     steals: (u) => setup.thieves?.includes(u.id) ?? false,
     stealRank: (u, i) => setup.ranks?.[u.items[i]!] ?? null,
   };
@@ -136,7 +140,7 @@ describe("FE8's staff use", () => {
     const fortify = (u: PlayUnit) => (u.id === 'e' ? [{ item: 0, heal: 12, physic: true, fortify: true, reach: 2, rank: 1 }] : []);
     const s = play(unit('e', 'enemy', [3, 1]), unit('f', 'enemy', [6, 0]), unit('g', 'enemy', [6, 2]), unit('i', 'enemy', [4, 0]), unit('j', 'enemy', [0, 1]));
     const hurt = withHp(withHp(s, { f: 4, g: 4, j: 4 }, true), { i: 9 });
-    const r = { ...rules({ items: { e: [staff] } }), healStaves: fortify };
+    const r = { ...rules({ items: { e: [staff] } }), aiStaves: fortify };
     expect(planAction(get(hurt, 'e'), hurt, r)).toMatchObject({ to: cell(5, 1), heal: { target: 'e', item: 0, heal: 12, fortify: ['f', 'g', 'i'] } });
     // With only two set on healing, it doesn't.
     const two = withHp(withHp(s, { f: 4, g: 4 }, true), { i: 9 });
@@ -251,5 +255,37 @@ describe('stealing', () => {
     expect(planAction(get(s, 'e'), s, rules(setup))).toMatchObject({ to: cell(6, 1), attack: 'p' });
     const plan = planAction(get(s, 'e'), s, rules({ ...setup, thieves: ['e'] }));
     expect(plan).toEqual({ to: cell(6, 1), route: [cell(6, 1)], attack: null });
+  });
+});
+
+describe('status staves', () => {
+  const staffItem: AiItem = { item: 0, staff: true, might: 0, min: 1, max: 1 };
+  const sleep: AiStaff = { item: 0, heal: 0, physic: true, status: 'sleep', reach: 2, rank: 1 };
+  const silence: AiStaff = { ...sleep, status: 'silence' };
+  const at = (s: PlayState, changes: Record<string, Partial<PlayUnit>>): PlayState => ({ ...s, units: s.units.map((u) => (changes[u.id] ? { ...u, ...changes[u.id] } : u)) });
+  // e, holding a staff only, at (5,1) with Mov 2 reaches foes up to 4 away; p at (1,1) and q at (2,0) are.
+  const field = () => play(unit('p', 'player', [1, 1]), unit('q', 'player', [2, 0]), unit('e', 'enemy', [5, 1]));
+
+  it('puts to sleep the foe kept last, comparing chance plus level with the last kept level alone', () => {
+    // p (level 9) is kept first with "9"; q (level 1) then has 50 + 1, no lower, so it is kept instead.
+    const s = at(field(), { p: { level: 9 }, q: { level: 1 } });
+    const plan = planAction(get(s, 'e'), s, rules({ items: { e: [staffItem] }, staves: { e: [sleep] } }));
+    expect(plan.inflict).toEqual({ target: 'q', item: 0, kind: 'sleep' });
+    expect(dist([plan.to % W, Math.floor(plan.to / W)], [2, 0])).toBeLessThanOrEqual(2);
+    // Not a foe already asleep, nor one under 5%.
+    const asleep = at(s, { q: { status: { kind: 'sleep', turns: 3 } } });
+    expect(planAction(get(asleep, 'e'), asleep, rules({ items: { e: [staffItem] }, staves: { e: [sleep] } })).inflict?.target).toBe('p');
+    expect(planAction(get(s, 'e'), s, rules({ items: { e: [staffItem] }, staves: { e: [sleep] }, accuracy: 4 })).inflict).toBeUndefined();
+  });
+
+  it('silences only a foe that can use a staff, its score kept in a byte', () => {
+    const s = at(field(), { q: { level: 3 } });
+    const r = (accuracy: number, qMagic = false) =>
+      rules({ items: { e: [staffItem], q: [{ ...SWORD, magic: qMagic }, { ...staffItem, item: 1 }] }, staves: { e: [silence] }, accuracy });
+    expect(planAction(get(s, 'e'), s, r(50)).inflict).toEqual({ target: 'q', item: 0, kind: 'silence' });
+    // 100 + Str 28 = 128, doubled for a magic weapon: 256, which is 0 in a byte, so q isn't silenced.
+    const strong = at(s, { q: { stats: { ...STATS, str: 28 } } });
+    expect(planAction(get(strong, 'e'), strong, r(100, true)).inflict).toBeUndefined();
+    expect(planAction(get(strong, 'e'), strong, r(100, false)).inflict?.target).toBe('q');
   });
 });

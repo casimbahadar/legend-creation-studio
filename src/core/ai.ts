@@ -10,7 +10,7 @@
 // resets its weapon between foes; the combat score's class bonus reads past its table (always 1); one
 // friend-zone offset is wrong; only player units count as healers to head for; a thief heading for a heal
 // point never attacks on arrival.
-// Not yet: special items (keys, torches), staves other than Heal, Mend, Recover, Physic and Fortify.
+// Not yet: special items (keys, torches), Berserk, Warp, Rescue and Restore. (The AI never uses Barrier.)
 
 import { simulateAllHits, type Forecast } from './combat';
 import { shortestRoute, type MoveSearch } from './movement';
@@ -24,17 +24,21 @@ export interface AiItem {
   readonly might: number;
   readonly min: number;
   readonly max: number;
+  /** A magic weapon (IA_MAGIC). */
+  readonly magic?: boolean;
 }
 
 /**
- * A healing staff: its item, how much it heals, how far it reaches (1, or Physic's and Fortify's range)
- * and its rank. Physic heals one ally in reach, Fortify every hurt one.
+ * A staff the computer can use: its item, how much it heals, how far it reaches (1, or Physic's,
+ * Fortify's and the status staves' range) and its rank. Physic heals one ally in reach, Fortify every
+ * hurt one; a staff with `status` gives that status to a foe.
  */
 export interface AiStaff {
   readonly item: number;
   readonly heal: number;
   readonly physic: boolean;
   readonly fortify?: boolean;
+  readonly status?: StatusKind;
   readonly reach: number;
   readonly rank: number;
 }
@@ -58,8 +62,10 @@ export interface AiRules {
   isLord(unit: PlayUnit): boolean;
   /** Whether a player unit carries a usable magic weapon (marks it for healers, as FE8 does). */
   carriesMagic?(unit: PlayUnit): boolean;
-  /** The unit's healing staves, in item order. */
-  healStaves?(unit: PlayUnit): readonly AiStaff[];
+  /** The staves the unit can use, in item order (none while it has a status: CanUnitUseStaff). */
+  aiStaves?(unit: PlayUnit): readonly AiStaff[];
+  /** A status staff's chance to hit `target` from where the unit stands, 0 to 100 (GetOffensiveStaffAccuracy). */
+  staffAccuracy?(unit: PlayUnit, target: PlayUnit): number;
   /** The unit's first Vulnerary or Elixir and what it heals, if it has one (AiTryHealSelf). */
   selfHealItem?(unit: PlayUnit): { readonly item: number; readonly heal: number } | null;
   /** Each staff the player can heal with from where the unit stands (the player's Staff menu). */
@@ -107,6 +113,15 @@ export interface Plan {
   readonly useItem?: { readonly item: number; readonly heal: number };
   /** Or a foe beside it to steal item `item` from there. */
   readonly steal?: PlannedSteal;
+  /** Or a foe to give a status with staff `item` from there. */
+  readonly inflict?: PlannedStatus;
+}
+
+/** A status staff the computer chose: whom, with which item, and the status. */
+export interface PlannedStatus {
+  readonly target: string;
+  readonly item: number;
+  readonly kind: StatusKind;
 }
 
 /** A steal the computer chose: from whom, and which of their items (its index). */
@@ -420,22 +435,82 @@ function fortifyFrom(c: Ctx, staff: AiStaff, stay: boolean): { to: number; heale
 }
 
 /**
- * AiTryDoStaff with healing staves (AiStaffHealMendRecover, AiStaffPhysicRescue, AiStaffFortify): the
- * ally set on healing with the lowest HP share (ties to the last found), from the safest square to
- * heal it from; or Fortify's (fortifyFrom). Each staff, in item order, can replace the one before if
- * its rank is no lower.
+ * sub_803C284: of the squares the unit can reach within `reach` of cell `t`, the best by terrain,
+ * friends and danger, the first best in the game's scan.
+ */
+function bestSquareWithin(c: Ctx, t: number, reach: number, stay: boolean): number | null {
+  const moves = reached(c, stay);
+  let to: number | null = null;
+  let bestScore = -Infinity;
+  for (const k of scan(c.w, c.h)) {
+    if (!moves.has(k) || !free(c, k) || distance(c.w, k, t) > reach) continue;
+    const score = c.rules.terrainScore(c.unit, k) + friendZonePosition(c, k) - Math.floor(c.danger[k]! / 8);
+    if (score > bestScore) {
+      bestScore = score;
+      to = k;
+    }
+  }
+  return to;
+}
+
+/**
+ * AiStaffSilence and AiStaffSleepBerserk: a foe in reach this turn that can use a weapon or staff and
+ * the staff has at least a 5% chance against (from where the unit stands now), from the best square
+ * within the staff's reach of it. Silence goes for a foe not yet silenced who can use a staff (only a
+ * staff counts, as the game asks CanUnitUseStaff of tomes too), scoring the chance plus its Str/Mag in
+ * a byte, doubled (in a byte) if its weapon is magic: the highest, ties to the last. Sleep goes for a
+ * foe with no status, keeping one whose chance plus level is no lower than the last kept one's level
+ * (the game compares with the level alone).
+ */
+function statusTarget(c: Ctx, staff: AiStaff, stay: boolean): { to: number; target: PlayUnit } | null {
+  let best = 0;
+  let found: { to: number; target: PlayUnit } | null = null;
+  for (const target of inGameOrder(c.state.units)) {
+    if (!areFoes(target.team, c.unit.team)) continue;
+    const items = c.rules.aiItems(target);
+    if (staff.status === 'silence' && (target.status?.kind === 'silence' || !items.some((i) => i.staff))) continue;
+    if (staff.status !== 'silence' && target.status) continue;
+    const t = cellOf(c.w, target);
+    if (distance(c.w, c.at, t) > staff.reach + c.search.mov || !items.length) continue;
+    const chance = c.rules.staffAccuracy?.(c.unit, target) ?? 0;
+    if (chance < 5) continue;
+    let score: number;
+    if (staff.status === 'silence') {
+      score = (chance + target.stats.str) & 0xff;
+      if (equipped(c.rules, target)?.magic) score = (score * 2) & 0xff;
+      if (score === 0 || score < best) continue;
+    } else {
+      if (chance + target.level < best) continue;
+      score = target.level;
+    }
+    const to = bestSquareWithin(c, t, staff.reach, stay);
+    if (to === null) continue;
+    best = score;
+    found = { to, target };
+  }
+  return found;
+}
+
+/**
+ * AiTryDoStaff (AiStaffHealMendRecover, AiStaffPhysicRescue, AiStaffFortify, and statusTarget): with a
+ * healing staff, the ally set on healing with the lowest HP share (ties to the last found), from the
+ * safest square to heal it from; or Fortify's (fortifyFrom). Each staff, in item order, can replace
+ * the one before if its rank is no lower.
  */
 function tryStaff(c: Ctx, stay: boolean): Plan | null {
-  const staves = c.rules.healStaves?.(c.unit) ?? [];
+  const staves = c.rules.aiStaves?.(c.unit) ?? [];
   const reach = reached(c, stay);
   let plan: Plan | null = null;
   let rank = 0;
   for (const staff of staves) {
     if (staff.rank < rank) continue;
     let lowest = 100;
-    let found: { to: number; target: PlayUnit; fortify?: string[] } | null = null;
+    let found: { to: number; target: PlayUnit; fortify?: string[]; inflict?: StatusKind } | null = null;
     const pct = (u: PlayUnit) => Math.trunc((u.hp * 100) / Math.max(1, u.stats.hp));
-    if (staff.fortify) {
+    if (staff.status) {
+      const s = statusTarget(c, staff, stay);
+      if (s) found = { ...s, inflict: staff.status };
+    } else if (staff.fortify) {
       const f = fortifyFrom(c, staff, stay);
       if (f) found = { to: f.to, target: c.unit, fortify: f.healed };
     } else if (!staff.physic) {
@@ -455,23 +530,15 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
         if (target.id === c.unit.id || !allied(c.unit, target) || !wantsHealing(c, target)) continue;
         const t = cellOf(c.w, target);
         if (distance(c.w, c.at, t) > staff.reach + c.search.mov) continue;
-        // sub_803C284: the best square within the staff's reach of the target, the first best found.
-        let to: number | null = null;
-        let bestScore = -Infinity;
-        for (const k of scan(c.w, c.h)) {
-          if (!reach.has(k) || !free(c, k) || distance(c.w, k, t) > staff.reach) continue;
-          const score = c.rules.terrainScore(c.unit, k) + friendZonePosition(c, k) - Math.floor(c.danger[k]! / 8);
-          if (score > bestScore) {
-            bestScore = score;
-            to = k;
-          }
-        }
+        const to = bestSquareWithin(c, t, staff.reach, stay);
         if (to === null || pct(target) > lowest) continue;
         lowest = pct(target);
         found = { to, target };
       }
     }
-    if (found) {
+    if (found?.inflict) {
+      plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, inflict: { target: found.target.id, item: staff.item, kind: found.inflict } };
+    } else if (found) {
       const heal: PlannedHeal = { target: found.target.id, item: staff.item, heal: staff.heal, ...(found.fortify ? { fortify: found.fortify } : {}) };
       plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, heal };
     }
@@ -629,7 +696,7 @@ export function planAction(unit: PlayUnit, state: PlayState, rules: AiRules): Pl
     const to = use && safestStop(search.stops.keys(), c.danger);
     if (use && to !== null && to !== undefined) return moveTo(to, { useItem: use });
     // Healers to head for are player units only (SetupUnitInventoryAIFlags marks no others).
-    const point = nearestHealPoint(c, (u) => u.team === 'player' && (rules.healStaves?.(u).length ?? 0) > 0);
+    const point = nearestHealPoint(c, (u) => u.team === 'player' && (rules.aiStaves?.(u).length ?? 0) > 0);
     if (point !== null) {
       const fastest = Math.max(0, ...state.units.filter((u) => u.team === 'player').map((u) => rules.searchOf(u, state).mov));
       const to = tryMoveTowards(c, point, 0, fastest);

@@ -6,7 +6,7 @@ import { forecast, hpCapFor, resolveBattle, withinCaps, type Combatant, type For
 import { addExp, expGain, rollLevelUp, staffExp, type ExpProfile } from '../core/experience';
 import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, unitAt, type PlayState, type PlayUnit, type StatusKind } from '../core/play';
-import type { AiItem } from '../core/ai';
+import type { AiItem, AiStaff } from '../core/ai';
 import type { ExpAward, ItemUse, PlayRules, StaffChoice } from '../core/play-input';
 import type { RomCharacter } from '../rom/fe8-characters';
 import { CA_BOSS, CA_LORD, CA_MAXLEVEL10, CA_PROMOTED, CA_STEAL, CA_THIEF } from '../rom/fe8-classes';
@@ -226,7 +226,7 @@ export function chapterRules(
         const it = items.find((i) => i.entry.name === name);
         if (!it || !usable(art, it)) return [];
         if (isStaff(it.rom)) return u.status ? [] : [{ item, staff: true, might: 0, min: it.rom.minRange, max: it.rom.maxRange }];
-        return weaponsFor(u, [name]).length ? [{ item, staff: false, might: it.rom.might, min: it.rom.minRange, max: it.rom.maxRange }] : [];
+        return weaponsFor(u, [name]).length ? [{ item, staff: false, might: it.rom.might, min: it.rom.minRange, max: it.rom.maxRange, magic: (it.rom.attributes & IA_MAGIC) !== 0 }] : [];
       });
     },
     forecastWith: (u, at, item, target) => preview(u, target, at, item).forecast,
@@ -244,8 +244,10 @@ export function chapterRules(
       return rank < 0 ? null : rank;
     },
     carriesMagic: (u) => weaponsFor(u).some((w) => (w.rom.attributes & IA_MAGIC) !== 0),
-    healStaves: (u) =>
-      u.items.flatMap((_, index) => {
+    aiStaves: (u) =>
+      u.items.flatMap((_, index): AiStaff[] => {
+        const status = statusStaff(u, index);
+        if (status) return [{ item: index, heal: 0, physic: true, status: status.kind, reach: magBy2(u), rank: status.item.rom.rank }];
         const staff = healStaff(u, index);
         if (!staff) return [];
         return [

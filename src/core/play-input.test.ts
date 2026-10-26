@@ -483,7 +483,7 @@ describe('healing with a staff', () => {
     const enemyRules: PlayRules = {
       ...staffRules,
       aiItems: (u) => (u.items[0] === 'heal' ? [{ item: 0, staff: true, might: 0, min: 1, max: 1 }] : rules.aiItems(u)),
-      healStaves: (u) => (u.items[0] === 'heal' ? [{ item: 0, heal: 10, physic: false, reach: 1, rank: 1 }] : []),
+      aiStaves: (u) => (u.items[0] === 'heal' ? [{ item: 0, heal: 10, physic: false, reach: 1, rank: 1 }] : []),
     };
     // The hurt brigand, set on healing, acts first (its priority is only its movement) and waits; then
     // the healer heals it from where it stands, its only square beside it within its 1 movement.

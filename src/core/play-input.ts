@@ -5,7 +5,7 @@
 // then the ally phase (decision 24), each unit acting by its behaviour, one step at a time through
 // stepAI.
 
-import { isHealing, phaseOrder, planAction, type AiRules, type PlannedHeal, type PlannedSteal, type StaffChoice } from './ai';
+import { isHealing, phaseOrder, planAction, type AiRules, type PlannedHeal, type PlannedStatus, type PlannedSteal, type StaffChoice } from './ai';
 import { MAX_ITEMS } from './project';
 
 export type { StaffChoice } from './ai';
@@ -111,7 +111,7 @@ export interface PlayView {
   /**
    * A unit walking its route to the square it was just moved to, from `from`. Input waits until
    * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`, uses the item per
-   * `thenUse` or steals per `thenSteal`) on arrival, if set.
+   * `thenUse`, steals per `thenSteal` or uses a status staff per `thenInflict`) on arrival, if set.
    */
   readonly walking: {
     readonly id: string;
@@ -121,6 +121,7 @@ export interface PlayView {
     readonly thenHeal?: PlannedHeal;
     readonly thenUse?: { readonly item: number; readonly heal: number };
     readonly thenSteal?: PlannedSteal;
+    readonly thenInflict?: PlannedStatus;
   } | null;
   readonly action: Action | null;
   /** A fight being shown. Input waits until finishBattle. */
@@ -150,8 +151,6 @@ export interface PlayRules extends AiRules {
   weaponChoices?(unit: PlayUnit, state: PlayState): { readonly item: number; readonly targets: readonly string[] }[];
   /** The experience using staff `index` gives the unit, if any; less for a staff that missed. */
   staffExperience?(unit: PlayUnit, index: number, missed?: boolean): ExpAward | null;
-  /** A status staff's chance to hit `target`, 0 to 100. */
-  staffAccuracy?(unit: PlayUnit, target: PlayUnit): number;
   /** Whether a status staff hits `target` this time (a random roll against staffAccuracy). */
   statusStaffHits?(unit: PlayUnit, target: PlayUnit): boolean;
   /** What the unit can do with its item `index` (none if left out). */
@@ -616,6 +615,8 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   if (unit && w.thenUse) return { ...done, cursor: unit.at, state: finishAction(useHealItem(view.state, unit.id, w.thenUse.item, w.thenUse.heal), unit.id) };
   const robbed = unitById(view.state, w.thenSteal?.target ?? null);
   if (unit && robbed && w.thenSteal) return { ...done, cursor: unit.at, battle: stealBattle(unit, robbed, w.thenSteal.item) };
+  const struck = unitById(view.state, w.thenInflict?.target ?? null);
+  if (unit && struck && w.thenInflict) return { ...done, cursor: unit.at, battle: statusBattle(unit, struck, w.thenInflict.item, w.thenInflict.kind, rules) };
   const target = unitById(view.state, w.then ?? null);
   if (unit && target) return { ...done, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
   return { ...done, state: finishAction(view.state, w.id), cursor: unit ? unit.at : view.cursor };
@@ -674,13 +675,15 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   const start = unit.at[1] * rules.width + unit.at[0];
   if (plan.to !== start) {
     const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
-    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem, thenSteal: plan.steal } };
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem, thenSteal: plan.steal, thenInflict: plan.inflict } };
   }
   if (plan.useItem) return { ...view, queue: rest, cursor: unit.at, state: finishAction(useHealItem(marked, unit.id, plan.useItem.item, plan.useItem.heal), unit.id) };
   const ally = unitById(armed, plan.heal?.target ?? null);
   if (ally && plan.heal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
   const robbed = unitById(armed, plan.steal?.target ?? null);
   if (robbed && plan.steal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: stealBattle(unit, robbed, plan.steal.item) };
+  const struck = unitById(armed, plan.inflict?.target ?? null);
+  if (struck && plan.inflict) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: statusBattle(unit, struck, plan.inflict.item, plan.inflict.kind, rules) };
   const target = unitById(armed, plan.attack);
   if (target) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: startBattle(unit, target, armed, rules) };
   return { ...view, queue: rest, cursor: unit.at, state: finishAction(armed, unit.id) };
