@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planAction, type AiRules } from './ai';
+import { dangerMap, isHealing, planAction, type AiRules } from './ai';
 import type { Forecast, Stats } from './combat';
 import { searchMoves } from './movement';
 import { startPlay, type PlayState, type PlayUnit } from './play';
@@ -93,5 +93,48 @@ describe('planAction with a healing staff', () => {
     expect(planAction(enemy(s), s, healRules)).toMatchObject({ attack: 'p' });
     const held = hurt(play(unit('e', 'enemy', 3, 'hold'), unit('f', 'enemy', 6)), { f: 3 });
     expect(planAction(enemy(held), held, healRules)).toEqual({ to: 3, route: [3], attack: null });
+  });
+});
+
+describe('healing itself', () => {
+  const hurt = (s: PlayState, hp: number, healing?: boolean) => ({ ...s, units: s.units.map((u) => (u.id === 'e' ? { ...u, hp, ...(healing ? { healing } : {}) } : u)) });
+
+  it('sets on healing under half its HP and keeps on until whole', () => {
+    const s = play(unit('e', 'enemy', 3));
+    expect(isHealing(enemy(hurt(s, 5)))).toBe(false); // 50%
+    expect(isHealing(enemy(hurt(s, 4)))).toBe(true);
+    expect(isHealing(enemy(hurt(s, 9, true)))).toBe(true); // 90%, already healing
+    expect(isHealing(enemy(hurt(s, 10, true)))).toBe(false);
+  });
+
+  // The corridor is 9 x 1; a foe's weapons reach as given, its power is 4.
+  const threatRules = (weapons: Record<string, { might: number; min: number; max: number }[]>): AiRules => ({
+    ...rules(),
+    height: 1,
+    threatOf: (foe, s) => ({ power: 4, mov: 2, weapons: weapons[foe.id] ?? [], reached: rules().searchOf(foe, s).reached.keys() }),
+    selfHealItem: (u) => (u.id === 'e' ? { item: 0, heal: 10 } : null),
+  });
+
+  it("adds each foe's (power + might) / 2 where it could strike, keeping the strongest weapon seen so far", () => {
+    // 'p' at 0 reaches 0..2 and so strikes 0..3 with might 6: (4 + 6) / 2 = 5. 'q' at 8 has no weapon of
+    // its own but counts with p's, as in the game: it reaches 6..8 and strikes 5..8.
+    const s = play(unit('p', 'player', 0), unit('e', 'enemy', 4), unit('q', 'player', 8));
+    const danger = dangerMap(enemy(s), s, threatRules({ p: [{ might: 6, min: 1, max: 1 }] }), 2);
+    expect(Array.from(danger)).toEqual([5, 5, 5, 5, 0, 5, 5, 5, 5]);
+  });
+
+  it('skips foes too far away to meet this turn', () => {
+    const s = play(unit('p', 'player', 0), unit('e', 'enemy', 8));
+    // 8 apart > 2 + 2 + 1.
+    expect(Array.from(dangerMap(enemy(s), s, threatRules({ p: [{ might: 6, min: 1, max: 1 }] }), 2))).toEqual(new Array(9).fill(0));
+  });
+
+  it('walks to the safest square it can reach and uses its Vulnerary there, Hold units too', () => {
+    const s = hurt(play(unit('p', 'player', 0), unit('e', 'enemy', 3, 'hold')), 3, true);
+    // p strikes 0..3; e reaches 1..5, of which 4 and 5 are safe; the leftmost wins.
+    expect(planAction(enemy(s), s, threatRules({ p: [{ might: 6, min: 1, max: 1 }] }))).toEqual({ to: 4, route: [3, 4], attack: null, useItem: { item: 0, heal: 10 } });
+    // Without the item, or not set on healing, it acts as before.
+    const plain = hurt(play(unit('p', 'player', 2), unit('e', 'enemy', 3, 'hold')), 3);
+    expect(planAction(enemy(plain), plain, threatRules({})).attack).toBe('p');
   });
 });

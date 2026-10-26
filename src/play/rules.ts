@@ -49,6 +49,8 @@ const MOV_CAP = 15;
 
 /** HP healing items' heal by item id (GetUnitItemHealAmount): Vulnerary 10, Elixir 80, and the second Vulnerary entry 10. */
 const HEAL_ITEMS: Readonly<Record<number, number>> = { 0x6c: 10, 0x6d: 80, 0xa2: 10 };
+/** The items the computer heals itself with (AiTryHealSelf): Vulnerary and Elixir only. */
+const SELF_HEAL_ITEMS = new Set([0x6c, 0x6d]);
 
 /** A unit's last level: 10 for classes FE8 marks so (CA_MAXLEVEL10), otherwise 20. */
 export function maxLevel(art: ClassArt | undefined, character: RomCharacter | undefined): number {
@@ -203,6 +205,23 @@ export function chapterRules(
         if (targets.length) choices.push({ item: index, targets, heal: Math.min(80, staff.heal + u.stats.str) });
       });
       return choices;
+    },
+    selfHealItem: (u) => {
+      // AiTryHealSelf takes the first in item order.
+      for (let index = 0; index < u.items.length; index++) {
+        const item = items.find((i) => i.entry.name === u.items[index]);
+        if (item && SELF_HEAL_ITEMS.has(item.rom.id)) return { item: index, heal: HEAL_ITEMS[item.rom.id]! };
+      }
+      return null;
+    },
+    threatOf: (foe, state) => {
+      const search = searchOf(foe, state);
+      return {
+        power: foe.stats.str,
+        mov: search.mov,
+        weapons: weaponsOf(artByName.get(foe.class), foe.items, items).map((w) => ({ might: w.rom.might, min: w.rom.minRange, max: w.rom.maxRange })),
+        reached: search.reached.keys(),
+      };
     },
     staffExperience: (u, index) => {
       const staff = healStaff(u, index);

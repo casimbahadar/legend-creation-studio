@@ -5,7 +5,7 @@
 // then the ally phase (decision 24), each unit acting by its behaviour, one step at a time through
 // stepAI.
 
-import { planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
+import { isHealing, planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
 import { MAX_ITEMS } from './project';
 
 export type { StaffChoice } from './ai';
@@ -100,7 +100,8 @@ export interface PlayView {
   readonly route: readonly number[] | null;
   /**
    * A unit walking its route to the square it was just moved to, from `from`. Input waits until
-   * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`) on arrival, if set.
+   * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`, or uses the item
+   * per `thenUse`) on arrival, if set.
    */
   readonly walking: {
     readonly id: string;
@@ -108,6 +109,7 @@ export interface PlayView {
     readonly from: readonly [number, number];
     readonly then?: string | null;
     readonly thenHeal?: PlannedHeal;
+    readonly thenUse?: { readonly item: number; readonly heal: number };
   } | null;
   readonly action: Action | null;
   /** A fight being shown. Input waits until finishBattle. */
@@ -516,6 +518,7 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   const unit = unitById(view.state, w.id);
   const ally = unitById(view.state, w.thenHeal?.target ?? null);
   if (unit && ally && w.thenHeal) return { ...done, cursor: unit.at, battle: healBattle(unit, ally, w.thenHeal, rules) };
+  if (unit && w.thenUse) return { ...done, cursor: unit.at, state: finishAction(useHealItem(view.state, unit.id, w.thenUse.item, w.thenUse.heal), unit.id) };
   const target = unitById(view.state, w.then ?? null);
   if (unit && target) return { ...done, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
   return { ...done, state: finishAction(view.state, w.id), cursor: unit ? unit.at : view.cursor };
@@ -551,19 +554,24 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
     const outcome = outcomeOf(state);
     return { ...view, state, phase: 'player', queue: [], banner: outcome ? null : 'player', cursor: first ? first.at : view.cursor, outcome };
   }
-  const unit = unitById(view.state, next);
-  if (!unit) return { ...view, queue: rest };
-  const plan = planAction(unit, view.state, rules);
+  const before = unitById(view.state, next);
+  if (!before) return { ...view, queue: rest };
+  // Whether it is set on healing itself carries over from turn to turn, as FE8's AI flag does.
+  const healing = isHealing(before);
+  const marked = healing === !!before.healing ? view.state : { ...view.state, units: view.state.units.map((u) => (u.id === before.id ? { ...u, healing } : u)) };
+  const unit = unitById(marked, next)!;
+  const plan = planAction(unit, marked, rules);
   const start = unit.at[1] * rules.width + unit.at[0];
   if (plan.to !== start) {
     const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
-    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(view.state, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal } };
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(marked, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem } };
   }
-  const ally = unitById(view.state, plan.heal?.target ?? null);
-  if (ally && plan.heal) return { ...view, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
-  const target = unitById(view.state, plan.attack);
-  if (target) return { ...view, queue: rest, cursor: unit.at, battle: startBattle(unit, target, view.state, rules) };
-  return { ...view, queue: rest, cursor: unit.at, state: finishAction(view.state, unit.id) };
+  if (plan.useItem) return { ...view, queue: rest, cursor: unit.at, state: finishAction(useHealItem(marked, unit.id, plan.useItem.item, plan.useItem.heal), unit.id) };
+  const ally = unitById(marked, plan.heal?.target ?? null);
+  if (ally && plan.heal) return { ...view, state: marked, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
+  const target = unitById(marked, plan.attack);
+  if (target) return { ...view, state: marked, queue: rest, cursor: unit.at, battle: startBattle(unit, target, marked, rules) };
+  return { ...view, queue: rest, cursor: unit.at, state: finishAction(marked, unit.id) };
 }
 
 /** The weapons that broke in a fight: each side's item that ran out of uses (GetItemAfterUse leaves none). */

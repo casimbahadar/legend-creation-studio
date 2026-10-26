@@ -416,6 +416,23 @@ describe('healing with a staff', () => {
     expect(after.state.units.find((u) => u.id === 'brigand-1')!.uses).toEqual([2]);
   });
 
+  it('has a hurt enemy walk away and drink its Vulnerary, staying set on healing', () => {
+    // The brigand at (2,1), next to Eirika, at 5 of 18 HP. Eirika threatens the squares around her.
+    const v = start([2, 1]);
+    const hurt: PlayView = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'brigand-1' ? { ...u, hp: 5, items: ['vulnerary'], uses: [3] } : u)) } };
+    const healRules: PlayRules = {
+      ...rules,
+      selfHealItem: (u) => (u.items[0] === 'vulnerary' ? { item: 0, heal: 10 } : null),
+      threatOf: (foe, s) => ({ power: 5, mov: 1, weapons: [{ might: 5, min: 1, max: 1 }], reached: rules.searchOf(foe, s).reached.keys() }),
+    };
+    let w = stepAI(stepAI(endPlayerTurn(hurt), healRules), healRules);
+    // From (2,1) it reaches (2,0), (2,2) and (3,1), all within Eirika's strike but (3,1).
+    expect(w.walking).toMatchObject({ id: 'brigand-1', route: [7, 8], thenUse: { item: 0, heal: 10 } });
+    w = finishWalk(w, healRules);
+    const brigand = w.state.units.find((u) => u.id === 'brigand-1')!;
+    expect([brigand.hp, brigand.uses, brigand.moved, brigand.healing]).toEqual([15, [2], true, true]);
+  });
+
   it('offers no Staff with nobody hurt in reach', () => {
     const v = setUp();
     const fine = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'seth' ? { ...u, hp: 18 } : u)) } };

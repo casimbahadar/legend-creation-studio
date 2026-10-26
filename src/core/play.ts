@@ -29,6 +29,8 @@ export interface PlayUnit {
   readonly mustSurvive: boolean;
   /** Has acted this turn. */
   readonly moved: boolean;
+  /** For computer-controlled units: whether it is set on healing itself (see ai.ts); not if left out. */
+  readonly healing?: boolean;
 }
 
 export interface PlayState {
