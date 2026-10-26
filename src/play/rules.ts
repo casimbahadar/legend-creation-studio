@@ -17,6 +17,9 @@ export interface FightPreview {
   readonly defenderWeapon: GameItem | undefined;
   readonly attacker: Combatant;
   readonly defender: Combatant;
+  /** Where each side's weapon is in its items, if it has one. */
+  readonly attackerItem: number | null;
+  readonly defenderItem: number | null;
 }
 
 export interface ChapterRules {
@@ -56,13 +59,21 @@ export function chapterRules(
     });
   }
 
+  /** The unit's first item that is `weapon`, or null. */
+  const itemIndex = (u: PlayUnit, weapon: GameItem | undefined) => {
+    const i = weapon ? u.items.indexOf(weapon.entry.name) : -1;
+    return i >= 0 ? i : null;
+  };
+
   function combatantOf(u: PlayUnit, weapon: GameItem | undefined): Combatant {
     const art = artByName.get(u.class);
     const t = map.terrain[u.at[1] * map.width + u.at[0]] ?? 0;
+    const index = itemIndex(u, weapon);
     return {
       stats: u.stats,
       hp: u.hp,
       weapon: weapon ? toWeapon(weapon) : null,
+      uses: index === null ? null : (u.uses[index] ?? null),
       terrain: { avoid: art?.terrainAvoid?.[t] ?? 0, def: art?.terrainDef?.[t] ?? 0, res: art?.terrainRes?.[t] ?? 0 },
     };
   }
@@ -74,7 +85,7 @@ export function chapterRules(
     const defenderWeapon = weaponsOf(artByName.get(d.class), d.items, items)[0];
     const attacker = combatantOf(a, attackerWeapon);
     const defender = combatantOf(d, defenderWeapon);
-    return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender };
+    return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender, attackerItem: itemIndex(a, attackerWeapon), defenderItem: itemIndex(d, defenderWeapon) };
   }
 
   /** Foes the unit could attack from square `at`, nearest first. */
@@ -131,7 +142,7 @@ export function chapterRules(
     forecastAt: (u, at, target) => preview(u, target, at).forecast,
     fight: (a, d) => {
       const f = preview(a, d);
-      return resolveBattle(f.attacker, f.defender, f.forecast, rn);
+      return { strikes: resolveBattle(f.attacker, f.defender, f.forecast, rn), attackerItem: f.attackerItem, defenderItem: f.defenderItem };
     },
     experience,
   };

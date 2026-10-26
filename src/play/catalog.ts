@@ -153,7 +153,19 @@ export function toWeapon(item: GameItem): Weapon {
     weight: r.weight,
     minRange: r.minRange,
     maxRange: r.maxRange,
+    // FE8 spends a use on a miss for weapons marked magic or uncounterable (IA_MAGIC, IA_UNCOUNTERABLE).
+    spendsOnMiss: (r.attributes & (IA_MAGIC | IA_UNCOUNTERABLE)) !== 0,
   };
+}
+
+const IA_MAGIC = 1 << 1;
+const IA_UNBREAKABLE = 1 << 3;
+const IA_UNCOUNTERABLE = 1 << 7;
+
+/** An item's full uses in play, or null for one that never runs out (IA_UNBREAKABLE, no uses given, or not a known item). */
+export function fullUses(itemName: string, items: GameItem[]): number | null {
+  const item = items.find((i) => i.entry.name === itemName);
+  return !item || item.rom.attributes & IA_UNBREAKABLE || item.rom.uses === 0 ? null : item.rom.uses;
 }
 
 export const distance = (a: PlayUnit, b: PlayUnit) => Math.abs(a.at[0] - b.at[0]) + Math.abs(a.at[1] - b.at[1]);

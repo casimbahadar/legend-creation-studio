@@ -57,7 +57,7 @@ const rules: PlayRules = {
     attacker: { canAttack: true, damage: 99, hit: 100, crit: 0, doubles: false, attackSpeed: 5 },
     defender: { canAttack: true, damage: 1, hit: 100, crit: 0, doubles: false, attackSpeed: 5 },
   }),
-  fight: (a) => [{ by: 'attacker', hit: true, crit: false, damage: 99, attackerHp: a.hp, defenderHp: 0 }],
+  fight: (a) => ({ strikes: [{ by: 'attacker', hit: true, crit: false, damage: 99, attackerHp: a.hp, defenderHp: 0, used: true }], attackerItem: null, defenderItem: null }),
 };
 const eirika = (v: PlayView) => v.state.units.find((u) => u.id === 'eirika')!;
 /** Selects Eirika, moves one square right and lets the walk finish. */
@@ -170,6 +170,22 @@ describe('attacking', () => {
     expect(fighting.battle?.exp).toMatchObject({ unit: 'eirika', level: 1, exp: 0, result: { gain: 40 } });
     const after = finishBattle(fighting);
     expect(eirika(after)).toMatchObject({ level: 2, exp: 20, hp: 18, stats: { ...STATS, hp: 19, str: 6, lck: 3 } });
+  });
+
+  it('spends the uses of the weapons each side fought with', () => {
+    const v = startView(
+      startPlay(chapterWith([3, 1]), () => STATS, () => null, (item) => (item === 'iron-sword' ? 1 : 30)),
+    );
+    const armed: PlayView = {
+      ...v,
+      state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['iron-sword', 'rapier'], uses: [1, 30] } : u)) },
+    };
+    const withItems: PlayRules = {
+      ...rules,
+      fight: (a) => ({ strikes: [{ by: 'attacker', hit: true, crit: false, damage: 99, attackerHp: a.hp, defenderHp: 0, used: true }], attackerItem: 0, defenderItem: null }),
+    };
+    const fighting = pressA(pressA(moveRight(armed), withItems), withItems);
+    expect(eirika(finishBattle(fighting))).toMatchObject({ items: ['rapier'], uses: [30] });
   });
 
   it('chooses a target by tapping it, and attacks on a second tap', () => {

@@ -12,6 +12,8 @@ export interface PlayUnit {
   readonly at: readonly [number, number];
   /** Item names, as in the project. */
   readonly items: readonly string[];
+  /** Uses left for each item, in the same order; null for one that never runs out. */
+  readonly uses: readonly (number | null)[];
   readonly level: number;
   /** Experience toward the next level, 0 to 99; null for a unit that gains none (not a player unit, or at its last level). */
   readonly exp: number | null;
@@ -41,10 +43,16 @@ export function areFoes(a: Team, b: Team): boolean {
 }
 
 /**
- * Starts a session from a chapter; `statsOf` gives each unit's stats (from its class and level) and
- * `expOf` its starting experience (none if left out).
+ * Starts a session from a chapter; `statsOf` gives each unit's stats (from its class and level),
+ * `expOf` its starting experience (none if left out) and `usesOf` an item's full uses (null, or left
+ * out: never runs out).
  */
-export function startPlay(chapter: ProjectChapter, statsOf: (unit: ProjectUnit) => Stats, expOf: (unit: ProjectUnit) => number | null = () => null): PlayState {
+export function startPlay(
+  chapter: ProjectChapter,
+  statsOf: (unit: ProjectUnit) => Stats,
+  expOf: (unit: ProjectUnit) => number | null = () => null,
+  usesOf: (item: string) => number | null = () => null,
+): PlayState {
   return {
     turn: 1,
     units: chapter.units.map((u) => {
@@ -55,6 +63,7 @@ export function startPlay(chapter: ProjectChapter, statsOf: (unit: ProjectUnit) 
         team: u.team,
         at: [u.at[0], u.at[1]],
         items: [...(u.items ?? [])],
+        uses: (u.items ?? []).map(usesOf),
         level: u.level,
         exp: expOf(u),
         stats,
@@ -86,6 +95,20 @@ export function finishAction(state: PlayState, id: string): PlayState {
 export function applyBattle(state: PlayState, attacker: string, defender: string, attackerHp: number, defenderHp: number): PlayState {
   const all = state.units.map((u) => (u.id === attacker ? { ...u, hp: attackerHp, moved: true } : u.id === defender ? { ...u, hp: defenderHp } : u));
   return { ...state, units: all.filter((u) => u.hp > 0), fallen: [...state.fallen, ...all.filter((u) => u.hp <= 0)] };
+}
+
+/** Spends `count` uses of a unit's item `index`; an item with none left is gone, as FE8 removes a broken weapon. */
+export function spendUses(state: PlayState, id: string, index: number, count: number): PlayState {
+  if (count <= 0) return state;
+  return {
+    ...state,
+    units: state.units.map((u) => {
+      const left = u.uses[index];
+      if (u.id !== id || left === null || left === undefined) return u;
+      if (left - count > 0) return { ...u, uses: u.uses.map((n, i) => (i === index ? left - count : n)) };
+      return { ...u, items: u.items.filter((_, i) => i !== index), uses: u.uses.filter((_, i) => i !== index) };
+    }),
+  };
 }
 
 /** A unit's experience after a fight: its new level and experience, and any level-up's gains (max HP rises; current HP stays). */

@@ -115,6 +115,23 @@ describe('resolveBattle', () => {
     expect(strikes[0]).toMatchObject({ by: 'attacker', defenderHp: 0 });
   });
 
+  it('spends a use on each hit, on misses only for magic, and a broken weapon strikes no more', () => {
+    // The attacker doubles; its weapon has 1 use, so after its first hit it can't strike again.
+    const a = { ...unit({ hp: 30, str: 5, spd: 10 }, { might: 0, hit: 100 }), uses: 1 };
+    const d = { ...unit({ hp: 30, spd: 2, def: 0 }, { might: 0, hit: 0 }), uses: 5 };
+    const strikes = resolveBattle(a, d, forecast(a, d, 1), seq(0));
+    expect(strikes.map((s) => [s.by, s.hit, s.used])).toEqual([
+      ['attacker', true, true],
+      ['defender', false, false],
+    ]);
+    // Magic loses a use on a miss.
+    const mage = { ...unit({ hp: 30, spd: 2 }, { kind: 'anima', magic: true, spendsOnMiss: true, hit: 0 }), uses: 3 };
+    expect(resolveBattle(mage, d, forecast(mage, d, 1), seq(99))[0]).toMatchObject({ hit: false, used: true });
+    // A weapon that never breaks (no uses tracked) keeps striking.
+    const unbreakable = unit({ hp: 30, str: 5, spd: 10 }, { might: 0, hit: 100 });
+    expect(resolveBattle(unbreakable, d, forecast(unbreakable, d, 1), seq(0)).filter((s) => s.by === 'attacker')).toHaveLength(2);
+  });
+
   it('gives a repeatable stream of 0 to 99 for a seed', () => {
     const a = randomNumbers(42);
     const b = randomNumbers(42);

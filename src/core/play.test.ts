@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBattle, areFoes, endTurn, finishAction, moveUnit, outcomeOf, startPlay, unitAt } from './play';
+import { applyBattle, areFoes, endTurn, finishAction, moveUnit, outcomeOf, spendUses, startPlay, unitAt } from './play';
 import type { Stats } from './combat';
 import type { ProjectChapter } from './project';
 
@@ -25,6 +25,18 @@ describe('play session', () => {
     expect(unitAt(moved, 2, 1)).toMatchObject({ id: 'eirika', moved: false });
     expect(unitAt(finishAction(moved, 'eirika'), 2, 1)?.moved).toBe(true);
     expect(chapter.units[0]!.at).toEqual([1, 1]);
+  });
+
+  it("spends an item's uses and drops it once none are left", () => {
+    const two = { ...chapter, units: [{ ...chapter.units[0]!, items: ['rapier', 'vulnerary', 'iron-sword'] }, chapter.units[1]!] };
+    const s = startPlay(two, statsOf, undefined, (item) => (item === 'rapier' ? 2 : item === 'iron-sword' ? 46 : null));
+    expect(unitAt(s, 1, 1)?.uses).toEqual([2, null, 46]);
+    const once = spendUses(s, 'eirika', 0, 1);
+    expect(unitAt(once, 1, 1)).toMatchObject({ items: ['rapier', 'vulnerary', 'iron-sword'], uses: [1, null, 46] });
+    const broken = spendUses(once, 'eirika', 0, 1);
+    expect(unitAt(broken, 1, 1)).toMatchObject({ items: ['vulnerary', 'iron-sword'], uses: [null, 46] });
+    // An item that never runs out stays as it is.
+    expect(spendUses(broken, 'eirika', 0, 5)).toEqual(broken);
   });
 
   it('applies a fight and removes the fallen', () => {

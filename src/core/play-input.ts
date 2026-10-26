@@ -8,7 +8,7 @@ import { planAction, type AiRules } from './ai';
 import type { Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, endTurn, finishAction, moveUnit, outcomeOf, readyAll, unitAt, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, endTurn, finishAction, moveUnit, outcomeOf, readyAll, spendUses, unitAt, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -28,10 +28,16 @@ export interface ExpAward {
   readonly result: ExpResult;
 }
 
-export interface Battle {
+/** A fight's blows and the item each side fought with (its index in the unit's items), if any. */
+export interface Fight {
+  readonly strikes: readonly Strike[];
+  readonly attackerItem: number | null;
+  readonly defenderItem: number | null;
+}
+
+export interface Battle extends Fight {
   readonly attacker: string;
   readonly defender: string;
-  readonly strikes: readonly Strike[];
   /** The experience the fight gave, shown after it; null if nobody gained any. */
   readonly exp: ExpAward | null;
 }
@@ -68,16 +74,16 @@ export interface PlayRules extends AiRules {
   searchOf(unit: PlayUnit, state: PlayState, mov?: number): MoveSearch;
   /** Ids of enemies the unit could attack from where it stands, nearest first. */
   targetsOf(unit: PlayUnit, state: PlayState): string[];
-  /** The blows of a fight between two units where they stand. */
-  fight(attacker: PlayUnit, defender: PlayUnit, state: PlayState): Strike[];
+  /** The blows of a fight between two units where they stand, and the items they fight with. */
+  fight(attacker: PlayUnit, defender: PlayUnit, state: PlayState): Fight;
   /** The experience a fight gives, if any (none if left out). */
   experience?(attacker: PlayUnit, defender: PlayUnit, strikes: readonly Strike[]): ExpAward | null;
 }
 
 /** A fight between two units, with the experience it gives. */
 function startBattle(attacker: PlayUnit, defender: PlayUnit, state: PlayState, rules: PlayRules): Battle {
-  const strikes = rules.fight(attacker, defender, state);
-  return { attacker: attacker.id, defender: defender.id, strikes, exp: rules.experience?.(attacker, defender, strikes) ?? null };
+  const fight = rules.fight(attacker, defender, state);
+  return { attacker: attacker.id, defender: defender.id, ...fight, exp: rules.experience?.(attacker, defender, fight.strikes) ?? null };
 }
 
 /** The cursor starts on the first player unit, as FE starts it on the lord. */
@@ -302,7 +308,11 @@ export function finishBattle(view: PlayView): PlayView {
   const attacker = unitById(view.state, b.attacker);
   const defender = unitById(view.state, b.defender);
   const last = b.strikes[b.strikes.length - 1];
-  const fought = applyBattle(view.state, b.attacker, b.defender, last?.attackerHp ?? attacker?.hp ?? 0, last?.defenderHp ?? defender?.hp ?? 0);
+  const spent = (by: 'attacker' | 'defender') => b.strikes.filter((s) => s.by === by && s.used).length;
+  let used = view.state;
+  if (b.attackerItem !== null) used = spendUses(used, b.attacker, b.attackerItem, spent('attacker'));
+  if (b.defenderItem !== null) used = spendUses(used, b.defender, b.defenderItem, spent('defender'));
+  const fought = applyBattle(used, b.attacker, b.defender, last?.attackerHp ?? attacker?.hp ?? 0, last?.defenderHp ?? defender?.hp ?? 0);
   const state = b.exp ? applyExp(fought, b.exp.unit, b.exp.result) : fought;
   const still = unitById(state, b.attacker);
   // The chapter can end with this fight; then the phase and its queue stop where they are.

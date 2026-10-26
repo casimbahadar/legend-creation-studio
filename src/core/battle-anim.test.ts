@@ -3,8 +3,8 @@ import { battleFrame, END_PAUSE_MS, EXP_MS_PER_POINT, expBarEnd, expFrame, LEVEL
 import type { Strike } from './combat';
 
 const strikes: Strike[] = [
-  { by: 'attacker', hit: true, crit: false, damage: 6, attackerHp: 20, defenderHp: 14 },
-  { by: 'defender', hit: false, crit: false, damage: 0, attackerHp: 20, defenderHp: 14 },
+  { by: 'attacker', hit: true, crit: false, damage: 6, attackerHp: 20, defenderHp: 14, used: true },
+  { by: 'defender', hit: false, crit: false, damage: 0, attackerHp: 20, defenderHp: 14, used: false },
 ];
 const start = { attackerHp: 20, defenderHp: 20 };
 

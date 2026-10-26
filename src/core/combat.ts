@@ -1,7 +1,8 @@
 // Combat: stats at a level, the battle forecast and the blows of one fight.
 // Formulas follow Endless Chronicle's (index.html, its forecast function) with its own additions
 // left out, plus FE8's weight rule, which EC skips: weapon weight above Con slows the unit.
-// Not yet: brave weapons, effective damage, reaver weapons, class crit bonuses, weapon uses, experience.
+// Weapon uses follow FE8 (src/bmbattle.c BattleGenerateHitEffects, GetItemAfterUse). Experience is in
+// experience.ts. Not yet: brave weapons, effective damage, reaver weapons, class crit bonuses.
 
 export interface Stats {
   readonly hp: number;
@@ -83,6 +84,8 @@ export interface Weapon {
   readonly weight: number;
   readonly minRange: number;
   readonly maxRange: number;
+  /** Loses a use on a miss too, as FE8's magic and uncounterable weapons do (IA_MAGIC, IA_UNCOUNTERABLE). */
+  readonly spendsOnMiss?: boolean;
 }
 
 export interface Combatant {
@@ -90,6 +93,8 @@ export interface Combatant {
   readonly hp: number;
   /** The weapon used in this fight, or null if the unit can't fight back. */
   readonly weapon: Weapon | null;
+  /** The weapon's uses left; null or left out for a weapon that never breaks. */
+  readonly uses?: number | null;
   /** Bonuses from the terrain the unit stands on. */
   readonly terrain: { readonly avoid: number; readonly def: number; readonly res: number };
 }
@@ -154,6 +159,8 @@ export interface Strike {
   /** HP of both after this blow. */
   readonly attackerHp: number;
   readonly defenderHp: number;
+  /** The striker's weapon lost a use: on a hit, and on a miss for magic. */
+  readonly used: boolean;
 }
 
 /** FE8's "true hit": two random numbers 0 to 99, averaged; the blow lands if that is below the hit chance. */
@@ -163,25 +170,30 @@ export function rollHit(hit: number, rn: () => number): boolean {
 
 /**
  * The blows of one fight, in FE's order: attacker, defender's counter, then a second blow from whoever
- * doubles. Stops when a unit falls. `rn` returns a random whole number from 0 to 99.
+ * doubles. Stops when a unit falls. A weapon loses a use on each hit (and on a miss for magic); one
+ * that breaks strikes no more. `rn` returns a random whole number from 0 to 99.
  */
 export function resolveBattle(attacker: Combatant, defender: Combatant, f: Forecast, rn: () => number): Strike[] {
   const strikes: Strike[] = [];
   let hpA = attacker.hp;
   let hpD = defender.hp;
+  const uses = { attacker: attacker.uses ?? null, defender: defender.uses ?? null };
   const order: ('attacker' | 'defender')[] = ['attacker', 'defender'];
   if (f.attacker.doubles) order.push('attacker');
   else if (f.defender.doubles) order.push('defender');
   for (const by of order) {
     if (hpA <= 0 || hpD <= 0) break;
     const s = by === 'attacker' ? f.attacker : f.defender;
-    if (!s.canAttack) continue;
+    if (!s.canAttack || uses[by] === 0) continue;
     const hit = rollHit(s.hit, rn);
     const crit = hit && rn() < s.crit;
     const damage = hit ? s.damage * (crit ? 3 : 1) : 0;
     if (by === 'attacker') hpD = Math.max(0, hpD - damage);
     else hpA = Math.max(0, hpA - damage);
-    strikes.push({ by, hit, crit, damage, attackerHp: hpA, defenderHp: hpD });
+    const used = hit || !!(by === 'attacker' ? attacker : defender).weapon?.spendsOnMiss;
+    const left = uses[by];
+    if (used && left !== null) uses[by] = left - 1;
+    strikes.push({ by, hit, crit, damage, attackerHp: hpA, defenderHp: hpD, used });
   }
   return strikes;
 }
