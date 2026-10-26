@@ -986,3 +986,30 @@ a.button {
   image-rendering: pixelated;
   pointer-events: none;
 }
+
+/* FE8's level-up box from the ROM: 240 x 224 GBA pixels, scrolled up from the bottom of the screen. */
+.level-up-box {
+  position: absolute;
+  left: 0;
+  z-index: 3;
+  width: calc(240 * var(--gba-px, 1.5px));
+  height: calc(224 * var(--gba-px, 1.5px));
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.level-up-item {
+  position: absolute;
+  display: flex;
+}
+
+.level-up-item.centre { justify-content: center; }
+
+/* "LEVEL UP" over the unit, before the box: a stand-in for the game's sprite animation. */
+.level-up-text {
+  position: absolute;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}

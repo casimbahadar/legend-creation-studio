@@ -1,12 +1,14 @@
 // The windows on the game screen, in FE8's style (decision 35): the unit under the cursor, the goal,
 // the battle forecast, HP during a battle, and the damage popup; and the hint line under the controls.
 
-import { useContext, type ReactNode } from 'react';
+import { Fragment, useContext, type CSSProperties, type ReactNode } from 'react';
 import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import type { PlayState, PlayUnit } from '../core/play';
 import type { PlayView } from '../core/play-input';
 import type { StatGains } from '../core/experience';
+import { levelUpAt } from '../core/battle-anim';
+import { LEVEL_UP_LAYOUT, type LevelUpStat } from '../rom/fe8-levelup';
 import type { GameItem } from '../play/catalog';
 import type { TextColour } from '../rom/fe8-font';
 import { FeText } from './FeText';
@@ -386,6 +388,84 @@ const LEVEL_UP_STATS = [
   ['def', 'Def'],
   ['res', 'Res'],
 ] as const;
+
+/** The gains a level-up shows a label for, in FE8's order: the level's always, then each stat that rose. */
+export function levelUpLabels(gains: StatGains): LevelUpStat[] {
+  return LEVEL_UP_LAYOUT.map((l) => l.stat).filter((k) => k === 'level' || (k !== 'con' && gains[k] !== 0));
+}
+
+/**
+ * FE8's map level-up with the game's box (decision 35): "LEVEL UP" over the unit, then the box
+ * scrolling up with the class name, the level and stats written as the game writes them (gold labels,
+ * blue values, a digit to a tile), each gain's value rising as its label appears. The portrait and the
+ * game's own "LEVEL UP" and gain labels (sprite animations) come later; look-alikes stand in for them.
+ */
+export function LevelUpScreen({
+  box,
+  unit,
+  className,
+  magic,
+  level,
+  gains,
+  frame,
+  at,
+}: {
+  box: string;
+  unit: PlayUnit;
+  className: string;
+  magic: boolean;
+  /** The level before. */
+  level: number;
+  gains: StatGains;
+  frame: number;
+  /** The unit's square on the screen. */
+  at: readonly [number, number];
+}) {
+  const labels = levelUpLabels(gains);
+  const f = levelUpAt(frame, labels.length);
+  if (f.stage === 'text') {
+    // Where ManimLevelUp_StartLevelUpText puts it: beside the unit, kept on the screen.
+    const x = at[0] < 2 ? 48 : at[0] >= 13 ? 208 : at[0] * 16 + 16;
+    const y = at[1] * 16 - 8 + (at[1] < 2 ? 32 : 0);
+    return (
+      <div className="level-up-text" style={{ left: gbaPx(x), top: gbaPx(y) }}>
+        <FeText text="LEVEL UP" colour="gold" />
+      </div>
+    );
+  }
+  if (f.stage !== 'box') return null;
+  const shown = new Set(labels.slice(0, f.labels));
+  const valueOf = (k: LevelUpStat) => (k === 'level' ? level + (shown.has(k) ? 1 : 0) : unit.stats[k] + (k !== 'con' && shown.has(k) ? gains[k] : 0));
+  const at8 = (x: number, y: number): CSSProperties => ({ left: gbaPx(x * 8), top: gbaPx(y * 8) });
+  return (
+    <div className="level-up-box" style={{ top: gbaPx(f.top), backgroundImage: `url(${box})` }} role="status" aria-label="Level up">
+      <span className="level-up-item" style={at8(3, 1)}>
+        <FeText text={className} />
+      </span>
+      {LEVEL_UP_LAYOUT.map((l) => {
+        const digits = [...String(valueOf(l.stat))].reverse();
+        const gain = l.stat === 'level' || l.stat === 'con' ? 0 : gains[l.stat];
+        return (
+          <Fragment key={l.stat}>
+            <span className="level-up-item centre" style={{ ...at8(1 + l.x, 1 + l.y), width: gbaPx(24) }}>
+              <FeText text={magic && l.magic ? l.magic : l.label} colour="gold" />
+            </span>
+            {digits.map((d, i) => (
+              <span key={i} className="level-up-item" style={at8(1 + l.x + 4 - i, 1 + l.y)}>
+                <FeText text={d} colour="blue" />
+              </span>
+            ))}
+            {shown.has(l.stat) && gain > 0 && (
+              <span className="level-up-item gain" style={{ left: gbaPx((l.x + 5) * 8 + 10), top: gbaPx((1 + l.y) * 8) }}>
+                <FeText text={`+${gain}`} colour="green" />
+              </span>
+            )}
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
 
 /** FE's level-up window: the unit's new level and stats, each stat that rose marked with its gain. */
 export function LevelUpWindow({ unit, label, level, gains }: { unit: PlayUnit; label: string; level: number; gains: StatGains }) {

@@ -4,7 +4,7 @@
 // Play page (decision 33). Play's rules, drawing and the ROM catalog live in src/play.
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { battleFrame, expBarEnd, expFrame, LEVEL_UP_MS, levelUpStart, type BattleFrame } from '../core/battle-anim';
+import { battleFrame, expBarEnd, expFrame, levelUpFrames, levelUpStart, type BattleFrame } from '../core/battle-anim';
 import { startingExp } from '../core/experience';
 import { hpCapFor, randomNumbers, withBonus, withinCaps } from '../core/combat';
 import { goalWindowText } from '../core/goals';
@@ -49,12 +49,12 @@ import { PHASE_INTRO_FRAMES } from '../rom/fe8-phase';
 import type { ChapterMap } from '../rom/fe8-maps';
 import { GbaControls } from './controls';
 import { FeText, FontContext } from './FeText';
-import { frameStyle, WindowArtContext } from './FeWindow';
+import { frameStyle, imageUrl, WindowArtContext } from './FeWindow';
 import { PhaseIntro } from './PhaseIntro';
 import { Chibi } from './Portrait';
 import { shortClassLabel } from './labels';
 import { unitCharacters, type EditorRom } from './project-io';
-import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, HealWindow, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
+import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, HealWindow, LevelUpScreen, levelUpLabels, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
 /** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
 const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
@@ -227,7 +227,8 @@ export function PlayScreen({
     return () => cancelAnimationFrame(raf);
   }, [expStart]);
   const award = battle?.exp ?? null;
-  const expShow = award && expStart !== null ? expFrame(award.exp, award.result.gain, !!award.result.levelUp, expNow) : null;
+  const levelUpLabelCount = award?.result.levelUp ? levelUpLabels(award.result.levelUp).length : 0;
+  const expShow = award && expStart !== null ? expFrame(award.exp, award.result.gain, levelUpLabelCount, expNow) : null;
   /** The fight and its experience have been shown: show any broken weapon, or apply the fight. Once per battle. */
   const endFight = useRef(() => {});
   endFight.current = () => {
@@ -257,7 +258,11 @@ export function PlayScreen({
   onAPress.current = () => {
     if (award && expShow) {
       expOffset.current +=
-        expShow.phase === 'bar' ? Math.max(0, expBarEnd(award.result.gain) - expNow) : expShow.phase === 'gap' ? Math.max(0, levelUpStart(award.result.gain) - expNow) : LEVEL_UP_MS;
+        expShow.phase === 'bar'
+          ? Math.max(0, expBarEnd(award.result.gain) - expNow)
+          : expShow.phase === 'gap'
+            ? Math.max(0, levelUpStart(award.result.gain) - expNow)
+            : (levelUpFrames(levelUpLabelCount) * 1000) / 60;
       return;
     }
     if (broke) {
@@ -573,7 +578,23 @@ export function PlayScreen({
         )}
         {award?.result.levelUp && expShow?.phase === 'levelUp' && (() => {
           const u = play.units.find((x) => x.id === award.unit);
-          return u ? <LevelUpWindow unit={u} label={unitLabel(u)} level={award.result.level} gains={award.result.levelUp} /> : null;
+          if (!u) return null;
+          const art = artByName.get(u.class);
+          if (data.levelUpBox && art)
+            return (
+              <LevelUpScreen
+                box={imageUrl(data.levelUpBox)}
+                unit={u}
+                className={art.entry.gameName}
+                // UnitHasMagicRank, from the class's ranks: staff, anima, light or dark.
+                magic={[4, 5, 6, 7].some((t) => (art.weaponRanks[t] ?? 0) > 0)}
+                level={award.level}
+                gains={award.result.levelUp}
+                frame={expShow.frame}
+                at={[u.at[0] - cam[0], u.at[1] - cam[1]]}
+              />
+            );
+          return <LevelUpWindow unit={u} label={unitLabel(u)} level={award.result.level} gains={award.result.levelUp} />;
         })()}
         {view.banner &&
           (data.phaseBanners ? (

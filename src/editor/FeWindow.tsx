@@ -76,6 +76,15 @@ export function expBarUrl(art: ExpBarArt, exp: number): string {
   return url;
 }
 
+const images = new WeakMap<Image, string>();
+
+/** `image` as a URL, made once. */
+export function imageUrl(image: Image): string {
+  let url = images.get(image);
+  if (!url) images.set(image, (url = scaledUrl(image)));
+  return url;
+}
+
 const frames = new WeakMap<WindowArt, CSSProperties>();
 
 /**
