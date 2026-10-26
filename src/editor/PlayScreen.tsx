@@ -385,7 +385,7 @@ export function PlayScreen({
   }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH, cursorCorner, statusIcons]);
 
   // The computer's phases: a pause on each phase banner, then one unit at a time.
-  const aiTurn = (view.phase !== 'player' || !!view.banner) && !view.walking && !view.battle;
+  const aiTurn = (view.phase !== 'player' || !!view.banner || !!view.berserk) && !view.walking && !view.battle;
   useEffect(() => {
     if (!aiTurn) return;
     const t = window.setTimeout(() => setView((v) => stepAI(v, rules)), view.banner ? BANNER_MS : AI_PAUSE_MS);
@@ -403,6 +403,8 @@ export function PlayScreen({
 
   const phase: PlayPhase = view.outcome
     ? 'over'
+    : view.berserk
+      ? 'berserk'
     : view.phase !== 'player'
       ? view.phase
       : view.battle

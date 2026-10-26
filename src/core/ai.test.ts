@@ -289,3 +289,21 @@ describe('status staves', () => {
     expect(planAction(get(strong, 'e'), strong, r(100, false)).inflict?.target).toBe('q');
   });
 });
+
+describe('berserk', () => {
+  it('attacks any unit but itself, its own side too', () => {
+    // f, e's ally, is beside it; the player unit is out of reach.
+    const s = play(unit('p', 'player', [0, 1]), unit('e', 'enemy', [5, 1]), unit('f', 'enemy', [6, 1]));
+    expect(planAction(get(s, 'e'), s, rules()).attack).toBeNull();
+    expect(planAction(get(s, 'e'), s, rules(), true)).toMatchObject({ attack: 'f' });
+  });
+
+  it('with nothing in reach, heads for the nearest unit of any side, whatever its behaviour', () => {
+    const s = play(unit('p', 'player', [0, 1]), unit('e', 'enemy', [6, 1], 'hold'), unit('f', 'enemy', [3, 1]));
+    // A Hold unit, berserk, still moves: with Mov 2 it reaches (4,1), beside f, and attacks.
+    expect(planAction(get(s, 'e'), s, rules(), true)).toMatchObject({ attack: 'f' });
+    const far = play(unit('p', 'player', [0, 0]), unit('e', 'enemy', [6, 2], 'hold'), unit('f', 'enemy', [2, 2]));
+    // f is 4 away and out of reach; e walks 2 toward it.
+    expect(planAction(get(far, 'e'), far, rules(), true)).toMatchObject({ to: cell(4, 2), attack: null });
+  });
+});

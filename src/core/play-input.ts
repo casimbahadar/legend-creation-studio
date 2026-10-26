@@ -130,6 +130,11 @@ export interface PlayView {
   readonly phase: Phase;
   /** Units still to act this computer phase, in order. */
   readonly queue: readonly string[];
+  /**
+   * The side's berserk units are acting, after its own phase (FE8's berserk phase): `queue` holds them,
+   * in unit order, and the computer moves them, the player's too.
+   */
+  readonly berserk?: boolean;
   /** The phase banner showing, if any. Input waits until stepAI clears it. */
   readonly banner: Phase | null;
   /** Set when the chapter is won or lost; play stops there. */
@@ -215,7 +220,7 @@ export function canMove(unit: PlayUnit | undefined): boolean {
 }
 
 /** Player input is ignored while a unit walks, a battle plays, a banner shows, or the computer has the turn. */
-const busy = (view: PlayView) => !!view.walking || !!view.battle || !!view.banner || view.phase !== 'player' || !!view.outcome;
+const busy = (view: PlayView) => !!view.walking || !!view.battle || !!view.banner || view.phase !== 'player' || !!view.berserk || !!view.outcome;
 
 /** The search for the unit being moved, if one is selected and can still move. */
 function moving(view: PlayView, rules: PlayRules): { unit: PlayUnit; search: MoveSearch } | null {
@@ -260,10 +265,10 @@ export function stealTargets(state: PlayState, unit: PlayUnit, rules: PlayRules)
     .map((o) => o.id);
 }
 
-/** Units the unit can trade with (TryAddUnitToTradeTargetList): next to it, on its side, one of the two carrying something. */
+/** Units the unit can trade with (TryAddUnitToTradeTargetList): next to it, on its side, not berserk, one of the two carrying something. */
 export function tradePartners(state: PlayState, unit: PlayUnit): string[] {
   return state.units
-    .filter((o) => o.id !== unit.id && o.team === unit.team && Math.abs(o.at[0] - unit.at[0]) + Math.abs(o.at[1] - unit.at[1]) === 1 && (o.items.length > 0 || unit.items.length > 0))
+    .filter((o) => o.id !== unit.id && o.team === unit.team && o.status?.kind !== 'berserk' && Math.abs(o.at[0] - unit.at[0]) + Math.abs(o.at[1] - unit.at[1]) === 1 && (o.items.length > 0 || unit.items.length > 0))
     .map((o) => o.id);
 }
 
@@ -608,7 +613,7 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   const w = view.walking;
   if (!w) return view;
   const done = { ...view, walking: null };
-  if (view.phase === 'player') return openMenu(done, w.id, w.from);
+  if (view.phase === 'player' && !view.berserk) return openMenu(done, w.id, w.from);
   const unit = unitById(view.state, w.id);
   const ally = unitById(view.state, w.thenHeal?.target ?? null);
   if (unit && ally && w.thenHeal) return { ...done, cursor: unit.at, battle: healBattle(unit, ally, w.thenHeal, rules) };
@@ -637,11 +642,23 @@ function phaseQueue(state: PlayState, team: PlayUnit['team'], rules: PlayRules):
   return { state: marked, queue: phaseOrder(marked.units.filter((u) => u.team === team && !cannotAct(u)), marked, rules) };
 }
 
-/** End turn: every unit is ready again and the enemy phase begins. */
+/** A side's berserk units that haven't acted, in unit order (CpOrderBerserkInit). */
+function berserkQueue(state: PlayState, team: PlayUnit['team']): string[] {
+  return state.units.filter((u) => u.team === team && u.status?.kind === 'berserk' && !u.moved).map((u) => u.id);
+}
+
+/** The enemy phase begins: every unit is ready again. */
+function enemyPhase(view: PlayView, rules: PlayRules): PlayView {
+  const { state, queue } = phaseQueue(readyAll(view.state), 'enemy', rules);
+  return { ...view, state, selected: null, route: null, phase: 'enemy', queue, banner: 'enemy', berserk: false };
+}
+
+/** End turn: the player's berserk units act, then the enemy phase begins. */
 export function endPlayerTurn(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view) || view.action) return view;
-  const { state, queue } = phaseQueue(readyAll(view.state), 'enemy', rules);
-  return { ...view, state, selected: null, route: null, phase: 'enemy', queue, banner: 'enemy' };
+  const berserkers = berserkQueue(view.state, 'player');
+  if (berserkers.length) return { ...view, selected: null, route: null, berserk: true, queue: berserkers };
+  return enemyPhase(view, rules);
 }
 
 /**
@@ -651,24 +668,28 @@ export function endPlayerTurn(view: PlayView, rules: PlayRules): PlayView {
 export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   if (view.walking || view.battle || view.outcome) return view;
   if (view.banner) return { ...view, banner: null };
-  if (view.phase === 'player') return view;
+  if (view.phase === 'player' && !view.berserk) return view;
   const [next, ...rest] = view.queue;
   if (next === undefined) {
+    // The side's own phase is over: its berserk units act, then the next side's phase.
+    const berserkers = view.berserk ? [] : berserkQueue(view.state, view.phase);
+    if (berserkers.length) return { ...view, berserk: true, queue: berserkers };
+    if (view.phase === 'player') return enemyPhase(view, rules);
     if (view.phase === 'enemy') {
       const { state, queue } = phaseQueue(readyAll(view.state), 'ally', rules);
-      return { ...view, state, phase: 'ally', queue, banner: queue.length ? 'ally' : null };
+      return { ...view, state, phase: 'ally', queue, banner: queue.length ? 'ally' : null, berserk: false };
     }
     const state = tickStatuses(endTurn(view.state), 'player');
     const first = state.units.find((u) => u.team === 'player');
     // A Survive goal is won as the turn after the last begins.
     const outcome = outcomeOf(state);
-    return { ...view, state, phase: 'player', queue: [], banner: outcome ? null : 'player', cursor: first ? first.at : view.cursor, outcome };
+    return { ...view, state, phase: 'player', queue: [], banner: outcome ? null : 'player', cursor: first ? first.at : view.cursor, outcome, berserk: false };
   }
   const before = unitById(view.state, next);
   if (!before) return { ...view, queue: rest };
   // FE8 updates its side's healing settings before each unit decides (UpdateAllPhaseHealingAIStatus).
   const marked = markHealing(view.state, before.team);
-  const plan = planAction(unitById(marked, next)!, marked, rules);
+  const plan = planAction(unitById(marked, next)!, marked, rules, !!view.berserk);
   // The weapon it attacks with is equipped, as FE8's action does.
   const armed = plan.attack && plan.attackItem !== undefined ? equipItem(marked, next, plan.attackItem) : marked;
   const unit = unitById(armed, next)!;

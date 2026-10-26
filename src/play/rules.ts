@@ -47,8 +47,8 @@ const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean; fort
   0x4f: { heal: 10, physic: true, fortify: true },
 };
 
-/** Staves that give a status, by item id (ExecStatusStaff): Silence and Sleep. Berserk is still to come. */
-const STATUS_STAVES: Readonly<Record<number, StatusKind>> = { 0x51: 'silence', 0x52: 'sleep' };
+/** Staves that give a status, by item id (ExecStatusStaff): Silence, Sleep and Berserk. */
+const STATUS_STAVES: Readonly<Record<number, StatusKind>> = { 0x51: 'silence', 0x52: 'sleep', 0x53: 'berserk' };
 
 /** Stat boosters by item id: Angelic Robe to Body Ring (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON). */
 const BOOSTERS = new Set([0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63]);
@@ -126,8 +126,10 @@ export function chapterRules(
     const dist = distance(a, d);
     const choices = weaponsFor(a, slot === undefined ? a.items : [a.items[slot] ?? '']);
     const attackerWeapon = choices.find((w) => inReach(w, dist));
-    // A sleeping defender fights with no weapon and can't strike back (SetBattleUnitWeapon).
-    const defenderWeapon = d.status?.kind === 'sleep' ? undefined : weaponsFor(d)[0];
+    // A sleeping defender fights with no weapon and can't strike back (SetBattleUnitWeapon), nor can a
+    // player unit a berserk player unit attacks (BattleInitTargetCanCounter).
+    const noCounter = d.status?.kind === 'sleep' || (a.status?.kind === 'berserk' && a.team === 'player' && d.team === 'player');
+    const defenderWeapon = noCounter ? undefined : weaponsFor(d)[0];
     const attacker = combatantOf(a, attackerWeapon);
     const defender = combatantOf(d, defenderWeapon);
     return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender, attackerItem: itemIndex(a, attackerWeapon), defenderItem: itemIndex(d, defenderWeapon) };
@@ -157,6 +159,8 @@ export function chapterRules(
 
   /** Experience for the first player unit in the fight that can gain it (only player units do, as in FE8). */
   function experience(a: PlayUnit, d: PlayUnit, strikes: readonly Strike[]): ExpAward | null {
+    // BattleApplyExpGains: none when two player units fight (a berserk one and another).
+    if (a.team === 'player' && d.team === 'player') return null;
     const last = strikes[strikes.length - 1];
     for (const [u, other, by] of [
       [a, d, 'attacker'],

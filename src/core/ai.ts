@@ -10,7 +10,8 @@
 // resets its weapon between foes; the combat score's class bonus reads past its table (always 1); one
 // friend-zone offset is wrong; only player units count as healers to head for; a thief heading for a heal
 // point never attacks on arrival.
-// Not yet: special items (keys, torches), Berserk, Warp, Rescue and Restore. (The AI never uses Barrier.)
+// A berserk unit acts in FE8's berserk phase (planAction's `berserk`).
+// Not yet: special items (keys, torches), Warp, Rescue and Restore. (The AI never uses Barrier.)
 
 import { simulateAllHits, type Forecast } from './combat';
 import { shortestRoute, type MoveSearch } from './movement';
@@ -324,10 +325,10 @@ function reached(c: Ctx, stay: boolean): ReadonlyMap<number, number> {
  * highest position score, ties to the last in the game's scan), then the fight's score; the highest
  * score wins, ties to the last.
  */
-function tryAttack(c: Ctx, stay: boolean): Plan | null {
+function tryAttack(c: Ctx, stay: boolean, isTarget: (o: PlayUnit) => boolean = (o) => areFoes(o.team, c.unit.team)): Plan | null {
   const reach = reached(c, stay);
   let best: { score: number; to: number; target: PlayUnit; item: number } | null = null;
-  const foes = inGameOrder(c.state.units).filter((o) => areFoes(o.team, c.unit.team));
+  const foes = inGameOrder(c.state.units).filter(isTarget);
   for (const weapon of c.rules.aiItems(c.unit)) {
     if (weapon.staff) continue;
     for (const target of foes) {
@@ -679,8 +680,30 @@ function attackAfterMove(c: Ctx, from: number): { target: PlayUnit; item: number
   return null;
 }
 
-/** The unit's decision, as FE8's AI makes it. `unit.healing` must already be up to date (isHealing). */
-export function planAction(unit: PlayUnit, state: PlayState, rules: AiRules): Plan {
+/**
+ * AiFindTargetInReachByFunc: the cell of the target the unit could walk to for the least movement
+ * (with no units in the way), the first found in the game's scan; null if none is within 120.
+ */
+function nearestTarget(c: Ctx, isTarget: (o: PlayUnit) => boolean): number | null {
+  const from = c.rules.costMapFrom(c.unit, c.at);
+  let nearest: number | null = null;
+  let best = 0xff;
+  for (const k of scan(c.w, c.h)) {
+    const cost = from.get(k);
+    const o = c.occupant.get(k);
+    if (cost === undefined || cost > MOVEMENT_MAX || !o || o.id === c.unit.id || !isTarget(o) || cost > best) continue;
+    best = cost;
+    nearest = k;
+  }
+  return nearest;
+}
+
+/**
+ * The unit's decision, as FE8's AI makes it. `unit.healing` must already be up to date (isHealing).
+ * With `berserk`, as in FE8's berserk phase (AiDoBerserkAction, AiDoBerserkMove): no healing or staff,
+ * any unit but itself is a target, and with none in reach it heads for the nearest unit of any side.
+ */
+export function planAction(unit: PlayUnit, state: PlayState, rules: AiRules, berserk = false): Plan {
   const w = rules.width;
   const h = rules.height ?? 0;
   const search = rules.searchOf(unit, state);
@@ -689,6 +712,15 @@ export function planAction(unit: PlayUnit, state: PlayState, rules: AiRules): Pl
   const c: Ctx = { unit, state, rules, w, h, at, occupant, search, danger: dangerMap(unit, state, rules, search.mov) };
   const stay: Plan = { to: at, route: [at], attack: null };
   const moveTo = (to: number, extra: Partial<Plan> = {}): Plan => ({ to, route: shortestRoute(search, to) ?? [at], attack: null, ...extra });
+
+  if (berserk) {
+    const anyone = (o: PlayUnit) => o.id !== unit.id;
+    const action = trySteal(c) ?? tryAttack(c, false, anyone);
+    if (action) return action;
+    const nearest = nearestTarget(c, anyone);
+    const to = nearest === null ? null : tryMoveTowards(c, nearest, 0xff, 0);
+    return to !== null && to !== at ? moveTo(to) : stay;
+  }
 
   // DecideHealOrEscape.
   if (unit.healing) {
@@ -718,16 +750,7 @@ export function planAction(unit: PlayUnit, state: PlayState, rules: AiRules): Pl
 
   // AI2: Charge moves toward the nearest enemy (AiScriptCmd_12_MoveTowardsEnemy); the others stay.
   if (unit.ai === 'charge') {
-    const from = rules.costMapFrom(unit, at);
-    let nearest: number | null = null;
-    let best = 0xff;
-    for (const k of scan(w, h)) {
-      const cost = from.get(k);
-      const o = occupant.get(k);
-      if (cost === undefined || cost > MOVEMENT_MAX || !o || o.id === unit.id || !areFoes(o.team, unit.team) || cost > best) continue;
-      best = cost;
-      nearest = k;
-    }
+    const nearest = nearestTarget(c, (o) => areFoes(o.team, unit.team));
     if (nearest !== null) {
       const to = tryMoveTowards(c, nearest, 0xff, 0);
       if (to !== null && to !== at) return moveTo(to);

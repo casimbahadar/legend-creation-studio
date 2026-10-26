@@ -292,6 +292,30 @@ describe('enemy and ally phases', () => {
     expect(eirika(w).status).toEqual({ kind: 'sleep', turns: 1 });
   });
 
+  it("runs the player's berserk units after End turn, then the enemy phase", () => {
+    // Eirika, berserk, beside Seth: she strikes him, and he can't be moved meanwhile.
+    const v = start([4, 0], [{ id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [2, 1] }]);
+    const mad: PlayView = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, status: { kind: 'berserk' as const, turns: 3 } } : u)) } };
+    let w = endPlayerTurn(mad, rules);
+    expect(w).toMatchObject({ phase: 'player', berserk: true, queue: ['eirika'], banner: null });
+    expect(pressA(w, rules)).toBe(w);
+    w = stepAI(w, rules);
+    expect(w.battle).toMatchObject({ attacker: 'eirika', defender: 'seth' });
+    w = stepAI(finishBattle(w), rules);
+    expect(w).toMatchObject({ phase: 'enemy', banner: 'enemy', berserk: false });
+  });
+
+  it("runs the enemy side's berserk units after its own", () => {
+    const v = start([4, 0], [{ id: 'brigand-2', class: 'brigand', team: 'enemy', level: 1, at: [4, 2] }]);
+    const mad: PlayView = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'brigand-1' ? { ...u, status: { kind: 'berserk' as const, turns: 3 } } : u)) } };
+    let w = stepAI(endPlayerTurn(mad, rules), rules);
+    expect(w.queue).toEqual(['brigand-2']);
+    w = stepAI(w, rules);
+    while (w.walking || w.battle) w = w.walking ? finishWalk(w, rules) : finishBattle(w);
+    w = stepAI(w, rules);
+    expect(w).toMatchObject({ phase: 'enemy', berserk: true, queue: ['brigand-1'] });
+  });
+
   it("doesn't end the turn in the middle of an action", () => {
     const menu = moveRight(start());
     expect(endPlayerTurn(menu, rules)).toBe(menu);
