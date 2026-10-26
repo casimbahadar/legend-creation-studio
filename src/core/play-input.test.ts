@@ -316,6 +316,20 @@ describe('the item menu', () => {
     expect(used.action).toBeNull();
   });
 
+  it('uses a booster that would raise something: new stats, HP rising with the maximum, the use spent', () => {
+    const boostRules: PlayRules = {
+      ...itemRules,
+      itemUse: (u, i) =>
+        u.items[i] === 'angelic-robe' && u.stats.hp < 60 ? { equip: false, heal: 0, boost: { stats: { ...u.stats, hp: u.stats.hp + 7 }, movBonus: 0 } } : { equip: false, heal: 0 },
+    };
+    const v = withItems(start(), 10);
+    const robe: PlayView = { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['angelic-robe'], uses: [1] } : u)) } };
+    const options = pressA(pressA(finishWalk(pressA(moveCursor(pressA(robe, boostRules), 1, 0, boostRules), boostRules), boostRules), boostRules), boostRules);
+    expect(itemOptions(options, boostRules)).toEqual(['use', 'discard']);
+    const used = pressA(options, boostRules);
+    expect(eirika(used)).toMatchObject({ hp: 17, stats: { hp: 25 }, items: [], uses: [], moved: true });
+  });
+
   it('discards an item, and B steps back to the action menu', () => {
     const lance = pressA(itemMenu(), itemRules);
     const dropped = pressA(lance, itemRules);

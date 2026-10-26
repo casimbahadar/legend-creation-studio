@@ -15,6 +15,8 @@ export interface PlayUnit {
   /** Uses left for each item, in the same order; null for one that never runs out. */
   readonly uses: readonly (number | null)[];
   readonly level: number;
+  /** Movement added by Boots (movBonus); none if left out. */
+  readonly movBonus?: number;
   /** Experience toward the next level, 0 to 99; null for a unit that gains none (not a player unit, or at its last level). */
   readonly exp: number | null;
   readonly stats: Stats;
@@ -130,6 +132,15 @@ export function healUnit(state: PlayState, id: string, amount: number): PlayStat
 /** Uses a healing item: the unit gets back up to `heal` HP and the item loses a use. */
 export function useHealItem(state: PlayState, id: string, index: number, heal: number): PlayState {
   return spendUses(healUnit(state, id, heal), id, index, 1);
+}
+
+/**
+ * Uses a stat booster: the unit's stats become `stats` (already cut to its caps), its current HP rising
+ * with its maximum, and its movement bonus `movBonus`; the item loses a use (ApplyStatBoostItem).
+ */
+export function boostUnit(state: PlayState, id: string, index: number, stats: Stats, movBonus: number): PlayState {
+  const boosted = { ...state, units: state.units.map((u) => (u.id === id ? { ...u, stats, hp: u.hp + (stats.hp - u.stats.hp), movBonus } : u)) };
+  return spendUses(boosted, id, index, 1);
 }
 
 /** A unit's experience after a fight: its new level and experience, and any level-up's gains (max HP rises; current HP stays). */

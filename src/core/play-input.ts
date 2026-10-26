@@ -8,10 +8,10 @@
 import { planAction, type AiRules, type PlannedHeal, type StaffChoice } from './ai';
 
 export type { StaffChoice } from './ai';
-import type { Strike } from './combat';
+import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, discardItem, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, boostUnit, discardItem, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -19,6 +19,17 @@ export type MenuOption = 'attack' | 'staff' | 'item' | 'wait';
 
 /** What can be done with one item, as in FE8's item menu. */
 export type ItemOption = 'equip' | 'use' | 'discard';
+
+/**
+ * What a unit can do with one of its items: equip it (a weapon its class can use), heal with it (HP
+ * given back; 0 for none), or use it as a booster (`boost`: the unit's stats and movement bonus after,
+ * set only if it would raise something).
+ */
+export interface ItemUse {
+  readonly equip: boolean;
+  readonly heal: number;
+  readonly boost?: { readonly stats: Stats; readonly movBonus: number };
+}
 
 export type Action =
   /** The action menu for a unit that has just moved from `from`. */
@@ -109,8 +120,8 @@ export interface PlayRules extends AiRules {
   weaponChoices?(unit: PlayUnit, state: PlayState): { readonly item: number; readonly targets: readonly string[] }[];
   /** The experience healing with item `index` gives the unit, if any. */
   staffExperience?(unit: PlayUnit, index: number): ExpAward | null;
-  /** Whether the unit can equip its item `index` (a weapon its class can use), and how much HP using it heals (0: can't be used). */
-  itemUse?(unit: PlayUnit, index: number): { readonly equip: boolean; readonly heal: number };
+  /** What the unit can do with its item `index` (none if left out). */
+  itemUse?(unit: PlayUnit, index: number): ItemUse;
 }
 
 /** A heal with a staff: played like a fight with no blows, then its experience; finishBattle heals. */
@@ -163,7 +174,8 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
 
 /**
  * What the item menu offers for the highlighted item: Equip for a weapon the unit can use, Use for a
- * healing item while the unit is hurt (as CanUnitUseHealItem), and Discard.
+ * healing item while the unit is hurt (as CanUnitUseHealItem) or a booster that would raise something
+ * (CanUnitUseStatGainItem), and Discard.
  */
 export function itemOptions(view: PlayView, rules: PlayRules): ItemOption[] {
   const a = view.action;
@@ -173,7 +185,7 @@ export function itemOptions(view: PlayView, rules: PlayRules): ItemOption[] {
   const can = rules.itemUse?.(unit, a.item) ?? { equip: false, heal: 0 };
   const options: ItemOption[] = [];
   if (can.equip) options.push('equip');
-  if (can.heal > 0 && unit.hp < unit.stats.hp) options.push('use');
+  if ((can.heal > 0 && unit.hp < unit.stats.hp) || can.boost) options.push('use');
   options.push('discard');
   return options;
 }
@@ -316,7 +328,7 @@ export function chooseItem(view: PlayView, index: number): PlayView {
 
 /**
  * Does `option` with the chosen item: Equip moves it to the top and goes back to the items; Use heals
- * and ends the unit's action, as in FE8; Discard drops it and goes back to the items (or the action
+ * or boosts and ends the unit's action, as in FE8; Discard drops it and goes back to the items (or the action
  * menu once none are left).
  */
 export function chooseItemOption(view: PlayView, option: ItemOption, rules: PlayRules): PlayView {
@@ -325,8 +337,9 @@ export function chooseItemOption(view: PlayView, option: ItemOption, rules: Play
   const unit = unitById(view.state, a.unit);
   if (!unit) return view;
   if (option === 'use') {
-    const heal = rules.itemUse?.(unit, a.item).heal ?? 0;
-    return { ...view, state: finishAction(useHealItem(view.state, unit.id, a.item, heal), unit.id), action: null };
+    const use = rules.itemUse?.(unit, a.item);
+    const used = use?.boost ? boostUnit(view.state, unit.id, a.item, use.boost.stats, use.boost.movBonus) : useHealItem(view.state, unit.id, a.item, use?.heal ?? 0);
+    return { ...view, state: finishAction(used, unit.id), action: null };
   }
   const state = option === 'equip' ? equipItem(view.state, unit.id, a.item) : discardItem(view.state, unit.id, a.item);
   const left = unitById(state, unit.id)?.items.length ?? 0;

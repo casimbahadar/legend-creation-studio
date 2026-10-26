@@ -2,11 +2,11 @@
 // costs, targets from the weapons units carry, forecasts with terrain bonuses, fights, heals and
 // experience.
 
-import { forecast, resolveBattle, type Combatant, type Forecast, type Strike } from '../core/combat';
+import { forecast, hpCapFor, resolveBattle, withinCaps, type Combatant, type Forecast, type Stats, type Strike } from '../core/combat';
 import { addExp, expGain, rollLevelUp, staffExp, type ExpProfile } from '../core/experience';
 import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
 import { areFoes, unitAt, type PlayState, type PlayUnit } from '../core/play';
-import type { ExpAward, PlayRules, StaffChoice } from '../core/play-input';
+import type { ExpAward, ItemUse, PlayRules, StaffChoice } from '../core/play-input';
 import type { RomCharacter } from '../rom/fe8-characters';
 import { CA_BOSS, CA_MAXLEVEL10, CA_PROMOTED, CA_THIEF } from '../rom/fe8-classes';
 import { isStaff } from '../rom/fe8-items';
@@ -42,6 +42,11 @@ const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean }>> =
   0x4e: { heal: 10, physic: true },
 };
 
+/** Stat boosters by item id: Angelic Robe to Body Ring (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON). */
+const BOOSTERS = new Set([0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63]);
+/** FE8's movement cap (UNIT_MOV_MAX). */
+const MOV_CAP = 15;
+
 /** HP healing items' heal by item id (GetUnitItemHealAmount): Vulnerary 10, Elixir 80, and the second Vulnerary entry 10. */
 const HEAL_ITEMS: Readonly<Record<number, number>> = { 0x6c: 10, 0x6d: 80, 0xa2: 10 };
 
@@ -65,7 +70,7 @@ export function chapterRules(
   function searchOf(u: PlayUnit, state: PlayState, mov?: number): MoveSearch {
     const art = artByName.get(u.class);
     const costs = art?.moveCosts;
-    return searchMoves(map, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), art ? (mov ?? art.mov) : 0, u.at, (x, y) => {
+    return searchMoves(map, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), art ? (mov ?? art.mov + (u.movBonus ?? 0)) : 0, u.at, (x, y) => {
       const o = unitAt(state, x, y);
       if (!o || o.id === u.id) return null;
       return areFoes(o.team, u.team) ? 'foe' : 'friend';
@@ -207,8 +212,17 @@ export function chapterRules(
     },
     itemUse: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);
-      const equip = !!item && weaponsOf(artByName.get(u.class), [item.entry.name], items).length > 0;
-      return { equip, heal: item ? (HEAL_ITEMS[item.rom.id] ?? 0) : 0 };
+      const art = artByName.get(u.class);
+      const equip = !!item && weaponsOf(art, [item.entry.name], items).length > 0;
+      const use: ItemUse = { equip, heal: item ? (HEAL_ITEMS[item.rom.id] ?? 0) : 0 };
+      const b = item && BOOSTERS.has(item.rom.id) ? item.rom.statBonuses : null;
+      if (!b || !art) return use;
+      // ApplyStatBoostItem, cut to the caps (UnitCheckStatCaps); usable only if that raises something (CanUnitUseStatGainItem).
+      const raised = { hp: u.stats.hp + b.hp, str: u.stats.str + b.str, skl: u.stats.skl + b.skl, spd: u.stats.spd + b.spd, def: u.stats.def + b.def, res: u.stats.res + b.res, lck: u.stats.lck + b.lck, con: u.stats.con + b.con };
+      const stats = withinCaps(raised, art.caps, hpCapFor(u.team));
+      const movBonus = Math.min((u.movBonus ?? 0) + b.mov, MOV_CAP - art.mov);
+      const changes = (Object.keys(stats) as (keyof Stats)[]).some((k) => stats[k] !== u.stats[k]) || movBonus !== (u.movBonus ?? 0);
+      return changes ? { ...use, boost: { stats, movBonus } } : use;
     },
   };
   return { rules, preview };
