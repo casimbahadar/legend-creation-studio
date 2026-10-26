@@ -409,6 +409,8 @@ export function PlayScreen({
         ? 'battle'
         : view.walking
           ? 'walk'
+          : view.action?.kind === 'target' && view.action.staff?.status
+            ? 'staffTarget'
           : view.action?.kind === 'target' && view.action.staff
             ? 'heal'
             : view.action?.kind === 'target' && view.action.trade
@@ -470,6 +472,22 @@ export function PlayScreen({
                       <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} colour={rules.stealable?.(def, i) ? 'white' : 'gray'} />
                     </span>
                   ))}
+                </div>
+              );
+            if (a.staff?.status)
+              // A status staff's target: whom, with what, and the chance to hit.
+              return (
+                <div className={`fe-window heal-window at-top-${side}`}>
+                  <span className="fe-line">
+                    <FeText text={unitLabel(def)} />
+                  </span>
+                  <span className="fe-line">
+                    <FeText text={data.items.find((x) => x.entry.name === atk.items[a.staff!.item])?.entry.gameName ?? atk.items[a.staff!.item] ?? ''} />
+                  </span>
+                  <span className="fe-line">
+                    <FeText text="Hit" colour="gold" />
+                    <FeText text={` ${rules.staffAccuracy?.(atk, def) ?? 0}`} />
+                  </span>
                 </div>
               );
             if (a.staff) return <HealWindow unit={def} label={unitLabel(def)} heal={a.staff.heal} staff={data.items.find((x) => x.entry.name === atk.items[a.staff!.item])?.entry.gameName} corner={`top-${side}`} />;
@@ -615,7 +633,7 @@ export function PlayScreen({
               </>
             );
           })()}
-        {battle && hud && battle.heal === undefined && battle.steal === undefined && (
+        {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && (
           <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />
         )}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
@@ -629,6 +647,15 @@ export function PlayScreen({
               </div>
             ) : null;
           })}
+        {battle?.inflict && !battle.inflict.hit &&
+          (() => {
+            const target = play.units.find((u) => u.id === battle.defender);
+            return target ? (
+              <div className="popup miss" style={position(target.at)}>
+                Miss
+              </div>
+            ) : null;
+          })()}
         {battle?.steal !== undefined &&
           (() => {
             // NewPopup_ItemStealing: "Stole <item>" for the player's thief, "<Item> was stolen." for the computer's.

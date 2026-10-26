@@ -14,7 +14,7 @@
 
 import { simulateAllHits, type Forecast } from './combat';
 import { shortestRoute, type MoveSearch } from './movement';
-import { areFoes, UNIT_ITEM_COUNT, type PlayState, type PlayUnit } from './play';
+import { areFoes, UNIT_ITEM_COUNT, type PlayState, type PlayUnit, type StatusKind } from './play';
 
 /** A usable weapon or staff in a unit's items. */
 export interface AiItem {
@@ -70,12 +70,16 @@ export interface AiRules {
   stealRank?(unit: PlayUnit, index: number): number | null;
 }
 
-/** A staff the player can heal with: its item index, the allies it reaches and how much it heals; Fortify heals them all. */
+/**
+ * A staff the player can use: its item index, the units it reaches and how much it heals; Fortify heals
+ * them all. A staff that gives a status (`status`) heals nothing and reaches foes.
+ */
 export interface StaffChoice {
   readonly item: number;
   readonly targets: readonly string[];
   readonly heal: number;
   readonly fortify?: boolean;
+  readonly status?: StatusKind;
 }
 
 /**

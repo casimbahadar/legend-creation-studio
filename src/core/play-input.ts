@@ -12,7 +12,7 @@ export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, cannotAct, discardItem, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit } from './play';
+import { applyBattle, applyExp, boostUnit, cannotAct, discardItem, setStatus, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit, type StatusKind } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
@@ -93,6 +93,8 @@ export interface Battle extends Fight {
   readonly heal?: number;
   /** Fortify: the allies it heals, each by `heal`, instead of the defender (the healer itself). */
   readonly healed?: readonly string[];
+  /** Set for a staff that gives a status: the status, and whether it hit. It has no blows. */
+  readonly inflict?: { readonly kind: StatusKind; readonly hit: boolean };
   /** Set for a steal: the defender's item the attacker takes (its index). A steal has no blows. */
   readonly steal?: number;
   /** The experience the fight gave, shown after it; null if nobody gained any. */
@@ -146,8 +148,12 @@ export interface PlayRules extends AiRules {
   experience?(attacker: PlayUnit, defender: PlayUnit, strikes: readonly Strike[]): ExpAward | null;
   /** Each weapon the unit could attack with from where it stands (its item index), with the foes it reaches, in item order. */
   weaponChoices?(unit: PlayUnit, state: PlayState): { readonly item: number; readonly targets: readonly string[] }[];
-  /** The experience healing with item `index` gives the unit, if any. */
-  staffExperience?(unit: PlayUnit, index: number): ExpAward | null;
+  /** The experience using staff `index` gives the unit, if any; less for a staff that missed. */
+  staffExperience?(unit: PlayUnit, index: number, missed?: boolean): ExpAward | null;
+  /** A status staff's chance to hit `target`, 0 to 100. */
+  staffAccuracy?(unit: PlayUnit, target: PlayUnit): number;
+  /** Whether a status staff hits `target` this time (a random roll against staffAccuracy). */
+  statusStaffHits?(unit: PlayUnit, target: PlayUnit): boolean;
   /** What the unit can do with its item `index` (none if left out). */
   itemUse?(unit: PlayUnit, index: number): ItemUse;
   /** Whether the unit's item `index` can be stolen (IsItemStealable); none can if left out. */
@@ -168,6 +174,12 @@ function healBattle(healer: PlayUnit, target: PlayUnit, heal: PlannedHeal, rules
     ...(heal.fortify ? { healed: heal.fortify } : {}),
     exp: rules.staffExperience?.(healer, heal.item) ?? null,
   };
+}
+
+/** A staff that gives a status (ExecStatusStaff): played like a fight with no blows, hitting or not, then its experience. */
+function statusBattle(user: PlayUnit, target: PlayUnit, item: number, kind: StatusKind, rules: PlayRules): Battle {
+  const hit = rules.statusStaffHits?.(user, target) ?? false;
+  return { attacker: user.id, defender: target.id, strikes: [], attackerItem: item, defenderItem: null, inflict: { kind, hit }, exp: rules.staffExperience?.(user, item, !hit) ?? null };
 }
 
 /** Fortify, chosen from the Staff menu: it heals every ally it reaches at once (SetStaffUseAction, ExecFortify). */
@@ -524,6 +536,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     if (!attacker || !defender) return view;
     if (a.trade) return { ...view, action: { kind: 'trade', unit: attacker.id, from: a.from, partner: defender.id, index: 0, picked: null, locked: a.locked } };
     if (a.steal) return { ...view, action: { kind: 'steal', unit: attacker.id, from: a.from, target: defender.id, index: 0, locked: a.locked } };
+    if (a.staff?.status) return { ...view, action: null, battle: statusBattle(attacker, defender, a.staff.item, a.staff.status, rules) };
     if (a.staff) return { ...view, action: null, battle: healBattle(attacker, defender, { target: defender.id, item: a.staff.item, heal: a.staff.heal }, rules) };
     return { ...view, action: null, battle: startBattle(attacker, defender, view.state, rules) };
   }
@@ -700,6 +713,10 @@ export function finishBattle(view: PlayView): PlayView {
     used = spendUses(used, b.attacker, b.attackerItem, 1);
   }
   if (b.steal !== undefined) used = stealItem(used, b.attacker, b.defender, b.steal);
+  if (b.inflict && b.attackerItem !== null) {
+    if (b.inflict.hit) used = setStatus(used, b.defender, b.inflict.kind);
+    used = spendUses(used, b.attacker, b.attackerItem, 1);
+  }
   if (b.attackerItem !== null) used = spendUses(used, b.attacker, b.attackerItem, spent('attacker'));
   if (b.defenderItem !== null) used = spendUses(used, b.defender, b.defenderItem, spent('defender'));
   // Without blows (a heal, or a fight nobody could strike in) HP stay as they are now.

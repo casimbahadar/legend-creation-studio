@@ -680,3 +680,44 @@ describe('stealing', () => {
     expect(chooseOption(full, 'steal', thief)).toBe(full);
   });
 });
+
+describe('status staves', () => {
+  // Eirika carries a Sleep staff reaching the brigand; it hits when `hits` says so, 10 experience, 1 for a miss.
+  const sleepRules = (hits: boolean): PlayRules => ({
+    ...rules,
+    staffChoices: (u, st) => {
+      const foes = st.units.filter((o) => o.team === 'enemy' && (!o.status || o.status.kind === 'sleep'));
+      return u.items[0] === 'sleep' && foes.length ? [{ item: 0, targets: foes.map((o) => o.id), heal: 0, status: 'sleep' }] : [];
+    },
+    staffAccuracy: () => 70,
+    statusStaffHits: () => hits,
+    staffExperience: (u, _i, missed) => ({ unit: u.id, level: u.level, exp: 0, result: { gain: missed ? 1 : 10, exp: missed ? 1 : 10, level: u.level, levelUp: null } }),
+  });
+  const withStaff = (): PlayView => {
+    const v = start([4, 2], [SETH]);
+    return { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['sleep'], uses: [2] } : u)) } };
+  };
+  const brigand = (v: PlayView) => v.state.units.find((u) => u.id === 'brigand-1')!;
+
+  it('puts the target to sleep on a hit, spending a use, with no blows', () => {
+    const r = sleepRules(true);
+    const menu = moveRight(withStaff());
+    expect(menuOptions(menu, r)).toContain('staff');
+    const choosing = chooseOption(menu, 'staff', r);
+    expect(choosing.action).toMatchObject({ kind: 'target', targets: ['brigand-1'], staff: { status: 'sleep' } });
+    const using = pressA(choosing, r);
+    expect(using.battle).toMatchObject({ attacker: 'eirika', defender: 'brigand-1', strikes: [], inflict: { kind: 'sleep', hit: true }, exp: { result: { gain: 10 } } });
+    const after = finishBattle(using);
+    expect(brigand(after).status).toEqual({ kind: 'sleep', turns: 5 });
+    expect(eirika(after)).toMatchObject({ uses: [1], moved: true, exp: 10 });
+  });
+
+  it('on a miss gives no status and 1 experience, and still spends the use', () => {
+    const r = sleepRules(false);
+    const using = pressA(chooseOption(moveRight(withStaff()), 'staff', r), r);
+    expect(using.battle).toMatchObject({ inflict: { kind: 'sleep', hit: false }, exp: { result: { gain: 1 } } });
+    const after = finishBattle(using);
+    expect(brigand(after)).not.toHaveProperty('status');
+    expect(eirika(after)).toMatchObject({ uses: [1], exp: 1 });
+  });
+});

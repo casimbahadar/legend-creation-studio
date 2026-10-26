@@ -5,7 +5,7 @@
 import { forecast, hpCapFor, resolveBattle, withinCaps, type Combatant, type Forecast, type Stats, type Strike } from '../core/combat';
 import { addExp, expGain, rollLevelUp, staffExp, type ExpProfile } from '../core/experience';
 import { IMPASSABLE, searchMoves, type MoveSearch } from '../core/movement';
-import { areFoes, unitAt, type PlayState, type PlayUnit } from '../core/play';
+import { areFoes, unitAt, type PlayState, type PlayUnit, type StatusKind } from '../core/play';
 import type { AiItem } from '../core/ai';
 import type { ExpAward, ItemUse, PlayRules, StaffChoice } from '../core/play-input';
 import type { RomCharacter } from '../rom/fe8-characters';
@@ -46,6 +46,9 @@ const HEAL_STAVES: Readonly<Record<number, { heal: number; physic: boolean; fort
   0x4e: { heal: 10, physic: true },
   0x4f: { heal: 10, physic: true, fortify: true },
 };
+
+/** Staves that give a status, by item id (ExecStatusStaff): Silence and Sleep. Berserk is still to come. */
+const STATUS_STAVES: Readonly<Record<number, StatusKind>> = { 0x51: 'silence', 0x52: 'sleep' };
 
 /** Stat boosters by item id: Angelic Robe to Body Ring (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON). */
 const BOOSTERS = new Set([0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63]);
@@ -178,6 +181,25 @@ export function chapterRules(
     return result.gain > 0 ? { unit: u.id, level: u.level, exp: u.exp, result } : null;
   }
 
+  /** Half the unit's Magic, at least 5: Physic's, Fortify's and the status staves' reach (GetUnitMagBy2Range). */
+  const magBy2 = (u: PlayUnit) => Math.max(5, Math.floor(u.stats.str / 2));
+
+  /** The unit's staff `index` if it gives a status and its class can use it, with the status. */
+  function statusStaff(u: PlayUnit, index: number) {
+    const item = items.find((i) => i.entry.name === u.items[index]);
+    const art = artByName.get(u.class);
+    const kind = item ? STATUS_STAVES[item.rom.id] : undefined;
+    return item && kind && art && isStaff(item.rom) && usable(art, item) && !u.status ? { item, kind } : null;
+  }
+
+  /**
+   * A status staff's chance to hit (GetOffensiveStaffAccuracy): (Magic - the target's Res) x 5 + Skill
+   * + 30 - 2 per square between them, from 0 to 100.
+   */
+  function staffAccuracy(u: PlayUnit, target: PlayUnit): number {
+    return Math.max(0, Math.min(100, (u.stats.str - target.stats.res) * 5 + u.stats.skl + 30 - distance(u, target) * 2));
+  }
+
   /** The unit's staff `index` if it is a healing staff its class can use. */
   function healStaff(u: PlayUnit, index: number) {
     const item = items.find((i) => i.entry.name === u.items[index]);
@@ -232,7 +254,7 @@ export function chapterRules(
             heal: Math.min(80, staff.heal + u.stats.str),
             physic: staff.physic,
             ...(staff.fortify ? { fortify: true } : {}),
-            reach: staff.physic ? Math.max(5, Math.floor(u.stats.str / 2)) : 1,
+            reach: staff.physic ? magBy2(u) : 1,
             rank: staff.item.rom.rank,
           },
         ];
@@ -259,10 +281,20 @@ export function chapterRules(
     staffChoices: (u, state) => {
       const choices: StaffChoice[] = [];
       u.items.forEach((_, index) => {
+        const status = statusStaff(u, index);
+        if (status) {
+          // MakeTargetListForSleep, ...ForSilence: units not on its side in reach, with no other status.
+          const foes = state.units
+            .filter((o) => areFoes(o.team, u.team) && distance(u, o) <= magBy2(u) && (!o.status || o.status.kind === status.kind))
+            .sort((x, y) => distance(u, x) - distance(u, y))
+            .map((o) => o.id);
+          if (foes.length) choices.push({ item: index, targets: foes, heal: 0, status: status.kind });
+          return;
+        }
         const staff = healStaff(u, index);
         if (!staff) return;
         // Heal, Mend and Recover reach a neighbour; Physic and Fortify half the healer's Magic, at least 5 (GetUnitMagBy2Range).
-        const reach = staff.physic ? Math.max(5, Math.floor(u.stats.str / 2)) : 1;
+        const reach = staff.physic ? magBy2(u) : 1;
         const targets = state.units
           .filter((o) => o.id !== u.id && !areFoes(o.team, u.team) && o.hp < o.stats.hp && distance(u, o) >= 1 && distance(u, o) <= reach)
           .sort((x, y) => distance(u, x) - distance(u, y))
@@ -280,12 +312,17 @@ export function chapterRules(
       }
       return null;
     },
-    staffExperience: (u, index) => {
-      const staff = healStaff(u, index);
+    staffExperience: (u, index, missed) => {
+      const staff = healStaff(u, index) ?? statusStaff(u, index);
       if (!staff) return null;
+      // GetBattleUnitStaffExp: 1 for a miss.
+      if (missed) return award(u, 1);
       const attributes = (artByName.get(u.class)?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0);
       return award(u, staffExp((attributes & CA_PROMOTED) !== 0, staff.item.rom.costPerUse));
     },
+    staffAccuracy,
+    // ExecStatusStaff: one random number under the chance hits (Roll1RN).
+    statusStaffHits: (u, target) => rn() < staffAccuracy(u, target),
     stealable: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);
       return !!item && isStealable(item.rom);
