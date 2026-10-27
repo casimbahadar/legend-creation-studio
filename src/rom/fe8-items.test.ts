@@ -15,6 +15,7 @@ function romWithItems(table: number, count: number) {
   bytes.set([46, 5, 90, 5, 0, 0x11], a + 0x14);
   bytes[a + 0x1c] = 1;
   view.setUint16(a + 0x1a, 10, true); // 10 gold a use
+  bytes[a + 0x1d] = 3; // icon 3
   // Item 2: a staff with range 1-2 written as 0x12.
   const b = table + 2 * ITEM_STRIDE;
   bytes[b + 7] = 4;
@@ -60,6 +61,7 @@ describe('FE8 items', () => {
       maxRange: 1,
       rank: 1,
       costPerUse: 10,
+      icon: 3,
       statBonuses: null,
     });
     expect(isWeapon(items[0]!)).toBe(true);

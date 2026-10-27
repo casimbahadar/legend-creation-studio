@@ -34,6 +34,8 @@ export interface RomItem {
   readonly rank: number;
   /** Price of one use (costPerUse); staff experience depends on it. */
   readonly costPerUse: number;
+  /** Its icon (iconId), in FE8's item icons (fe8-item-icons.ts). */
+  readonly icon: number;
   /** The stats it adds (pStatBonuses): a booster's for good when used, a weapon's while held; null for none. */
   readonly statBonuses: ItemStatBonuses | null;
 }
@@ -93,6 +95,7 @@ export function readItems(rom: GbaRom, text: TextTable, table: number): RomItem[
       maxRange: range & 15,
       rank: rom.u8(a + 0x1c),
       costPerUse: rom.u16(a + 0x1a),
+      icon: rom.u8(a + 0x1d),
       statBonuses: readStatBonuses(rom, rom.u32(a + 0x0c)),
     });
   }

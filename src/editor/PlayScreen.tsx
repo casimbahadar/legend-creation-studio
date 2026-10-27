@@ -12,6 +12,7 @@ import { attackRange } from '../core/movement';
 import { startPlay, unitAt, type PlayState, type PlayUnit, type StatusKind } from '../core/play';
 import { statusIconFrames } from '../rom/fe8-status-icons';
 import { GameOver } from './GameOver';
+import { ItemIcon } from './ItemIcon';
 import {
   brokenWeapons,
   canMove as unitCanMove,
@@ -489,6 +490,7 @@ export function PlayScreen({
                   </span>
                   {def.items.map((name, i) => (
                     <span key={`${i}:${name}`} className="fe-line">
+                      <ItemIcon rom={data.rom} item={data.items.find((x) => x.entry.name === name)} />
                       <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} colour={rules.stealable?.(def, i) ? 'white' : 'gray'} />
                     </span>
                   ))}
@@ -553,6 +555,7 @@ export function PlayScreen({
                   const uses = u.uses[c.item];
                   return (
                     <button key={`${c.item}:${name}`} type="button" role="menuitem" aria-current={a.index === i} onClick={() => setView((v) => chooseWeapon(v, i, rules))}>
+                      <ItemIcon rom={data.rom} item={data.items.find((x) => x.entry.name === name)} />
                       <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} />
                       <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour="blue" />}</span>
                     </button>
@@ -586,6 +589,7 @@ export function PlayScreen({
                             className={a.picked === slot ? 'picked' : undefined}
                             onClick={() => setView((v) => chooseTradeSlot(v.action?.kind === 'trade' ? { ...v, action: { ...v.action, index: slot } } : v, slot))}
                           >
+                            {name && <ItemIcon rom={data.rom} item={data.items.find((x) => x.entry.name === name)} />}
                             <FeText text={name ? (data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name) : '-'} />
                             <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour="blue" />}</span>
                           </button>
@@ -617,6 +621,7 @@ export function PlayScreen({
                       aria-disabled={!can}
                       onClick={() => setView((v) => chooseStealItem(v.action?.kind === 'steal' ? { ...v, action: { ...v.action, index: i } } : v, i, rules))}
                     >
+                      <ItemIcon rom={data.rom} item={data.items.find((x) => x.entry.name === name)} />
                       <FeText text={data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name} colour={can ? 'white' : 'gray'} />
                       <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour={can ? 'blue' : 'gray'} />}</span>
                     </button>
@@ -646,6 +651,7 @@ export function PlayScreen({
                         aria-current={chosen === i}
                         onClick={() => setView((v) => chooseItem(v.action?.kind === 'item' ? { ...v, action: { kind: 'items', unit: a.unit, from: a.from, index: i } } : v, i))}
                       >
+                        <ItemIcon rom={data.rom} item={item} />
                         <FeText text={item?.entry.gameName ?? name} />
                         {i === equipped && <FeText text=" E" colour="gold" />}
                         <span className="item-uses">{uses !== null && uses !== undefined && <FeText text={uses} colour="blue" />}</span>
@@ -693,13 +699,17 @@ export function PlayScreen({
             // NewPopup_ItemStealing: "Stole <item>" for the player's thief, "<Item> was stolen." for the computer's.
             const name = play.units.find((u) => u.id === battle.defender)?.items[battle.steal];
             if (!name) return null;
-            const item = data.items.find((x) => x.entry.name === name)?.entry.gameName ?? name;
+            const game = data.items.find((x) => x.entry.name === name);
+            const item = game?.entry.gameName ?? name;
             const byPlayer = play.units.find((u) => u.id === battle.attacker)?.team === 'player';
+            // PopupScr_StoleItem: "Stole", the item, its icon; PopupScr_ItemStolen: the item, its icon, "was stolen."
             return (
               <div className="fe-window broke-window" role="status">
                 <span className="fe-line">
                   {byPlayer ? <FeText text="Stole " /> : null}
                   <FeText text={item} colour="blue" />
+                  <FeText text=" " />
+                  <ItemIcon rom={data.rom} item={game} />
                   {byPlayer ? null : <FeText text=" was stolen." />}
                 </span>
               </div>
@@ -709,11 +719,14 @@ export function PlayScreen({
         {broke && (
           <div className="fe-window broke-window" role="status">
             {broke.map((b) => {
-              const owner = play.units.find((u) => u.id === b.unit);
-              const item = data.items.find((x) => x.entry.name === b.item)?.entry.gameName ?? b.item;
+              const game = data.items.find((x) => x.entry.name === b.item);
+              // PopupScr_WpnBroken: the item, its icon, "broke!"
               return (
                 <span key={b.unit} className="fe-line">
-                  <FeText text={owner ? `${unitLabel(owner)}'s ${item} broke!` : `${item} broke!`} />
+                  <FeText text={game?.entry.gameName ?? b.item} colour="blue" />
+                  <FeText text=" " />
+                  <ItemIcon rom={data.rom} item={game} />
+                  <FeText text=" broke!" />
                 </span>
               );
             })}

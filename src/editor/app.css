@@ -507,7 +507,8 @@ h3 {
   image-rendering: pixelated;
 }
 
-.game.real-frames .action-menu button > .fe-text { position: relative; }
+.game.real-frames .action-menu button > .fe-text,
+.game.real-frames .action-menu button > .item-icon { position: relative; }
 
 /* The frame is the same for every team, so the battle HP windows mark the side on the name. */
 .game.real-frames .battle-side > .fe-line:first-child { border-radius: 2px; padding: 0 2px; }
@@ -712,6 +713,7 @@ h3 {
 .fe-window.action-menu.item-options.left { left: 50%; }
 .action-menu.item-list button { display: flex; align-items: center; }
 .item-uses { position: relative; margin-left: auto; padding-left: 0.6em; }
+.item-icon { flex: none; image-rendering: pixelated; vertical-align: middle; }
 .game.real-frames .fe-window.action-menu.item-list { width: calc(104 * var(--gba-px, 1.5px)); }
 
 /* FE8's phase intro from the player's ROM (PhaseIntro.tsx): its images placed in GBA pixels. */
