@@ -9,7 +9,7 @@ import { findCharacterTable, readCharacters, type RomCharacter } from '../rom/fe
 import { readAllChapterMaps, readChapterMap, type ChapterMap } from '../rom/fe8-maps';
 import { crc32, formatCrc32 } from '../rom/crc32';
 import { FE8_US_CRC32 } from '../rom/fe8';
-import { FE8U_SYSTEM_GLYPHS, readFont, readTextPalette, type Font } from '../rom/fe8-font';
+import { FE8U_SYSTEM_GLYPHS, readFont, readSpecialFont, readTextPalette, type Font } from '../rom/fe8-font';
 import { readWindowArt, type WindowArt } from '../rom/fe8-windows';
 import { readMapCursor } from '../rom/fe8-cursor';
 import { readExpBarArt, type ExpBarArt } from '../rom/fe8-expbar';
@@ -109,6 +109,8 @@ export interface EditorRom {
 export interface GameFont {
   readonly glyphs: Font;
   readonly palette: Palette;
+  /** FE8's special characters (big digits, dashes, "HP", "100"); null if not found. */
+  readonly special?: Font | null;
 }
 
 function readPhaseBanners(rom: GbaRom): EditorRom['phaseBanners'] {
@@ -120,7 +122,7 @@ function readPhaseBanners(rom: GbaRom): EditorRom['phaseBanners'] {
 
 function readGameFont(rom: GbaRom): GameFont | null {
   const glyphs = readFont(rom, FE8U_SYSTEM_GLYPHS);
-  return glyphs ? { glyphs, palette: readTextPalette(rom) } : null;
+  return glyphs ? { glyphs, palette: readTextPalette(rom), special: readSpecialFont(rom) } : null;
 }
 
 export const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;

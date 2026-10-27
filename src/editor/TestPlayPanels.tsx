@@ -23,8 +23,8 @@ import {
 import type { GbaRom } from '../rom/gba-rom';
 import { ApSprite } from './ApSprite';
 import type { GameItem } from '../play/catalog';
-import type { TextColour } from '../rom/fe8-font';
-import { FeText } from './FeText';
+import { SPECIAL, type TextColour } from '../rom/fe8-font';
+import { FeSpecial, FeText } from './FeText';
 import { expBarUrl, forecastBox, gbaPx, goalBox, imageUrl, MapBox, Place, unitBox, WindowArtContext, type Box } from './FeWindow';
 import { forecastHits, multiplierAt, TRIANGLE_ARROW_AT, triangleArrowFrames, type ForecastMultipliers } from '../rom/fe8-forecast';
 import type { StatusIconArt } from '../rom/fe8-status-icons';
@@ -264,15 +264,13 @@ export function GoalWindow({ play, text, corner }: { play: PlayState; text: stri
  * for none, as FE8 shows a value it doesn't have.
  */
 function TwoDigits({ box, col, row, n }: { box: Box; col: number; row: number; n: number | null }) {
-  const text = n === null ? '--' : String(n);
+  // "--" and "100" take the two cells ending at `col`; other numbers a cell a digit, the last at `col`.
+  const ids =
+    n === null || n < 0 || n === 255 ? [SPECIAL.dash, SPECIAL.dash] : n === 100 ? [SPECIAL.hundredA, SPECIAL.hundredB] : [...String(n)].map((d) => SPECIAL.digit0 + Number(d));
   return (
-    <>
-      {[...text].reverse().map((ch, i) => (
-        <Place key={i} box={box} x={col * 8 - 8 * i} y={row * 8}>
-          <FeText text={ch} colour="blue" />
-        </Place>
-      ))}
-    </>
+    <Place box={box} x={(col + 1 - ids.length) * 8} y={row * 8}>
+      <FeSpecial ids={ids} fallback={n === null || n < 0 || n === 255 ? '--' : String(n)} colour="blue" />
+    </Place>
   );
 }
 
@@ -348,7 +346,7 @@ function RomForecast({
         <FeText text={label(a)} />
       </Place>
       <Place box={b} x={32} y={24}>
-        <FeText text="HP" colour="gold" />
+        <FeSpecial ids={[SPECIAL.hpA, SPECIAL.hpB]} fallback="HP" colour="gold" />
       </Place>
       {(['Mt', 'Hit', 'Crit'] as const).map((k, i) => (
         <Place key={k} box={b} x={24} y={40 + 16 * i} width={32}>

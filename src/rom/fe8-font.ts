@@ -10,6 +10,16 @@ import type { GbaRom } from './gba-rom';
 /** The system font (menus and windows) and the talk font (dialogue). Each table ends where the next glyphs begin. */
 export const FE8U_SYSTEM_GLYPHS = 0x58c7ec;
 export const FE8U_TALK_GLYPHS = 0x58f6f4;
+/**
+ * TextGlyphs_Special: the special characters (big digits, dashes, "HP", "100" and others) that
+ * PutSpecialChar draws, each into an 8 x 16 cell from its glyph's left 8 columns. The address follows
+ * the decompilation's glyph names: the table comes right after its last glyph, at 0x590AFC.
+ */
+export const FE8U_SPECIAL_GLYPHS = 0x590b44;
+/** Special character ids (TEXT_SPECIAL_* in include/fontgrp.h). */
+export const SPECIAL = { digit0: 0x00, dash: 0x14, hpA: 0x22, hpB: 0x23, hundredA: 0x28, hundredB: 0x29 } as const;
+const SPECIAL_COUNT = 0x30;
+
 /** Pal_Text: the text palette, 16 colours. */
 export const FE8U_TEXT_PALETTE = 0x59ef00;
 
@@ -43,9 +53,22 @@ export type TextColour = keyof typeof TEXT_COLOURS;
 
 /** The font whose glyph table is at `table`, or null if it doesn't look like one. */
 export function readFont(rom: GbaRom, table: number): Font | null {
-  if (table + 256 * 4 > rom.size) return null;
+  const font = readGlyphs(rom, table, 256);
+  // A real font has the letters.
+  return font && font.has(0x41) && font.has(0x61) ? font : null;
+}
+
+/** The special characters, or null if they don't look right (the digits must be there). */
+export function readSpecialFont(rom: GbaRom): Font | null {
+  const font = readGlyphs(rom, FE8U_SPECIAL_GLYPHS, SPECIAL_COUNT);
+  return font && font.has(SPECIAL.digit0) && font.has(SPECIAL.dash) ? font : null;
+}
+
+/** The `count` glyphs of the table at `table` that it has, or null if a pointer doesn't lead to one. */
+function readGlyphs(rom: GbaRom, table: number, count: number): Map<number, Glyph> | null {
+  if (table + count * 4 > rom.size) return null;
   const font = new Map<number, Glyph>();
-  for (let c = 0; c < 256; c++) {
+  for (let c = 0; c < count; c++) {
     const p = rom.u32(table + c * 4);
     if (p === 0) continue;
     if (!rom.isPointer(p)) return null;
@@ -60,8 +83,31 @@ export function readFont(rom: GbaRom, table: number): Font | null {
     }
     font.set(c, { width, pixels });
   }
-  // A real font has the letters.
-  return font.has(0x41) && font.has(0x61) ? font : null;
+  return font;
+}
+
+/** Special characters `ids` side by side in `colour`, each in an 8 x 16 cell from its glyph's left 8 columns (DrawSpecialCharGlyph). */
+export function drawSpecialChars(special: Font, palette: Palette, ids: readonly number[], colour: TextColour = 'white'): Image {
+  const image = createImage(Math.max(1, ids.length * 8), GLYPH_SIZE);
+  const lut = TEXT_COLOURS[colour];
+  ids.forEach((id, n) => {
+    const glyph = special.get(id);
+    if (!glyph) return;
+    for (let y = 0; y < GLYPH_SIZE; y++) {
+      for (let x = 0; x < 8; x++) {
+        const v = glyph.pixels[y * GLYPH_SIZE + x]!;
+        const c = v === 0 ? 0 : lut[v - 1]!;
+        if (c === 0) continue;
+        const [r, g, b] = palette[c] ?? [255, 255, 255];
+        const i = (y * image.width + n * 8 + x) * 4;
+        image.rgba[i] = r;
+        image.rgba[i + 1] = g;
+        image.rgba[i + 2] = b;
+        image.rgba[i + 3] = 255;
+      }
+    }
+  });
+  return image;
 }
 
 export function readTextPalette(rom: GbaRom): Palette {

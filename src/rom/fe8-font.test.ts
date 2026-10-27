@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drawText, readFont, textWidth } from './fe8-font';
+import { drawSpecialChars, drawText, FE8U_SPECIAL_GLYPHS, readFont, readSpecialFont, SPECIAL, textWidth } from './fe8-font';
 import { readRom, ROM_BASE } from './gba-rom';
 
 // A font table with 'A' (3 wide: a body pixel at x 0 and an outline pixel at x 1 on row 4), 'a' and '?'.
@@ -51,5 +51,28 @@ describe('the FE8 font', () => {
     expect(at(black, 0, 5)[3]).toBe(0); // value 1: not drawn
     expect(at(black, 2, 4)).toEqual([30, 30, 30, 255]); // value 2: colour 3
     expect(at(black, 3, 4)[3]).toBe(0); // value 3: not drawn
+  });
+});
+
+describe("the FE8 font's special characters", () => {
+  it('draws each from its glyph\'s left 8 columns into its own 8-pixel cell', () => {
+    const bytes = new Uint8Array(FE8U_SPECIAL_GLYPHS + 0x1000);
+    const view = new DataView(bytes.buffer);
+    // Digit 0: value 1 at x 0 and value 2 at x 8 (outside the cell), row 0; the dash: value 3 at x 7, row 1.
+    const glyph = (id: number, at: number, rows: Record<number, number>) => {
+      view.setUint32(FE8U_SPECIAL_GLYPHS + id * 4, ROM_BASE + at, true);
+      bytes[at + 5] = 8;
+      for (const [y, row] of Object.entries(rows)) view.setUint32(at + 8 + Number(y) * 4, row, true);
+    };
+    glyph(SPECIAL.digit0, 0x100, { 0: 0b01 | (0b10 << 16) });
+    glyph(SPECIAL.dash, 0x200, { 1: 0b11 << 14 });
+    const special = readSpecialFont(readRom(bytes))!;
+    const palette = Array.from({ length: 16 }, (_, i) => [i * 10, i * 10, i * 10] as const);
+    const img = drawSpecialChars(special, palette, [SPECIAL.dash, SPECIAL.digit0]);
+    expect([img.width, img.height]).toEqual([16, 16]);
+    const px = (x: number, y: number) => img.rgba[(y * img.width + x) * 4 + 3];
+    expect([px(7, 1), px(8, 0), px(9, 0)]).toEqual([255, 255, 0]);
+    expect(img.rgba[(1 * 16 + 7) * 4]).toBe(30); // the dash: value 3, colour 3
+    expect(readSpecialFont(readRom(new Uint8Array(0x100)))).toBeNull();
   });
 });
