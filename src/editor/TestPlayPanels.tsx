@@ -30,6 +30,7 @@ import { forecastHits, multiplierAt, TRIANGLE_ARROW_AT, triangleArrowFrames, typ
 import type { StatusIconArt } from '../rom/fe8-status-icons';
 import { ItemIcon } from './ItemIcon';
 import { EXP_BAR_X, EXP_BAR_Y, expBarOpening, type ExpBarArt } from '../rom/fe8-expbar';
+import { FE8U_MISS_AP, FE8U_NO_DAMAGE_AP, HIT_EFFECT_TILE, hitEffect, type HitEffects } from '../rom/fe8-hit-effects';
 import { battleBoxColumns, battleBoxOpening, battleBoxRow, drawBattleBoxes, shownHpMoves, stepShownHp, type BattleBoxArt } from '../rom/fe8-battle-box';
 import { TEAM_LABELS } from './labels';
 
@@ -592,23 +593,60 @@ export function BattleHud({
   );
 }
 
-/** The result of the last blow, shown over the unit it hit; `left` and `top` are its square on screen. */
+/**
+ * FE8's MISS or NO DAMAGE from the ROM (fe8-hit-effects.ts), played once from when it mounts at
+ * (`x`, `y`) on the screen in GBA pixels: the middle of the bottom of the struck unit's square.
+ */
+export function HitEffect({ fx, kind, x, y }: { fx: HitEffects; kind: 'miss' | 'noDamage'; x: number; y: number }) {
+  const t = useFrames();
+  return (
+    <ApSprite
+      rom={fx.rom}
+      at={kind === 'miss' ? FE8U_MISS_AP : FE8U_NO_DAMAGE_AP}
+      anim={0}
+      t={t}
+      x={x}
+      y={y}
+      sheet={kind === 'miss' ? fx.miss : fx.noDamage}
+      firstTile={HIT_EFFECT_TILE}
+      tileBase={HIT_EFFECT_TILE}
+      palettes={(n) => (n === 0 ? fx.palette : undefined)}
+      look={kind}
+    />
+  );
+}
+
+/**
+ * The result of the last blow, shown over the unit it struck. With the ROM's effects, as FE8 shows it:
+ * MISS or NO DAMAGE, and nothing for a blow that does damage (the HP boxes show it); otherwise a
+ * look-alike popup with the damage.
+ */
 export function BattlePopup({
   battle,
   frame,
   units,
   position,
+  effects,
+  squareAt,
 }: {
   battle: NonNullable<PlayView['battle']>;
   frame: BattleFrame;
   units: readonly PlayUnit[];
   /** The screen position, in percent, of the top middle of a map square. */
   position: (at: readonly [number, number]) => { left: string; top: string };
+  effects?: HitEffects | null;
+  /** The top left of a map square on the screen, in GBA pixels. */
+  squareAt: (at: readonly [number, number]) => readonly [number, number];
 }) {
   const l = frame.landed;
   if (!l) return null;
   const target = units.find((u) => u.id === (l.by === 'attacker' ? battle.defender : battle.attacker));
   if (!target) return null;
+  if (effects) {
+    const kind = hitEffect(l);
+    const [x, y] = squareAt(target.at);
+    return kind && <HitEffect key={battle.strikes.indexOf(l)} fx={effects} kind={kind} x={x + 8} y={y + 16} />;
+  }
   return (
     <div key={battle.strikes.indexOf(l)} className={`popup ${l.hit ? (l.crit ? 'crit' : 'hit') : 'miss'}`} style={position(target.at)}>
       {l.hit ? (l.crit ? `Critical! ${l.damage}` : l.damage) : 'Miss'}

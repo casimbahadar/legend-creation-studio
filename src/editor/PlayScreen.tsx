@@ -62,7 +62,7 @@ import { PhaseIntro } from './PhaseIntro';
 import { Chibi, faceUrl } from './Portrait';
 import { shortClassLabel } from './labels';
 import { unitCharacters, type EditorRom } from './project-io';
-import { BattleHud, BattlePopup, ExpWindow, ForecastWindow, GoalWindow, HealWindow, LevelUpScreen, levelUpLabels, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
+import { BattleHud, BattlePopup, ExpWindow, HitEffect, ForecastWindow, GoalWindow, HealWindow, LevelUpScreen, levelUpLabels, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
 /** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
 const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
@@ -458,6 +458,8 @@ export function PlayScreen({
             : view.action?.kind === 'weapon' && view.action.staff
               ? 'staves'
               : (view.action?.kind ?? null);
+  /** The top left of a map square on the game screen, in GBA pixels. */
+  const squareAt = (at: readonly [number, number]) => [(at[0] - cam[0]) * 16, (at[1] - cam[1]) * 16] as const;
   /** The top of a unit's square on the game screen, in GBA pixels. */
   const screenY = (id: string) => ((play.units.find((u) => u.id === id)?.at[1] ?? cam[1]) - cam[1]) * 16;
   /** The screen position, in percent, of the top middle of a map square. */
@@ -719,7 +721,7 @@ export function PlayScreen({
             boxes={data.battleBoxes && { art: data.battleBoxes, ys: [screenY(battle.attacker), screenY(battle.defender)], centre: viewW }}
           />
         )}
-        {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
+        {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} effects={data.hitEffects} squareAt={squareAt} />}
         {battle?.heal !== undefined &&
           // Each ally healed: the defender, or with Fortify every one it reaches.
           (battle.healed ?? [battle.defender]).map((id) => {
@@ -733,6 +735,10 @@ export function PlayScreen({
         {battle?.inflict && !battle.inflict.hit &&
           (() => {
             const target = play.units.find((u) => u.id === battle.defender);
+            if (target && data.hitEffects) {
+              const [x, y] = squareAt(target.at);
+              return <HitEffect fx={data.hitEffects} kind="miss" x={x + 8} y={y + 16} />;
+            }
             return target ? (
               <div className="popup miss" style={position(target.at)}>
                 Miss
