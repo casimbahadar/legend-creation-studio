@@ -76,6 +76,15 @@ describe('forecast', () => {
     expect(forecast(unit({ spd: 5 }, {}), unit({ spd: 2 }, null), 1).attacker.doubles).toBe(false);
   });
 
+  it("doesn't let a unit that can't counter strike, though its weapon still counts for the triangle", () => {
+    const sword = unit({}, { kind: 'sword' });
+    const asleep = { ...unit({}, { kind: 'axe' }), noCounter: true };
+    const f = forecast(sword, asleep, 1);
+    expect(f.defender.canAttack).toBe(false);
+    expect(f.attacker.damage).toBe(forecast(sword, unit({}, { kind: 'axe' }), 1).attacker.damage);
+    expect(f.attacker.damage).toBe(forecast(sword, unit({}, null), 1).attacker.damage + 1);
+  });
+
   it('only counters within the weapon range', () => {
     const bow = unit({}, { kind: 'bow', minRange: 2, maxRange: 2 });
     const sword = unit({}, { kind: 'sword' });

@@ -136,9 +136,9 @@ export function chapterRules(
     // A sleeping defender fights with no weapon and can't strike back (SetBattleUnitWeapon), nor can a
     // player unit a berserk player unit attacks (BattleInitTargetCanCounter).
     const noCounter = d.status?.kind === 'sleep' || (a.status?.kind === 'berserk' && a.team === 'player' && d.team === 'player');
-    const defenderWeapon = noCounter ? undefined : weaponsFor(d)[0];
+    const defenderWeapon = weaponsFor(d)[0];
     const attacker = combatantOf(a, attackerWeapon);
-    const defender = combatantOf(d, defenderWeapon);
+    const defender = { ...combatantOf(d, defenderWeapon), ...(noCounter ? { noCounter: true } : {}) };
     return { forecast: forecast(attacker, defender, dist), attackerWeapon, defenderWeapon, attacker, defender, attackerItem: itemIndex(a, attackerWeapon), defenderItem: itemIndex(d, defenderWeapon) };
   }
 

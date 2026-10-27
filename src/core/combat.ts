@@ -97,6 +97,11 @@ export interface Combatant {
   readonly uses?: number | null;
   /** Bonuses from the terrain the unit stands on. */
   readonly terrain: { readonly avoid: number; readonly def: number; readonly res: number };
+  /**
+   * Can't strike in this fight though it holds its weapon, which still counts for the weapon triangle
+   * (SetBattleUnitWeapon takes the weapon's type before clearing it for a sleeping unit).
+   */
+  readonly noCounter?: boolean;
 }
 
 export interface SideForecast {
@@ -131,7 +136,7 @@ const clamp100 = (v: number) => Math.max(0, Math.min(100, v));
 
 function side(x: Combatant, y: Combatant, distance: number): SideForecast {
   const w = x.weapon;
-  const canAttack = !!w && w.kind !== 'staff' && distance >= w.minRange && distance <= w.maxRange;
+  const canAttack = !!w && !x.noCounter && w.kind !== 'staff' && distance >= w.minRange && distance <= w.maxRange;
   const tri = triangle(w, y.weapon);
   const as = attackSpeed(x);
   if (!w) return { canAttack: false, damage: 0, hit: 0, crit: 0, doubles: false, attackSpeed: as };
