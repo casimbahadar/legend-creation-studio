@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { battleFrame, expBarEnd, expFrame, levelUpFrames, levelUpStart, type BattleFrame } from '../core/battle-anim';
 import { startingExp } from '../core/experience';
-import { hpCapFor, randomNumbers, withBonus, withinCaps } from '../core/combat';
+import { hpCapFor, randomNumbers, triangle, withBonus, withinCaps } from '../core/combat';
 import { goalWindowText } from '../core/goals';
 import { attackRange } from '../core/movement';
 import { startPlay, unitAt, type PlayState, type PlayUnit, type StatusKind } from '../core/play';
@@ -48,7 +48,7 @@ import {
   type PlayView,
 } from '../core/play-input';
 import type { ProjectChapter } from '../core/project';
-import { fullUses, toCanvas, unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
+import { fullUses, toCanvas, toWeapon, unitStats, weaponRanges, weaponsOf, type ClassArt } from '../play/catalog';
 import { ATTACK_COLOURS, drawArrow, drawCursor, drawRangeSquare, MOVE_COLOURS } from '../play/draw';
 import { followCamera, VIEW_HEIGHT, VIEW_WIDTH } from '../play/camera';
 import { chapterRules, maxLevel } from '../play/rules';
@@ -559,6 +559,8 @@ export function PlayScreen({
                 dUses={f.defender.uses}
                 targetOnLeft={(def.at[0] - cam[0]) * 16 <= 112}
                 multipliers={data.forecastMultipliers}
+                triangle={f.attackerWeapon && f.defenderWeapon ? triangle(toWeapon(f.attackerWeapon), toWeapon(f.defenderWeapon)) : 0}
+                arrowArt={data.statusIcons}
               />
             );
           })()}

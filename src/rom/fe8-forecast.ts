@@ -1,9 +1,10 @@
 // FE8 US's battle forecast extras (decision 35), from the fireemblem8u decompilation (src/bksel.c,
 // data/data_59E8E0.s): the "x2" and "x4" marks (gBattleForecast_x2x4Gfx, LZ77, 4 x 2 tiles copied into
 // sprite memory at tile 0x2E8, in gBattleForecast_x2x4Pal), shown beside a side's damage when it hits
-// more than once, bobbing as PutBattleForecastMultipliers moves them; and where the window's contents
-// go (DrawBattleForecastContentsStandard), in tiles from its top left.
+// more than once, bobbing as PutBattleForecastMultipliers moves them; and the weapon triangle arrows.
 
+import { drawApFrame, oamPiece, type DrawnFrame } from './fe8-ap';
+import type { StatusIconArt } from './fe8-status-icons';
 import { createImage, drawTile4bpp, readPalettes, type Image } from './gba-graphics';
 import type { GbaRom } from './gba-rom';
 import { decompressLz77 } from './lz77';
@@ -53,3 +54,17 @@ export function forecastHits(doubles: boolean, uses: number | null): number {
   const hits = doubles ? 2 : 1;
   return uses === null ? hits : Math.min(hits, uses);
 }
+
+/**
+ * The weapon triangle arrows (UpdateStatArrowSprites, gSysUpArrowSpriteLut, gSysDownArrowSpriteLut): an
+ * 8 x 16 sprite from the map's sprite graphics (the sheet the status icons use) in palette 0, up for
+ * an advantage and down for a disadvantage, stepping through 3 frames of 8 game frames; each frame with
+ * its offset down from where the arrow goes.
+ */
+export function triangleArrowFrames(art: StatusIconArt): { readonly up: readonly { drawn: DrawnFrame; y: number }[]; readonly down: readonly { drawn: DrawnFrame; y: number }[] } {
+  const frame = (tile: number, y: number) => ({ drawn: drawApFrame([oamPiece(0x8000 | (y & 0xff), 0, tile)], art.sheet, 0, 0, (n) => art.palettes[n]), y });
+  return { up: [frame(0x4c, 0), frame(0x4d, 0), frame(0x4d, -1)], down: [frame(0x4e, 0), frame(0x4f, 0), frame(0x4f, 1)] };
+}
+
+/** Where each side's triangle arrow goes in the window (PutBattleForecastWeaponTriangleArrows). */
+export const TRIANGLE_ARROW_AT = { attacker: { x: 19, y: 8 }, target: { x: 67, y: 88 } } as const;

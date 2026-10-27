@@ -1,7 +1,7 @@
 // The windows on the game screen, in FE8's style (decision 35): the unit under the cursor, the goal,
 // the battle forecast, HP during a battle, and the damage popup; and the hint line under the controls.
 
-import { Fragment, useContext, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import { cannotAct, type PlayState, type PlayUnit } from '../core/play';
@@ -26,7 +26,8 @@ import type { GameItem } from '../play/catalog';
 import type { TextColour } from '../rom/fe8-font';
 import { FeText } from './FeText';
 import { expBarUrl, forecastBox, gbaPx, goalBox, imageUrl, MapBox, Place, unitBox, WindowArtContext, type Box } from './FeWindow';
-import { forecastHits, multiplierAt, type ForecastMultipliers } from '../rom/fe8-forecast';
+import { forecastHits, multiplierAt, TRIANGLE_ARROW_AT, triangleArrowFrames, type ForecastMultipliers } from '../rom/fe8-forecast';
+import type { StatusIconArt } from '../rom/fe8-status-icons';
 import { ItemIcon } from './ItemIcon';
 import { EXP_BAR_X, EXP_BAR_Y, expBarOpening, type ExpBarArt } from '../rom/fe8-expbar';
 import { TEAM_LABELS } from './labels';
@@ -311,6 +312,8 @@ function RomForecast({
   right,
   rom,
   multipliers,
+  triangle,
+  arrowArt,
 }: {
   box: Box;
   a: PlayUnit;
@@ -324,8 +327,12 @@ function RomForecast({
   right: boolean;
   rom: GbaRom;
   multipliers: ForecastMultipliers | null;
+  /** The attacker's weapon triangle standing: 1 advantage, -1 disadvantage. */
+  triangle: -1 | 0 | 1;
+  arrowArt: StatusIconArt | null;
 }) {
   const frame = useFrames();
+  const arrows = useMemo(() => (arrowArt ? triangleArrowFrames(arrowArt) : null), [arrowArt]);
   const side = (s: Forecast['attacker']) => (s.canAttack ? s : null);
   const mark = (hits: number) => (hits === 2 ? multipliers?.x2 : hits === 4 ? multipliers?.x4 : undefined);
   const aMark = f.attacker.canAttack ? mark(forecastHits(f.attacker.doubles, aUses)) : undefined;
@@ -377,6 +384,21 @@ function RomForecast({
           </Place>
         );
       })}
+      {arrows &&
+        triangle !== 0 &&
+        ([
+          ['attacker', triangle > 0],
+          ['target', triangle < 0],
+        ] as const).map(([who, up]) => {
+          // UpdateStatArrowSprites: up for the side with the advantage, down for the other; 3 frames of 8.
+          const f = (up ? arrows.up : arrows.down)[Math.floor(frame / 8) % 3]!;
+          const at = TRIANGLE_ARROW_AT[who];
+          return (
+            <Place key={who} box={b} x={at.x} y={at.y + f.y}>
+              <img className="forecast-mark" src={imageUrl(f.drawn.image)} alt={up ? 'advantage' : 'disadvantage'} style={{ width: gbaPx(8), height: gbaPx(16) }} />
+            </Place>
+          );
+        })}
     </MapBox>
   );
 }
@@ -396,6 +418,8 @@ export function ForecastWindow({
   dUses = null,
   targetOnLeft = false,
   multipliers = null,
+  triangle = 0,
+  arrowArt = null,
 }: {
   a: PlayUnit;
   d: PlayUnit;
@@ -413,11 +437,13 @@ export function ForecastWindow({
   /** The target is on the screen's left half, so the window goes on the right (GetBattleForecastPanelSide). */
   targetOnLeft?: boolean;
   multipliers?: ForecastMultipliers | null;
+  triangle?: -1 | 0 | 1;
+  arrowArt?: StatusIconArt | null;
 }) {
   const art = useContext(WindowArtContext);
   const b = art && forecastBox(art, a.team, d.team);
   if (b && rom)
-    return <RomForecast box={b} a={a} d={d} f={f} aItem={aItem} dItem={dItem} aUses={aUses} dUses={dUses} label={label} right={targetOnLeft} rom={rom} multipliers={multipliers} />;
+    return <RomForecast box={b} a={a} d={d} f={f} aItem={aItem} dItem={dItem} aUses={aUses} dUses={dUses} label={label} right={targetOnLeft} rom={rom} multipliers={multipliers} triangle={triangle} arrowArt={arrowArt} />;
   const value = (s: Forecast['attacker'], v: number | string) => (s.canAttack ? String(v) : '--');
   const rows: [string, string, string][] = [
     ['HP', String(d.hp), String(a.hp)],
