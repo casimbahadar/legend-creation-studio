@@ -249,8 +249,9 @@ export function PlayScreen({
   endFight.current = () => {
     if (ending.current || !battle) return;
     ending.current = true;
-    const list = brokenWeapons(play, battle);
-    if (list.length) setBroke(list);
+    // DisplayWpnBrokePopup: only a player unit's weapon, the defender's over the attacker's.
+    const list = brokenWeapons(play, battle).filter((b) => play.units.find((u) => u.id === b.unit)?.team === 'player');
+    if (list.length) setBroke(list.slice(-1));
     else setView((v) => finishBattle(v));
   };
   useEffect(() => {
