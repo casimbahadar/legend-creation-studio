@@ -722,6 +722,20 @@ h3 {
   pointer-events: none;
 }
 
+/* FE8's Game Over screen over the whole game screen. */
+.game-over {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: #000;
+}
+
+.game-over canvas {
+  position: absolute;
+  max-width: none;
+  image-rendering: pixelated;
+}
+
 .phase-intro img,
 .phase-intro canvas {
   position: absolute;

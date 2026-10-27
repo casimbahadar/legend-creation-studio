@@ -11,6 +11,7 @@ import { goalWindowText } from '../core/goals';
 import { attackRange } from '../core/movement';
 import { startPlay, unitAt, type PlayState, type PlayUnit, type StatusKind } from '../core/play';
 import { statusIconFrames } from '../rom/fe8-status-icons';
+import { GameOver } from './GameOver';
 import {
   brokenWeapons,
   canMove as unitCanMove,
@@ -266,9 +267,24 @@ export function PlayScreen({
     return () => window.clearTimeout(t);
   }, [broke]);
 
+  // A lost chapter shows FE8's Game Over screen first, if the ROM's is found; A or a tap leaves it.
+  const [gameOverLeave, setGameOverLeave] = useState(false);
+  const [gameOverDone, setGameOverDone] = useState(false);
+  const lost = view.outcome?.result === 'defeat';
+  useEffect(() => {
+    if (lost) return;
+    setGameOverLeave(false);
+    setGameOverDone(false);
+  }, [lost]);
+  const showGameOver = lost && !!data.gameOver && !gameOverDone;
+
   /** A: skips ahead through the experience display or the broken weapon notice while they show, otherwise as in the game. */
   const onAPress = useRef(() => {});
   onAPress.current = () => {
+    if (showGameOver) {
+      setGameOverLeave(true);
+      return;
+    }
     if (award && expShow) {
       expOffset.current +=
         expShow.phase === 'bar'
@@ -733,7 +749,8 @@ export function PlayScreen({
               {PHASE_NAMES[view.banner]}
             </div>
           ))}
-        {view.outcome && (
+        {showGameOver && data.gameOver && <GameOver art={data.gameOver} viewW={viewW} viewH={viewH} leave={gameOverLeave} onDone={() => setGameOverDone(true)} />}
+        {view.outcome && !showGameOver && (
           <div className={`result-screen ${view.outcome.result}`} role="alertdialog" aria-label={view.outcome.result === 'victory' ? 'Chapter clear' : 'Defeat'}>
             <strong>{view.outcome.result === 'victory' ? 'Chapter Clear!' : 'Defeat'}</strong>
             <span>
