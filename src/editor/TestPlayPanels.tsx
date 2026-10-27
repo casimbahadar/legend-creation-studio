@@ -1,7 +1,7 @@
 // The windows on the game screen, in FE8's style (decision 35): the unit under the cursor, the goal,
 // the battle forecast, HP during a battle, and the damage popup; and the hint line under the controls.
 
-import { Fragment, useContext, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import { cannotAct, type PlayState, type PlayUnit } from '../core/play';
@@ -25,7 +25,9 @@ import { ApSprite } from './ApSprite';
 import type { GameItem } from '../play/catalog';
 import type { TextColour } from '../rom/fe8-font';
 import { FeText } from './FeText';
-import { expBarUrl, gbaPx, goalBox, MapBox, Place, unitBox, WindowArtContext, type Box } from './FeWindow';
+import { expBarUrl, forecastBox, gbaPx, goalBox, imageUrl, MapBox, Place, unitBox, WindowArtContext, type Box } from './FeWindow';
+import { forecastHits, multiplierAt, type ForecastMultipliers } from '../rom/fe8-forecast';
+import { ItemIcon } from './ItemIcon';
 import { EXP_BAR_X, EXP_BAR_Y, expBarOpening, type ExpBarArt } from '../rom/fe8-expbar';
 import { TEAM_LABELS } from './labels';
 
@@ -256,6 +258,129 @@ export function GoalWindow({ play, text, corner }: { play: PlayState; text: stri
  * it strikes twice). Each side's name and values are in its team's colour, so red and blue tell the
  * two apart.
  */
+/**
+ * FE8's two-digit numbers (PutNumberTwoChr) with the last digit in tile column `col` of row `row`: "--"
+ * for none, as FE8 shows a value it doesn't have.
+ */
+function TwoDigits({ box, col, row, n }: { box: Box; col: number; row: number; n: number | null }) {
+  const text = n === null ? '--' : String(n);
+  return (
+    <>
+      {[...text].reverse().map((ch, i) => (
+        <Place key={i} box={box} x={col * 8 - 8 * i} y={row * 8}>
+          <FeText text={ch} colour="blue" />
+        </Place>
+      ))}
+    </>
+  );
+}
+
+/** Frames since the component appeared, at 60 a second. */
+function useFrames(): number {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      setFrame(Math.floor(((now - start) * 60) / 1000));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return frame;
+}
+
+/**
+ * FE8's battle forecast window from the ROM (DrawBattleForecastContentsStandard), 10 x 16 tiles at the
+ * top of the screen, on the right when the target is on the left half (GetBattleForecastPanelSide):
+ * the attacker's weapon icon and name, HP, damage, hit and crit for the target (left column) and the
+ * attacker (right), then the target's name, weapon icon and weapon name; and the "x2" marks bobbing
+ * beside a damage that lands twice.
+ */
+function RomForecast({
+  box: b,
+  a,
+  d,
+  f,
+  aItem,
+  dItem,
+  aUses,
+  dUses,
+  label,
+  right,
+  rom,
+  multipliers,
+}: {
+  box: Box;
+  a: PlayUnit;
+  d: PlayUnit;
+  f: Forecast;
+  aItem?: GameItem;
+  dItem?: GameItem;
+  aUses: number | null;
+  dUses: number | null;
+  label: (u: PlayUnit) => string;
+  right: boolean;
+  rom: GbaRom;
+  multipliers: ForecastMultipliers | null;
+}) {
+  const frame = useFrames();
+  const side = (s: Forecast['attacker']) => (s.canAttack ? s : null);
+  const mark = (hits: number) => (hits === 2 ? multipliers?.x2 : hits === 4 ? multipliers?.x4 : undefined);
+  const aMark = f.attacker.canAttack ? mark(forecastHits(f.attacker.doubles, aUses)) : undefined;
+  const dMark = f.defender.canAttack ? mark(forecastHits(f.defender.doubles, dUses)) : undefined;
+  // The box sits where the game puts it: tile 0 or 20 across (the screen's left or right 80 pixels), the top row.
+  const at: CSSProperties = right ? { right: gbaPx(80 - b.x - b.width), top: gbaPx(b.y) } : { left: gbaPx(b.x), top: gbaPx(b.y) };
+  return (
+    <MapBox box={b} className="forecast-box" style={at}>
+      <Place box={b} x={8} y={8}>
+        <ItemIcon rom={rom} item={aItem} />
+      </Place>
+      <Place box={b} x={24} y={8} width={48}>
+        <FeText text={label(a)} />
+      </Place>
+      <Place box={b} x={32} y={24}>
+        <FeText text="HP" colour="gold" />
+      </Place>
+      {(['Mt', 'Hit', 'Crit'] as const).map((k, i) => (
+        <Place key={k} box={b} x={24} y={40 + 16 * i} width={32}>
+          <FeText text={k} colour="gold" />
+        </Place>
+      ))}
+      <TwoDigits box={b} col={2} row={3} n={d.hp > 99 ? null : d.hp} />
+      <TwoDigits box={b} col={2} row={5} n={side(f.defender)?.damage ?? null} />
+      <TwoDigits box={b} col={2} row={7} n={side(f.defender)?.hit ?? null} />
+      <TwoDigits box={b} col={2} row={9} n={side(f.defender)?.crit ?? null} />
+      <TwoDigits box={b} col={8} row={3} n={a.hp > 99 ? null : a.hp} />
+      <TwoDigits box={b} col={8} row={5} n={side(f.attacker)?.damage ?? null} />
+      <TwoDigits box={b} col={8} row={7} n={side(f.attacker)?.hit ?? null} />
+      <TwoDigits box={b} col={8} row={9} n={side(f.attacker)?.crit ?? null} />
+      <Place box={b} x={8} y={88} width={48}>
+        <FeText text={label(d)} />
+      </Place>
+      <Place box={b} x={56} y={88}>
+        <ItemIcon rom={rom} item={dItem} />
+      </Place>
+      <Place box={b} x={8} y={104} width={56}>
+        <FeText text={dItem?.entry.gameName ?? ''} />
+      </Place>
+      {([
+        ['attacker', aMark],
+        ['target', dMark],
+      ] as const).map(([who, img]) => {
+        if (!img) return null;
+        const p = multiplierAt(who, frame);
+        return (
+          <Place key={who} box={b} x={p.x} y={p.y}>
+            <img className="forecast-mark" src={imageUrl(img)} alt="x2" style={{ width: gbaPx(16), height: gbaPx(16) }} />
+          </Place>
+        );
+      })}
+    </MapBox>
+  );
+}
+
 export function ForecastWindow({
   a,
   d,
@@ -264,6 +389,13 @@ export function ForecastWindow({
   dWeapon,
   label,
   corner,
+  rom,
+  aItem,
+  dItem,
+  aUses = null,
+  dUses = null,
+  targetOnLeft = false,
+  multipliers = null,
 }: {
   a: PlayUnit;
   d: PlayUnit;
@@ -272,7 +404,20 @@ export function ForecastWindow({
   dWeapon?: string;
   label: (u: PlayUnit) => string;
   corner: Corner;
+  /** With these, and the ROM's window art, the window is FE8's own. */
+  rom?: GbaRom;
+  aItem?: GameItem;
+  dItem?: GameItem;
+  aUses?: number | null;
+  dUses?: number | null;
+  /** The target is on the screen's left half, so the window goes on the right (GetBattleForecastPanelSide). */
+  targetOnLeft?: boolean;
+  multipliers?: ForecastMultipliers | null;
 }) {
+  const art = useContext(WindowArtContext);
+  const b = art && forecastBox(art, a.team, d.team);
+  if (b && rom)
+    return <RomForecast box={b} a={a} d={d} f={f} aItem={aItem} dItem={dItem} aUses={aUses} dUses={dUses} label={label} right={targetOnLeft} rom={rom} multipliers={multipliers} />;
   const value = (s: Forecast['attacker'], v: number | string) => (s.canAttack ? String(v) : '--');
   const rows: [string, string, string][] = [
     ['HP', String(d.hp), String(a.hp)],

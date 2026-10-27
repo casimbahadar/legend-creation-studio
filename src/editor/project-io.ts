@@ -17,6 +17,7 @@ import { readLevelUpBox, readLevelUpSprites, type LevelUpSprites } from '../rom/
 import { readPhaseBanner, type PhaseBanner } from '../rom/fe8-phase';
 import { readStatusIcons, type StatusIconArt } from '../rom/fe8-status-icons';
 import { readGameOverArt, type GameOverArt } from '../rom/fe8-gameover';
+import { readForecastMultipliers, type ForecastMultipliers } from '../rom/fe8-forecast';
 import type { Image, Palette } from '../rom/gba-graphics';
 import type { ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
@@ -64,6 +65,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     levelUpSprites: readLevelUpSprites(rom),
     statusIcons: readStatusIcons(rom),
     gameOver: readGameOverArt(rom),
+    forecastMultipliers: readForecastMultipliers(rom),
   };
 }
 
@@ -100,6 +102,8 @@ export interface EditorRom {
   readonly statusIcons: StatusIconArt | null;
   /** FE8's Game Over screen, shown when test play is lost (decision 35); null if not found. */
   readonly gameOver: GameOverArt | null;
+  /** FE8's "x2" and "x4" marks for the battle forecast (decision 35); null if not found. */
+  readonly forecastMultipliers: ForecastMultipliers | null;
 }
 
 export interface GameFont {

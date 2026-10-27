@@ -543,7 +543,24 @@ export function PlayScreen({
               );
             if (a.staff) return <HealWindow unit={def} label={unitLabel(def)} heal={a.staff.heal} staff={data.items.find((x) => x.entry.name === atk.items[a.staff!.item])?.entry.gameName} corner={`top-${side}`} />;
             const f = chapterPlay.preview(atk, def);
-            return <ForecastWindow a={atk} d={def} f={f.forecast} aWeapon={f.attackerWeapon?.entry.gameName} dWeapon={f.defenderWeapon?.entry.gameName} label={unitLabel} corner={`top-${side}`} />;
+            return (
+              <ForecastWindow
+                a={atk}
+                d={def}
+                f={f.forecast}
+                aWeapon={f.attackerWeapon?.entry.gameName}
+                dWeapon={f.defenderWeapon?.entry.gameName}
+                label={unitLabel}
+                corner={`top-${side}`}
+                rom={data.rom}
+                aItem={f.attackerWeapon}
+                dItem={f.defenderWeapon}
+                aUses={f.attacker.uses}
+                dUses={f.defender.uses}
+                targetOnLeft={(def.at[0] - cam[0]) * 16 <= 112}
+                multipliers={data.forecastMultipliers}
+              />
+            );
           })()}
         {a?.kind === 'menu' &&
           (() => {

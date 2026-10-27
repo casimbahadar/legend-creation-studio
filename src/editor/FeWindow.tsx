@@ -5,7 +5,7 @@
 
 import { createContext, type CSSProperties, type ReactNode } from 'react';
 import { toCanvas } from '../play/catalog';
-import { contentBounds, drawFrame, drawGoalWindow, drawMenuHover, drawUnitWindow, type Team, type WindowArt } from '../rom/fe8-windows';
+import { contentBounds, drawForecastWindow, drawFrame, drawGoalWindow, drawMenuHover, drawUnitWindow, type Team, type WindowArt } from '../rom/fe8-windows';
 import { drawExpBar, type ExpBarArt } from '../rom/fe8-expbar';
 import type { Image } from '../rom/gba-graphics';
 
@@ -64,6 +64,8 @@ function box(art: WindowArt, key: string, draw: () => Image): Box | null {
 
 export const unitBox = (art: WindowArt, team: Team) => box(art, `unit:${team}`, () => drawUnitWindow(art, team));
 export const goalBox = (art: WindowArt, lines: 1 | 2) => box(art, `goal:${lines}`, () => drawGoalWindow(art, lines));
+export const forecastBox = (art: WindowArt, attacker: Team, target: Team) =>
+  art.forecast ? box(art, `forecast:${attacker}:${target}`, () => drawForecastWindow(art, attacker, target)!) : null;
 
 const expBars = new WeakMap<ExpBarArt, Map<number, string>>();
 
@@ -104,9 +106,9 @@ export function frameStyle(art: WindowArt): CSSProperties {
 }
 
 /** One of the map's boxes with its contents placed by GBA pixel from the box's top left, as the game places them. */
-export function MapBox({ box: b, className, children }: { box: Box; className: string; children: ReactNode }) {
+export function MapBox({ box: b, className, style, children }: { box: Box; className: string; style?: CSSProperties; children: ReactNode }) {
   return (
-    <div className={`map-box ${className}`} style={{ width: gbaPx(b.width), height: gbaPx(b.height), backgroundImage: `url(${b.url})` }}>
+    <div className={`map-box ${className}`} style={{ width: gbaPx(b.width), height: gbaPx(b.height), backgroundImage: `url(${b.url})`, ...style }}>
       {children}
     </div>
   );

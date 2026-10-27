@@ -6,6 +6,9 @@
 // - src/player_interface.c, data/data_A167C8.s: the map's unit window and goal window are fixed
 //   tilemaps over those tiles (the unit window in its team's palette, the goal window in palette 1);
 //   the interface tiles (labels, digits, HP bar) are loaded after them at tile 0x100.
+// - src/bksel.c, data/data_59E8E0.s: the battle forecast's frame is a tilemap of 10 x 16 tiles
+//   (gTSA_BattleForecastStandard) over the frame tiles, its palette 1 in the attacker's team colours and
+//   2 in the target's (gUiFramePaletteA, B, C: blue, red, green).
 // - asm/arm.s TmApplyTsa: a tilemap is a byte width - 1, a byte height - 1, then 16-bit entries row by
 //   row from the bottom row up. An entry is a tile number (10 bits), horizontal and vertical flip, and
 //   a palette (top 4 bits), and the caller adds a base to every entry.
@@ -22,6 +25,7 @@ export const FE8U_INTERFACE_PALETTES = 0xa1738c;
 export const FE8U_UNIT_WINDOW_TILEMAP = 0xa17484;
 export const FE8U_GOAL_ONE_LINE_TILEMAP = 0xa17744;
 export const FE8U_GOAL_TWO_LINES_TILEMAP = 0xa176bc;
+export const FE8U_FORECAST_TILEMAP = 0x5a09a8;
 
 const INTERFACE_FIRST_TILE = 0x100;
 const TILE_BYTES = 32;
@@ -47,6 +51,10 @@ export interface WindowArt {
   readonly unitWindow: Tilemap;
   readonly goalOneLine: Tilemap;
   readonly goalTwoLines: Tilemap;
+  /** The window frame's palette in each team's colours (gUiFramePaletteA, B, C). */
+  readonly framePalettes: Readonly<Record<Team, Palette>>;
+  /** The battle forecast's frame, 10 x 16 tiles; null if it isn't readable. */
+  readonly forecast: Tilemap | null;
 }
 
 /** The tilemap at `at`, or null if it runs off the ROM. */
@@ -81,8 +89,9 @@ export function readWindowArt(rom: GbaRom): WindowArt | null {
   const goalOneLine = readTilemap(rom, FE8U_GOAL_ONE_LINE_TILEMAP);
   const goalTwoLines = readTilemap(rom, FE8U_GOAL_TWO_LINES_TILEMAP);
   if (!unitWindow || !goalOneLine || !goalTwoLines) return null;
-  const [framePalette] = readPalettes(rom, FE8U_UI_FRAME_PALETTE, 1);
+  const [framePalette, frameRed, frameGreen] = readPalettes(rom, FE8U_UI_FRAME_PALETTE, 3);
   const [blue, red, green] = readPalettes(rom, FE8U_INTERFACE_PALETTES, 3);
+  const forecast = readTilemap(rom, FE8U_FORECAST_TILEMAP);
   return {
     tiles,
     framePalette: framePalette!,
@@ -90,6 +99,8 @@ export function readWindowArt(rom: GbaRom): WindowArt | null {
     unitWindow,
     goalOneLine,
     goalTwoLines,
+    framePalettes: { player: framePalette!, enemy: frameRed ?? framePalette!, ally: frameGreen ?? framePalette! },
+    forecast: forecast && forecast.width === 10 && forecast.height === 16 ? forecast : null,
   };
 }
 
@@ -171,6 +182,13 @@ export function clipTilemap(map: Tilemap, width: number, height: number): Tilema
 /** The map's unit window box in `team`'s colours: the 13 x 6 tiles the game copies to the screen (MMB_Loop_SlideIn). */
 export function drawUnitWindow(art: WindowArt, team: Team): Image {
   return drawTilemap(art.tiles, clipTilemap(art.unitWindow, 13, 6), (n) => (n === UNIT_WINDOW_PALETTE ? art.teamPalettes[team] : undefined), UNIT_WINDOW_PALETTE);
+}
+
+/** The battle forecast's frame (DrawBattleForecastContentsStandard), the attacker's half and the target's in their teams' colours; null without it. */
+export function drawForecastWindow(art: WindowArt, attacker: Team, target: Team): Image | null {
+  if (!art.forecast) return null;
+  const palettes: Record<number, Palette> = { [FRAME_PALETTE]: art.framePalettes[attacker], [FRAME_PALETTE + 1]: art.framePalettes[target] };
+  return drawTilemap(art.tiles, art.forecast, (n) => palettes[n], FRAME_PALETTE);
 }
 
 /** The map's goal window box, for one line of text or two: at most the 12 x 6 tiles the game copies to the screen. */

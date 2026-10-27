@@ -3,10 +3,12 @@ import { readRom } from './gba-rom';
 import {
   contentBounds,
   drawFrame,
+  drawForecastWindow,
   drawGoalWindow,
   drawMenuHover,
   drawTilemap,
   drawUnitWindow,
+  FE8U_FORECAST_TILEMAP,
   FE8U_GOAL_ONE_LINE_TILEMAP,
   FE8U_GOAL_TWO_LINES_TILEMAP,
   FE8U_INTERFACE_PALETTES,
@@ -110,6 +112,10 @@ describe('FE8 window art', () => {
     // Goal windows: a blank top row, then tile 4 (colour 4).
     writeTilemap(view, FE8U_GOAL_ONE_LINE_TILEMAP, 1, 2, [[0], [0x0004]]);
     writeTilemap(view, FE8U_GOAL_TWO_LINES_TILEMAP, 1, 1, [[0x0004]]);
+    // The frame in red and green (gUiFramePaletteB, C) after blue; the forecast: tile 3 in palette 0, then in palette 1.
+    setPalette(view, FE8U_UI_FRAME_PALETTE + 0x20, 4);
+    setPalette(view, FE8U_UI_FRAME_PALETTE + 0x40, 5);
+    writeTilemap(view, FE8U_FORECAST_TILEMAP, 10, 16, Array.from({ length: 16 }, (_, y) => Array.from({ length: 10 }, (_, x) => (y === 0 && x === 0 ? 0x0003 : y === 0 && x === 1 ? 0x1003 : 0))));
     const art = readWindowArt(readRom(bytes))!;
     const at = (img: { width: number; rgba: Uint8ClampedArray }, x: number, y: number) =>
       Array.from(img.rgba.subarray((y * img.width + x) * 4, (y * img.width + x) * 4 + 4));
@@ -141,6 +147,14 @@ describe('FE8 window art', () => {
       expect(contentBounds(one)).toEqual({ x: 0, y: 8, width: 8, height: 8 });
       expect(at(one, 0, 8)).toEqual([32, 0, 0, 255]);
       expect(drawGoalWindow(art, 2).height).toBe(8);
+    });
+
+    it("draws the battle forecast, the attacker's half in its team's frame colours and the target's in its", () => {
+      const img = drawForecastWindow(art, 'player', 'enemy')!;
+      expect([img.width, img.height]).toEqual([80, 128]);
+      expect(at(img, 0, 0)).toEqual([24, 0, 0, 255]); // palette A
+      expect(at(img, 8, 0)).toEqual([24, 0, 32, 255]); // palette B
+      expect(at(drawForecastWindow(art, 'ally', 'player')!, 0, 0)).toEqual([24, 0, 40, 255]); // palette C
     });
 
     it('draws the menu hover strip from tiles 0x7A, 0x7B and 0x7C', () => {
