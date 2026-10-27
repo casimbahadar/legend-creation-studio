@@ -14,6 +14,8 @@ import {
   finishWalk,
   menuOptions,
   moveCursor,
+  MSG_CANT_STEAL,
+  MSG_INVENTORY_FULL,
   optionDisabled,
   pressA,
   pressB,
@@ -682,7 +684,10 @@ describe('stealing', () => {
     expect(v.action).toMatchObject({ kind: 'target', steal: true, targets: ['brigand-1'] });
     v = pressA(v, thief);
     expect(v.action).toMatchObject({ kind: 'steal', target: 'brigand-1', index: 0 });
-    expect(pressA(v, thief)).toBe(v); // the axe
+    // The axe can't be stolen: FE8 says so, and A closes the message.
+    const said = pressA(v, thief);
+    expect(said).toMatchObject({ notice: MSG_CANT_STEAL, action: v.action });
+    expect(pressA(said, thief)).not.toHaveProperty('notice');
     v = pressA(moveCursor(v, 0, 1, thief), thief);
     expect(v.battle).toMatchObject({ attacker: 'eirika', defender: 'brigand-1', strikes: [], steal: 1, exp: { result: { gain: 10 } } });
     v = finishBattle(v);
@@ -701,7 +706,9 @@ describe('stealing', () => {
     const full = menuWith(['vulnerary'], ['rapier', 'rapier', 'rapier', 'rapier', 'rapier']);
     expect(menuOptions(full, thief)).toContain('steal');
     expect(optionDisabled(full, 'steal')).toBe(true);
-    expect(chooseOption(full, 'steal', thief)).toBe(full);
+    const said = chooseOption(full, 'steal', thief);
+    expect(said).toMatchObject({ notice: MSG_INVENTORY_FULL, action: full.action });
+    expect(pressB(said, thief)).toEqual(full);
   });
 });
 

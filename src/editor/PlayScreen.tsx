@@ -13,12 +13,15 @@ import { startPlay, unitAt, type PlayState, type PlayUnit, type StatusKind } fro
 import { statusIconFrames } from '../rom/fe8-status-icons';
 import { GameOver } from './GameOver';
 import { ItemIcon } from './ItemIcon';
+import { decodeTextBytes } from '../rom/text';
 import {
   brokenWeapons,
   canMove as unitCanMove,
   chooseItem,
   chooseItemOption,
   chooseOption,
+  MSG_CANT_STEAL,
+  MSG_INVENTORY_FULL,
   chooseStealItem,
   chooseTradeSlot,
   chooseWeapon,
@@ -69,6 +72,19 @@ const BROKE_MS = 1500;
 const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', steal: 'Steal', item: 'Item', trade: 'Trade', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
+
+/** English for FE8's messages, if the ROM's text can't be read. */
+const NOTICE_FALLBACK: Record<number, string> = { [MSG_INVENTORY_FULL]: 'Your inventory is full.', [MSG_CANT_STEAL]: "Weapons, magic, and staves can't be stolen." };
+
+/** An FE8 message's lines: control code 0x01 breaks a line; the others (waits, the end) are left out. */
+function messageLines(bytes: Uint8Array): string[] {
+  const lines: string[] = [''];
+  for (const b of bytes) {
+    if (b === 0x01) lines.push('');
+    else if (b >= 0x20 && b < 0x7f) lines[lines.length - 1] += String.fromCharCode(b);
+  }
+  return lines.filter((l) => l.trim() !== '');
+}
 
 /** What won the chapter, by its goal (decision 36). */
 function victoryText(play: PlayState, label: (u: PlayUnit) => string): string {
@@ -717,6 +733,27 @@ export function PlayScreen({
             );
           })()}
         {award && expShow?.phase === 'bar' && <ExpWindow exp={expShow.exp} frame={expShow.frame} art={data.expBar} />}
+        {view.notice !== undefined &&
+          (() => {
+            // MenuFrozenHelpBox: the message for a choice that can't be made; A, B or a tap closes it.
+            let lines: string[] = [];
+            try {
+              lines = messageLines(decodeTextBytes(data.rom, data.text, view.notice));
+            } catch {
+              lines = [];
+            }
+            if (!lines.length) lines = [NOTICE_FALLBACK[view.notice] ?? ''];
+            return (
+              // A tap anywhere on the map closes it (tapAt).
+              <div className="fe-window broke-window" role="status">
+                {lines.map((l, i) => (
+                  <span key={i} className="fe-line">
+                    <FeText text={l} />
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         {broke && (
           <div className="fe-window broke-window" role="status">
             {broke.map((b) => {

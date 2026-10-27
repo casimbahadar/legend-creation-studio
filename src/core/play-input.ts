@@ -148,7 +148,13 @@ export interface PlayView {
   readonly banner: Phase | null;
   /** Set when the chapter is won or lost; play stops there. */
   readonly outcome: Outcome | null;
+  /** A help message (an FE8 text id) shown for choosing something that can't be used; A or B closes it. */
+  readonly notice?: number;
 }
+
+/** FE8's messages for a disabled choice (MenuFrozenHelpBox): Steal with a full inventory, and an item that can't be stolen. */
+export const MSG_INVENTORY_FULL = 0x862;
+export const MSG_CANT_STEAL = 0x855;
 
 export interface PlayRules extends AiRules {
   readonly width: number;
@@ -373,7 +379,7 @@ export function cursorTo(view: PlayView, x: number, y: number, rules: PlayRules)
 
 /** A D-pad press: moves the cursor, or the highlight in the action menu, or the chosen target. */
 export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRules): PlayView {
-  if (busy(view)) return view;
+  if (busy(view) || view.notice !== undefined) return view;
   const a = view.action;
   if (a?.kind === 'menu' || a?.kind === 'items' || a?.kind === 'item' || a?.kind === 'weapon' || a?.kind === 'steal') {
     const n =
@@ -419,6 +425,7 @@ export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRu
 /** A tap on a square: moves the cursor there and presses A. Ignored outside the reach of a unit being moved. */
 export function tapAt(view: PlayView, x: number, y: number, rules: PlayRules): PlayView {
   if (busy(view)) return view;
+  if (view.notice !== undefined) return closeNotice(view);
   const a = view.action;
   if (a?.kind === 'target') {
     // Tap a target to choose it; tap it again to attack.
@@ -455,7 +462,7 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
   if (option === 'steal') {
     // With a full inventory, FE8 only says so (StealCommandEffect).
-    if (optionDisabled(view, option)) return view;
+    if (optionDisabled(view, option)) return { ...view, notice: MSG_INVENTORY_FULL };
     const targets = stealTargets(view.state, unit, rules);
     const first = unitById(view.state, targets[0] ?? null);
     if (!first) return view;
@@ -523,7 +530,9 @@ export function chooseStealItem(view: PlayView, index: number, rules: PlayRules)
   if (busy(view) || a?.kind !== 'steal') return view;
   const thief = unitById(view.state, a.unit);
   const target = unitById(view.state, a.target);
-  if (!thief || !target || index >= target.items.length || !rules.stealable?.(target, index)) return view;
+  if (!thief || !target || index >= target.items.length) return view;
+  // StealItemMenuCommand_Effect: weapons and staves can't be stolen, and FE8 says so.
+  if (!rules.stealable?.(target, index)) return { ...view, notice: MSG_CANT_STEAL };
   return { ...view, action: null, battle: stealBattle(thief, target, index, rules.stealExperience?.(thief) ?? null) };
 }
 
@@ -557,8 +566,15 @@ export function chooseItemOption(view: PlayView, option: ItemOption, rules: Play
   return { ...view, state, action: { kind: 'items', unit: unit.id, from: a.from, index: option === 'equip' ? 0 : Math.min(a.item, left - 1) } };
 }
 
+/** The help message closes. */
+export function closeNotice(view: PlayView): PlayView {
+  const { notice: _closed, ...rest } = view;
+  return rest;
+}
+
 export function pressA(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view)) return view;
+  if (view.notice !== undefined) return closeNotice(view);
   const a = view.action;
   if (a?.kind === 'menu') {
     const option = menuOptions(view, rules)[a.index];
@@ -621,6 +637,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
  */
 export function pressB(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view)) return view;
+  if (view.notice !== undefined) return closeNotice(view);
   const a = view.action;
   if (a?.kind === 'item') return { ...view, action: { kind: 'items', unit: a.unit, from: a.from, index: a.item } };
   if (a?.kind === 'trade') {
