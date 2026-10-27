@@ -1,7 +1,7 @@
 // The windows on the game screen, in FE8's style (decision 35): the unit under the cursor, the goal,
 // the battle forecast, HP during a battle, and the damage popup; and the hint line under the controls.
 
-import { Fragment, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { BattleFrame } from '../core/battle-anim';
 import type { Forecast } from '../core/combat';
 import { cannotAct, type PlayState, type PlayUnit } from '../core/play';
@@ -30,6 +30,7 @@ import { forecastHits, multiplierAt, TRIANGLE_ARROW_AT, triangleArrowFrames, typ
 import type { StatusIconArt } from '../rom/fe8-status-icons';
 import { ItemIcon } from './ItemIcon';
 import { EXP_BAR_X, EXP_BAR_Y, expBarOpening, type ExpBarArt } from '../rom/fe8-expbar';
+import { battleBoxColumns, battleBoxOpening, battleBoxRow, drawBattleBoxes, shownHpMoves, stepShownHp, type BattleBoxArt } from '../rom/fe8-battle-box';
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
@@ -476,23 +477,101 @@ export function ForecastWindow({
   );
 }
 
-/** HP for both units during a battle, along the bottom of the screen as in FE's map battles. */
+/**
+ * FE8's HP boxes for a battle on the map, from the ROM (fe8-battle-box.ts): the attacker's on the
+ * right and the target's on the left, on a row chosen when the battle starts from where the two are,
+ * opening from their third row out; the HP shown then runs to what's left a point a frame.
+ */
+function RomBattleHud({
+  art,
+  sides,
+  ys,
+  centre,
+  label,
+}: {
+  art: BattleBoxArt;
+  /** The attacker first. */
+  sides: readonly { unit: PlayUnit; hp: number; maxHp: number }[];
+  ys: readonly number[];
+  centre: number;
+  label: (u: PlayUnit) => string;
+}) {
+  const frame = useFrames();
+  const [row] = useState(() => battleBoxRow(ys));
+  // The HP shown, in sixteenths of a point, stepped once for each frame since the last render.
+  const shown = useRef<{ frame: number; hp: number[] } | null>(null);
+  if (!shown.current) shown.current = { frame: 0, hp: sides.map((s) => s.hp * 16) };
+  const s = shown.current;
+  while (s.frame < frame) {
+    s.frame++;
+    if (shownHpMoves(s.frame)) s.hp = s.hp.map((q, i) => stepShownHp(q, sides[i]!.hp));
+  }
+  const hps = s.hp.map((q) => Math.trunc(q / 16));
+  const teams = sides.map((x) => x.unit.team).join();
+  const image = useMemo(
+    () => drawBattleBoxes(art, sides.map((x, i) => ({ team: x.unit.team, hp: hps[i]!, maxHp: x.maxHp })), centre),
+    [art, centre, teams, hps.join()], // sides is read only through these
+  );
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    canvas.current?.getContext('2d')?.putImageData(new ImageData(image.rgba, image.width, image.height), 0, 0);
+  }, [image]);
+  const open = battleBoxOpening(frame);
+  // The window opens about the boxes' third row (line 16), both ways.
+  const clip = typeof open === 'number' ? `inset(${((16 - open) / image.height) * 100}% 0 ${((image.height - 16 - open) / image.height) * 100}% 0)` : undefined;
+  const columns = battleBoxColumns(sides.length === 1 ? 1 : 2, centre);
+  return (
+    <div
+      className="battle-boxes"
+      aria-label={sides.map((x, i) => `${label(x.unit)} HP ${hps[i]}`).join(', ')}
+      style={{ top: gbaPx(row * 8), width: gbaPx(image.width), height: gbaPx(image.height), clipPath: clip, visibility: open === 'hidden' ? 'hidden' : undefined }}
+    >
+      <canvas ref={canvas} width={image.width} height={image.height} />
+      {sides.map((x, i) => (
+        <div key={x.unit.id} className="map-box-item centre" style={{ left: gbaPx((columns[i]! + 2) * 8), top: gbaPx(8), width: gbaPx(72) }}>
+          <FeText text={label(x.unit)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * HP for both units during a battle: FE8's boxes with the ROM's art (`boxes`: the screen y of the
+ * attacker's and target's squares in pixels, and the screen's middle in tiles); otherwise look-alikes
+ * along the bottom of the screen.
+ */
 export function BattleHud({
   battle,
   frame,
   units,
   maxHp,
   label,
+  boxes,
 }: {
   battle: NonNullable<PlayView['battle']>;
   frame: BattleFrame;
   units: readonly PlayUnit[];
   maxHp: (id: string) => number;
   label: (u: PlayUnit) => string;
+  boxes?: { art: BattleBoxArt; ys: readonly [number, number]; centre: number } | null;
 }) {
   const attacker = units.find((u) => u.id === battle.attacker);
   const defender = units.find((u) => u.id === battle.defender);
   if (!attacker || !defender) return null;
+  if (boxes)
+    return (
+      <RomBattleHud
+        art={boxes.art}
+        sides={[
+          { unit: attacker, hp: Math.max(0, frame.attackerHp), maxHp: maxHp(attacker.id) },
+          { unit: defender, hp: Math.max(0, frame.defenderHp), maxHp: maxHp(defender.id) },
+        ]}
+        ys={boxes.ys}
+        centre={boxes.centre}
+        label={label}
+      />
+    );
   const bar = (u: PlayUnit, hp: number) => (
     <div className={`fe-window battle-side team-${u.team}`}>
       <span className="fe-line">

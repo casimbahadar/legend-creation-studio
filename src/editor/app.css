@@ -997,6 +997,22 @@ a.button {
 }
 
 /* FE8's experience bar box from the ROM, at its place on the game screen. */
+/* FE8's HP boxes in a map battle: one strip across the screen from the boxes' row, names over it. */
+.battle-boxes {
+  position: absolute;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.battle-boxes canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
 .exp-bar-box {
   position: absolute;
   z-index: 3;

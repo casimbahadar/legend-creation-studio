@@ -458,6 +458,8 @@ export function PlayScreen({
             : view.action?.kind === 'weapon' && view.action.staff
               ? 'staves'
               : (view.action?.kind ?? null);
+  /** The top of a unit's square on the game screen, in GBA pixels. */
+  const screenY = (id: string) => ((play.units.find((u) => u.id === id)?.at[1] ?? cam[1]) - cam[1]) * 16;
   /** The screen position, in percent, of the top middle of a map square. */
   const position = (at: readonly [number, number]) => ({ left: `${((at[0] - cam[0] + 0.5) / viewW) * 100}%`, top: `${((at[1] - cam[1]) / viewH) * 100}%` });
   const under = unitAt(play, view.cursor[0], view.cursor[1]);
@@ -708,7 +710,14 @@ export function PlayScreen({
             );
           })()}
         {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && !battle.support && !battle.relocate && (
-          <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />
+          <BattleHud
+            battle={battle}
+            frame={hud}
+            units={play.units}
+            maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1}
+            label={unitLabel}
+            boxes={data.battleBoxes && { art: data.battleBoxes, ys: [screenY(battle.attacker), screenY(battle.defender)], centre: viewW }}
+          />
         )}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}
         {battle?.heal !== undefined &&

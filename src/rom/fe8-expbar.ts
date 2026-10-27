@@ -58,16 +58,21 @@ export function readExpBarArt(rom: GbaRom): ExpBarArt | null {
  */
 const BAR: readonly (readonly [number, number])[] = [[6, 0], ...Array.from({ length: 11 }, () => [9, 7] as const), [6, 17]];
 
-/** Each bar tile's fill level for `exp` out of 99 (sub_807BB40, sub_807BB10). */
-export function barLevels(exp: number, max = 99): number[] {
-  const count = BAR.reduce((n, [steps]) => n + steps - 1, 0) + 1;
-  let left = exp === max ? count : (Math.trunc((count << 8) / max) * exp) >> 8;
-  if (left === 0 && exp > 0) left = 1;
-  return BAR.map(([steps]) => {
+/** Each tile's fill level of a bar of `bar`'s tiles (steps, first tile) for `value` out of `max` (sub_807BB40, sub_807BB10). */
+export function fillLevels(bar: readonly (readonly [number, number])[], value: number, max: number): number[] {
+  const count = bar.reduce((n, [steps]) => n + steps - 1, 0) + 1;
+  let left = value === max ? count : (Math.trunc((count << 8) / max) * value) >> 8;
+  if (left === 0 && value > 0) left = 1;
+  return bar.map(([steps]) => {
     const level = Math.min(left, steps);
     left = Math.max(0, left + 1 - steps);
     return level;
   });
+}
+
+/** Each bar tile's fill level for `exp` out of 99. */
+export function barLevels(exp: number, max = 99): number[] {
+  return fillLevels(BAR, exp, max);
 }
 
 /** The box's tilemap for `exp` (DrawMAExpBar): the number ending at column 2 of row 1, the bar from column 3. */
