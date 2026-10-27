@@ -24,6 +24,7 @@ import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapte
 import { FE8U_GET_DEFEAT_TALK_ENTRY, findDefeatTalkList, readDefeatTalks } from './fe8-death-quotes';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, renderMap } from './fe8-maps';
+import { mapChangeAt, readMapChanges, readTileEvents } from './fe8-tile-events';
 import { decodeText, decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, findTextTable } from './text';
 import { encodeTextBytes, readHuffmanCodes } from './text-encode';
 
@@ -130,6 +131,37 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
       [2, 7, 'player', 1, 13, 9],
       [1, 2, 'player', 1, 8, 5],
     ]);
+  });
+
+  it("reads Chapter 4's villages as the decompilation lists them (ch4-eventinfo.h)", () => {
+    const text = findTextTable(rom)!;
+    const events = readTileEvents(rom, readChapter(rom, text, 4)); // CHAPTER_L_4
+    expect(events.map((e) => [e.kind, e.x, e.y])).toEqual([
+      ['village', 1, 11],
+      ['village', 8, 2],
+    ]);
+    // EventScr_089F1B38 checks who visits and brings in a unit; EventScr_089F1BD8 shows 0x9b5 and gives item 0x1f.
+    expect(events[0]).toMatchObject({ scene: { custom: true } });
+    expect(events[1]).toMatchObject({ scene: { texts: [0x9b5], item: 0x1f, gold: null, custom: false } });
+  });
+
+  it("finds a chapter with Ch11a's chests and doors, and a map change under every door, chest and village", () => {
+    const text = findTextTable(rom)!;
+    const chapters = Array.from({ length: 79 }, (_, i) => readChapter(rom, text, i));
+    const ch11a = [
+      ['chest', 3, 8, 0x50],
+      ['chest', 12, 11, 0x96],
+      ['chest', 17, 5, 0x5d],
+      ['door', 4, 11, null],
+      ['door', 17, 13, null],
+      ['door', 18, 13, null],
+    ];
+    const lists = chapters.map((c) => readTileEvents(rom, c).map((e) => [e.kind, e.x, e.y, e.kind === 'chest' ? e.item : null]));
+    expect(lists.some((l) => JSON.stringify(l) === JSON.stringify(ch11a))).toBe(true);
+    for (const c of chapters) {
+      const changes = readMapChanges(rom, c);
+      for (const e of readTileEvents(rom, c)) if (e.kind !== 'house') expect([c.index, e.kind, e.x, e.y, mapChangeAt(changes, e.x, e.y) !== null]).toEqual([c.index, e.kind, e.x, e.y, true]);
+    }
   });
 
   it("finds what the patch reuses: the Prologue's next chapter and the Rout objective", () => {
