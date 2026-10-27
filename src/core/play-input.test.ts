@@ -780,3 +780,46 @@ describe('Restore and Barrier', () => {
     expect(seth(after).barrier).toBe(7);
   });
 });
+
+describe('Rescue and Warp', () => {
+  // Eirika moves to (2,1); Seth stands at (2,0) beside her. Rescue lands him on (3,0); Warp reaches (4,0) and (4,1).
+  const moveRules = (move: 'rescue' | 'warp'): PlayRules => ({
+    ...rules,
+    staffChoices: (u) => (u.id === 'eirika' ? [{ item: 0, targets: ['seth'], heal: 0, move }] : []),
+    staffExperience: (u) => ({ unit: u.id, level: u.level, exp: 0, result: { gain: 11, exp: 11, level: u.level, levelUp: null } }),
+    rescueLanding: () => [3, 0],
+    warpCells: () => [4, 9],
+  });
+  const setUp = (staff: string): PlayView => {
+    const v = start([4, 2], [{ id: 'seth', class: 'paladin-m', team: 'player', level: 1, at: [2, 0] }]);
+    return { ...v, state: { ...v.state, units: v.state.units.map((u) => (u.id === 'eirika' ? { ...u, items: [staff], uses: [3] } : u)) } };
+  };
+  const seth = (v: PlayView) => v.state.units.find((u) => u.id === 'seth')!;
+
+  it('Rescue brings the ally to its landing square, spending a use', () => {
+    const r = moveRules('rescue');
+    const using = pressA(chooseOption(moveRight(setUp('rescue')), 'staff', r), r);
+    expect(using.battle).toMatchObject({ attacker: 'eirika', defender: 'seth', strikes: [], relocate: [3, 0] });
+    const after = finishBattle(using);
+    expect(seth(after).at).toEqual([3, 0]);
+    expect(eirika(after)).toMatchObject({ uses: [2], moved: true });
+  });
+
+  it('Warp asks for a square in range, then sends the ally there; B goes back to choosing whom', () => {
+    const r = moveRules('warp');
+    const choosing = chooseOption(moveRight(setUp('warp')), 'staff', r);
+    const picking = pressA(choosing, r);
+    expect(picking.action).toMatchObject({ kind: 'warp', target: 'seth', cells: [4, 9] });
+    expect(picking.cursor).toEqual([2, 0]);
+    expect(pressA(picking, r)).toBe(picking); // (2,0) isn't in range
+    expect(pressB(picking, r).action).toMatchObject({ kind: 'target', targets: ['seth'] });
+    const on = moveCursor(moveCursor(picking, 1, 0, r), 1, 0, r); // to (4,0), cell 4
+    const after = finishBattle(pressA(on, r));
+    expect(seth(after).at).toEqual([4, 0]);
+    expect(eirika(after).uses).toEqual([2]);
+    // A tap picks a square; a second tap on it warps.
+    const tapped = tapAt(picking, 4, 1, r);
+    expect(tapped.cursor).toEqual([4, 1]);
+    expect(tapAt(tapped, 4, 1, r).battle).toMatchObject({ relocate: [4, 1] });
+  });
+});

@@ -321,3 +321,16 @@ describe('Restore', () => {
     expect(planAction(get(higher, 'e'), higher, r).restore).toEqual({ target: 'g', item: 0 });
   });
 });
+
+describe('Rescue and Warp', () => {
+  const staffItem: AiItem = { item: 0, staff: true, might: 0, min: 1, max: 1 };
+  it('rescues the ally set on healing with the lowest share of its HP, as with Physic; never warps', () => {
+    const rescue: AiStaff = { item: 0, heal: 0, physic: true, rescue: true, reach: 5, rank: 1 };
+    const s = withHp(play(unit('p', 'player', [0, 0]), unit('e', 'enemy', [3, 1]), unit('f', 'enemy', [6, 1]), unit('g', 'enemy', [6, 2])), { f: 4, g: 2 }, true);
+    expect(planAction(get(s, 'e'), s, rules({ items: { e: [staffItem] }, staves: { e: [rescue] } })).rescue).toEqual({ target: 'g', item: 0 });
+    const warp: AiStaff = { ...rescue, rescue: undefined, warp: true };
+    const plan = planAction(get(s, 'e'), s, rules({ items: { e: [staffItem] }, staves: { e: [warp] } }));
+    expect(plan).not.toHaveProperty('rescue');
+    expect(plan.heal).toBeUndefined();
+  });
+});

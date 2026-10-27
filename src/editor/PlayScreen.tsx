@@ -319,6 +319,8 @@ export function PlayScreen({
         for (const k of range.stops.keys()) drawRangeSquare(g, k % w, Math.floor(k / w), MOVE_COLOURS);
         for (const k of range.attack) drawRangeSquare(g, k % w, Math.floor(k / w), ATTACK_COLOURS);
       }
+      // Warp's destinations, as blue squares (FillWarpRangeMap, DisplayMoveRangeGraphics).
+      if (view.action?.kind === 'warp') for (const k of view.action.cells) drawRangeSquare(g, k % map.width, Math.floor(k / map.width), MOVE_COLOURS);
       if (arrow) drawArrow(g, arrow, map.width);
       const frame = idleFrame(now);
       let walkDone = false;
@@ -411,7 +413,7 @@ export function PlayScreen({
         ? 'battle'
         : view.walking
           ? 'walk'
-          : view.action?.kind === 'target' && (view.action.staff?.status || view.action.staff?.support)
+          : view.action?.kind === 'target' && (view.action.staff?.status || view.action.staff?.support || view.action.staff?.move)
             ? 'staffTarget'
           : view.action?.kind === 'target' && view.action.staff
             ? 'heal'
@@ -476,8 +478,8 @@ export function PlayScreen({
                   ))}
                 </div>
               );
-            if (a.staff?.support)
-              // Restore's or Barrier's target: whom, and with what.
+            if (a.staff?.support || a.staff?.move)
+              // Restore's, Barrier's, Rescue's or Warp's target: whom, and with what.
               return (
                 <div className={`fe-window heal-window at-top-${side}`}>
                   <span className="fe-line">
@@ -647,7 +649,7 @@ export function PlayScreen({
               </>
             );
           })()}
-        {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && !battle.support && (
+        {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && !battle.support && !battle.relocate && (
           <BattleHud battle={battle} frame={hud} units={play.units} maxHp={(id: string) => play.units.find((u) => u.id === id)?.stats.hp ?? 1} label={unitLabel} />
         )}
         {battle && hud && <BattlePopup battle={battle} frame={hud} units={play.units} position={position} />}

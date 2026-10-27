@@ -11,7 +11,7 @@
 // friend-zone offset is wrong; only player units count as healers to head for; a thief heading for a heal
 // point never attacks on arrival.
 // A berserk unit acts in FE8's berserk phase (planAction's `berserk`).
-// Not yet: special items (keys, torches), Warp and Rescue. (The AI never uses Barrier.)
+// Not yet: special items (keys, torches). (The AI never uses Barrier, nor in effect Warp: see AiStaff.)
 
 import { simulateAllHits, type Forecast } from './combat';
 import { shortestRoute, type MoveSearch } from './movement';
@@ -43,6 +43,14 @@ export interface AiStaff {
   /** Restore: clears an ally's status. Barrier: the AI never uses it (AiStaffBarrier does nothing), but it counts in the rank order. */
   readonly restore?: boolean;
   readonly barrier?: boolean;
+  /**
+   * Rescue: chosen as Physic is (AiStaffPhysicRescue), bringing the ally beside the user. Warp: never
+   * used in effect, as AiStaffWarp's destination search (sub_8040668) only notes squares holding a
+   * unit of another side inside a unit's reach, which units of other sides block; it still counts in
+   * the rank order.
+   */
+  readonly rescue?: boolean;
+  readonly warp?: boolean;
   readonly reach: number;
   readonly rank: number;
 }
@@ -92,6 +100,8 @@ export interface StaffChoice {
   readonly status?: StatusKind;
   /** Restore (clears an ally's status) or Barrier (raises an ally's Res); these heal nothing. */
   readonly support?: 'restore' | 'barrier';
+  /** Rescue (brings the ally beside the user) or Warp (sends it to a square the player picks). */
+  readonly move?: 'rescue' | 'warp';
 }
 
 /**
@@ -123,6 +133,8 @@ export interface Plan {
   readonly inflict?: PlannedStatus;
   /** Or an ally beside it to Restore with staff `item` from there. */
   readonly restore?: { readonly target: string; readonly item: number };
+  /** Or an ally to Rescue with staff `item` from there. */
+  readonly rescue?: { readonly target: string; readonly item: number };
 }
 
 /** A status staff the computer chose: whom, with which item, and the status. */
@@ -535,8 +547,8 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
     let lowest = 100;
     let found: { to: number; target: PlayUnit; fortify?: string[]; inflict?: StatusKind; restore?: boolean } | null = null;
     const pct = (u: PlayUnit) => Math.trunc((u.hp * 100) / Math.max(1, u.stats.hp));
-    if (staff.barrier) {
-      // AiStaffBarrier does nothing.
+    if (staff.barrier || staff.warp) {
+      // AiStaffBarrier does nothing; AiStaffWarp in effect never acts (see AiStaff).
     } else if (staff.restore) {
       const r = restoreTarget(c, stay);
       if (r) found = { ...r, restore: true };
@@ -569,7 +581,9 @@ function tryStaff(c: Ctx, stay: boolean): Plan | null {
         found = { to, target };
       }
     }
-    if (found?.restore) {
+    if (found && staff.rescue) {
+      plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, rescue: { target: found.target.id, item: staff.item } };
+    } else if (found?.restore) {
       plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, restore: { target: found.target.id, item: staff.item } };
     } else if (found?.inflict) {
       plan = { to: found.to, route: shortestRoute(c.search, found.to) ?? [c.at], attack: null, inflict: { target: found.target.id, item: staff.item, kind: found.inflict } };

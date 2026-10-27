@@ -66,6 +66,8 @@ export type Action =
   | { readonly kind: 'weapon'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number; readonly staff?: boolean }
   /** Choosing which of `target`'s items to steal, `index` highlighted. */
   | { readonly kind: 'steal'; readonly unit: string; readonly from: readonly [number, number]; readonly target: string; readonly index: number; readonly locked?: boolean }
+  /** Choosing the square to Warp `target` to with staff `item`: one of `cells`, under the cursor. */
+  | { readonly kind: 'warp'; readonly unit: string; readonly from: readonly [number, number]; readonly target: string; readonly item: number; readonly cells: readonly number[] }
   /** The unit's items, `index` highlighted. */
   | { readonly kind: 'items'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number }
   /** What to do with item `item`, option `index` highlighted. */
@@ -97,6 +99,8 @@ export interface Battle extends Fight {
   readonly inflict?: { readonly kind: StatusKind; readonly hit: boolean };
   /** Set for Restore or Barrier on the defender. It has no blows. */
   readonly support?: 'restore' | 'barrier';
+  /** Set for Warp or Rescue: the square the defender is moved to. It has no blows. */
+  readonly relocate?: readonly [number, number];
   /** Set for a steal: the defender's item the attacker takes (its index). A steal has no blows. */
   readonly steal?: number;
   /** The experience the fight gave, shown after it; null if nobody gained any. */
@@ -113,8 +117,8 @@ export interface PlayView {
   /**
    * A unit walking its route to the square it was just moved to, from `from`. Input waits until
    * finishWalk. A computer-controlled unit attacks `then` (or heals per `thenHeal`, uses the item per
-   * `thenUse`, steals per `thenSteal`, uses a status staff per `thenInflict` or Restore per `thenRestore`)
-   * on arrival, if set.
+   * `thenUse`, steals per `thenSteal`, uses a status staff per `thenInflict`, Restore per `thenRestore`
+   * or Rescue per `thenRescue`) on arrival, if set.
    */
   readonly walking: {
     readonly id: string;
@@ -126,6 +130,7 @@ export interface PlayView {
     readonly thenSteal?: PlannedSteal;
     readonly thenInflict?: PlannedStatus;
     readonly thenRestore?: { readonly target: string; readonly item: number };
+    readonly thenRescue?: { readonly target: string; readonly item: number };
   } | null;
   readonly action: Action | null;
   /** A fight being shown. Input waits until finishBattle. */
@@ -162,6 +167,10 @@ export interface PlayRules extends AiRules {
   staffExperience?(unit: PlayUnit, index: number, missed?: boolean): ExpAward | null;
   /** Whether a status staff hits `target` this time (a random roll against staffAccuracy). */
   statusStaffHits?(unit: PlayUnit, target: PlayUnit): boolean;
+  /** Where Rescue brings `target`, beside the user. */
+  rescueLanding?(user: PlayUnit, target: PlayUnit, state: PlayState): readonly [number, number];
+  /** The squares Warp can send `target` to, as cell indices. */
+  warpCells?(user: PlayUnit, target: PlayUnit, state: PlayState): number[];
   /** What the unit can do with its item `index` (none if left out). */
   itemUse?(unit: PlayUnit, index: number): ItemUse;
   /** Whether the unit's item `index` can be stolen (IsItemStealable); none can if left out. */
@@ -193,6 +202,16 @@ function statusBattle(user: PlayUnit, target: PlayUnit, item: number, kind: Stat
 /** Restore or Barrier (ExecRestore, ExecBarrierStaff): played like a fight with no blows, then its experience. */
 function supportBattle(user: PlayUnit, target: PlayUnit, item: number, support: 'restore' | 'barrier', rules: PlayRules): Battle {
   return { attacker: user.id, defender: target.id, strikes: [], attackerItem: item, defenderItem: null, support, exp: rules.staffExperience?.(user, item) ?? null };
+}
+
+/** Warp or Rescue (ExecWarpStaff, ExecRescueStaff): played like a fight with no blows, then its experience; finishBattle moves the ally. */
+function relocateBattle(user: PlayUnit, target: PlayUnit, item: number, to: readonly [number, number], rules: PlayRules): Battle {
+  return { attacker: user.id, defender: target.id, strikes: [], attackerItem: item, defenderItem: null, relocate: to, exp: rules.staffExperience?.(user, item) ?? null };
+}
+
+/** Rescue on `target`: it lands where rescueLanding says. */
+function rescueBattle(user: PlayUnit, target: PlayUnit, item: number, state: PlayState, rules: PlayRules): Battle {
+  return relocateBattle(user, target, item, rules.rescueLanding?.(user, target, state) ?? target.at, rules);
 }
 
 /** Fortify, chosen from the Staff menu: it heals every ally it reaches at once (SetStaffUseAction, ExecFortify). */
@@ -383,6 +402,11 @@ export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRu
     }
     return view;
   }
+  if (a?.kind === 'warp') {
+    const x = Math.min(Math.max(0, view.cursor[0] + dx), rules.width - 1);
+    const y = Math.min(Math.max(0, view.cursor[1] + dy), rules.height - 1);
+    return { ...view, cursor: [x, y] };
+  }
   if (a?.kind === 'target') {
     const n = a.targets.length;
     const index = (a.index + (dx + dy > 0 ? 1 : -1) + n) % n;
@@ -405,6 +429,11 @@ export function tapAt(view: PlayView, x: number, y: number, rules: PlayRules): P
     if (index < 0) return view;
     if (index === a.index) return pressA(view, rules);
     return { ...view, action: { ...a, index }, cursor: [x, y] };
+  }
+  if (a?.kind === 'warp') {
+    // Tap a square to put the cursor there; tap it again to warp.
+    if (view.cursor[0] === x && view.cursor[1] === y) return pressA(view, rules);
+    return { ...view, cursor: [x, y] };
   }
   if (a) return view;
   const moved = cursorTo(view, x, y, rules);
@@ -536,6 +565,14 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     return option ? chooseOption(view, option, rules) : view;
   }
   if (a?.kind === 'items') return chooseItem(view, a.index);
+  if (a?.kind === 'warp') {
+    // WarpSelect_OnIdle: only a square in range can be chosen.
+    const user = unitById(view.state, a.unit);
+    const target = unitById(view.state, a.target);
+    const cell = view.cursor[1] * rules.width + view.cursor[0];
+    if (!user || !target || !a.cells.includes(cell)) return view;
+    return { ...view, action: null, battle: relocateBattle(user, target, a.item, view.cursor, rules) };
+  }
   if (a?.kind === 'steal') return chooseStealItem(view, a.index, rules);
   if (a?.kind === 'trade') return chooseTradeSlot(view, a.index);
   if (a?.kind === 'weapon') return chooseWeapon(view, a.index, rules);
@@ -549,6 +586,12 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     if (!attacker || !defender) return view;
     if (a.trade) return { ...view, action: { kind: 'trade', unit: attacker.id, from: a.from, partner: defender.id, index: 0, picked: null, locked: a.locked } };
     if (a.steal) return { ...view, action: { kind: 'steal', unit: attacker.id, from: a.from, target: defender.id, index: 0, locked: a.locked } };
+    if (a.staff?.move === 'rescue') return { ...view, action: null, battle: rescueBattle(attacker, defender, a.staff.item, view.state, rules) };
+    if (a.staff?.move === 'warp') {
+      // WarpSelect: the cursor picks one of the squares in range, starting on the ally.
+      const cells = rules.warpCells?.(attacker, defender, view.state) ?? [];
+      return { ...view, action: { kind: 'warp', unit: attacker.id, from: a.from, target: defender.id, item: a.staff.item, cells }, cursor: defender.at };
+    }
     if (a.staff?.support) return { ...view, action: null, battle: supportBattle(attacker, defender, a.staff.item, a.staff.support, rules) };
     if (a.staff?.status) return { ...view, action: null, battle: statusBattle(attacker, defender, a.staff.item, a.staff.status, rules) };
     if (a.staff) return { ...view, action: null, battle: healBattle(attacker, defender, { target: defender.id, item: a.staff.item, heal: a.staff.heal }, rules) };
@@ -587,6 +630,12 @@ export function pressB(view: PlayView, rules: PlayRules): PlayView {
     return { ...menu, action: menu.action?.kind === 'menu' ? { ...menu.action, locked: a.locked } : menu.action, cursor: unit ? unit.at : view.cursor };
   }
   if (a?.kind === 'items') return backToMenu(view, a.unit, a.from, rules, 'item');
+  if (a?.kind === 'warp') {
+    // Back to choosing whom to warp.
+    const unit = unitById(view.state, a.unit);
+    const staff = unit ? rules.staffChoices?.(unit, view.state).find((s) => s.item === a.item) : undefined;
+    return staff ? healTargets(view, a.unit, a.from, staff) : backToMenu(view, a.unit, a.from, rules, 'staff');
+  }
   // From the steal menu, back to the action menu, as FE8's ItemMenu_ButtonBPressed does.
   if (a?.kind === 'steal') {
     const unit = unitById(view.state, a.unit);
@@ -630,6 +679,8 @@ export function finishWalk(view: PlayView, rules: PlayRules): PlayView {
   if (unit && w.thenUse) return { ...done, cursor: unit.at, state: finishAction(useHealItem(view.state, unit.id, w.thenUse.item, w.thenUse.heal), unit.id) };
   const robbed = unitById(view.state, w.thenSteal?.target ?? null);
   if (unit && robbed && w.thenSteal) return { ...done, cursor: unit.at, battle: stealBattle(unit, robbed, w.thenSteal.item) };
+  const rescued = unitById(view.state, w.thenRescue?.target ?? null);
+  if (unit && rescued && w.thenRescue) return { ...done, cursor: unit.at, battle: rescueBattle(unit, rescued, w.thenRescue.item, view.state, rules) };
   const restored = unitById(view.state, w.thenRestore?.target ?? null);
   if (unit && restored && w.thenRestore) return { ...done, cursor: unit.at, battle: supportBattle(unit, restored, w.thenRestore.item, 'restore', rules) };
   const struck = unitById(view.state, w.thenInflict?.target ?? null);
@@ -708,13 +759,15 @@ export function stepAI(view: PlayView, rules: PlayRules): PlayView {
   const start = unit.at[1] * rules.width + unit.at[0];
   if (plan.to !== start) {
     const to = [plan.to % rules.width, Math.floor(plan.to / rules.width)] as const;
-    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem, thenSteal: plan.steal, thenInflict: plan.inflict, thenRestore: plan.restore } };
+    return { ...view, queue: rest, cursor: unit.at, state: moveUnit(armed, unit.id, to), walking: { id: unit.id, route: plan.route, from: unit.at, then: plan.attack, thenHeal: plan.heal, thenUse: plan.useItem, thenSteal: plan.steal, thenInflict: plan.inflict, thenRestore: plan.restore, thenRescue: plan.rescue } };
   }
   if (plan.useItem) return { ...view, queue: rest, cursor: unit.at, state: finishAction(useHealItem(marked, unit.id, plan.useItem.item, plan.useItem.heal), unit.id) };
   const ally = unitById(armed, plan.heal?.target ?? null);
   if (ally && plan.heal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: healBattle(unit, ally, plan.heal, rules) };
   const robbed = unitById(armed, plan.steal?.target ?? null);
   if (robbed && plan.steal) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: stealBattle(unit, robbed, plan.steal.item) };
+  const rescued = unitById(armed, plan.rescue?.target ?? null);
+  if (rescued && plan.rescue) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: rescueBattle(unit, rescued, plan.rescue.item, armed, rules) };
   const restored = unitById(armed, plan.restore?.target ?? null);
   if (restored && plan.restore) return { ...view, state: armed, queue: rest, cursor: unit.at, battle: supportBattle(unit, restored, plan.restore.item, 'restore', rules) };
   const struck = unitById(armed, plan.inflict?.target ?? null);
@@ -751,6 +804,10 @@ export function finishBattle(view: PlayView): PlayView {
     used = spendUses(used, b.attacker, b.attackerItem, 1);
   }
   if (b.steal !== undefined) used = stealItem(used, b.attacker, b.defender, b.steal);
+  if (b.relocate && b.attackerItem !== null) {
+    used = moveUnit(used, b.defender, b.relocate);
+    used = spendUses(used, b.attacker, b.attackerItem, 1);
+  }
   if (b.support && b.attackerItem !== null) {
     used = b.support === 'restore' ? clearStatus(used, b.defender) : setBarrier(used, b.defender);
     used = spendUses(used, b.attacker, b.attackerItem, 1);

@@ -53,6 +53,9 @@ const STATUS_STAVES: Readonly<Record<number, StatusKind>> = { 0x51: 'silence', 0
 /** Restore and Barrier by item id: each works on an ally beside the user. */
 const SUPPORT_STAVES: Readonly<Record<number, 'restore' | 'barrier'>> = { 0x50: 'restore', 0x59: 'barrier' };
 
+/** Warp and Rescue by item id: each moves an ally (ExecWarpStaff, ExecRescueStaff). */
+const MOVE_STAVES: Readonly<Record<number, 'warp' | 'rescue'>> = { 0x54: 'warp', 0x55: 'rescue' };
+
 /** Stat boosters by item id: Angelic Robe to Body Ring (ITEM_BOOSTER_HP to ITEM_BOOSTER_CON). */
 const BOOSTERS = new Set([0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60, 0x61, 0x62, 0x63]);
 /**
@@ -216,6 +219,20 @@ export function chapterRules(
     return item && kind && art && isStaff(item.rom) && usable(art, item) && !u.status ? { item, kind } : null;
   }
 
+  /** The unit's staff `index` if it is Warp or Rescue and its class can use it. */
+  function moveStaff(u: PlayUnit, index: number) {
+    const item = items.find((i) => i.entry.name === u.items[index]);
+    const art = artByName.get(u.class);
+    const kind = item ? MOVE_STAVES[item.rom.id] : undefined;
+    return item && kind && art && isStaff(item.rom) && usable(art, item) && !u.status ? { item, kind } : null;
+  }
+
+  /** Whether `u`'s class can stand on cell `k` (CanUnitCrossTerrain). */
+  const canStand = (u: PlayUnit, k: number) => {
+    const cost = artByName.get(u.class)?.moveCosts?.[map.terrain[k] ?? 0];
+    return cost !== undefined && cost > 0 && cost !== IMPASSABLE;
+  };
+
   /** The unit's staff `index` if it is a healing staff its class can use. */
   function healStaff(u: PlayUnit, index: number) {
     const item = items.find((i) => i.entry.name === u.items[index]);
@@ -262,6 +279,8 @@ export function chapterRules(
     carriesMagic: (u) => weaponsFor(u).some((w) => (w.rom.attributes & IA_MAGIC) !== 0),
     aiStaves: (u) =>
       u.items.flatMap((_, index): AiStaff[] => {
+        const move = moveStaff(u, index);
+        if (move) return [{ item: index, heal: 0, physic: true, [move.kind]: true, reach: magBy2(u), rank: move.item.rom.rank }];
         const support = supportStaff(u, index);
         if (support) return [{ item: index, heal: 0, physic: false, [support.kind]: true, reach: 1, rank: support.item.rom.rank }];
         const status = statusStaff(u, index);
@@ -301,6 +320,16 @@ export function chapterRules(
     staffChoices: (u, state) => {
       const choices: StaffChoice[] = [];
       u.items.forEach((_, index) => {
+        const move = moveStaff(u, index);
+        if (move) {
+          // MakeTargetListForRescueStaff: allies within half its Magic; ...ForWarp: allies beside it.
+          const allies = state.units
+            .filter((o) => o.id !== u.id && !areFoes(o.team, u.team) && distance(u, o) >= 1 && distance(u, o) <= (move.kind === 'rescue' ? magBy2(u) : 1))
+            .sort((x, y) => distance(u, x) - distance(u, y))
+            .map((o) => o.id);
+          if (allies.length) choices.push({ item: index, targets: allies, heal: 0, move: move.kind });
+          return;
+        }
         const support = supportStaff(u, index);
         if (support) {
           // MakeTargetListForRestore: allies beside it with a status; ...ForBarrier: allies beside it under 7 Barrier.
@@ -343,7 +372,7 @@ export function chapterRules(
       return null;
     },
     staffExperience: (u, index, missed) => {
-      const staff = healStaff(u, index) ?? statusStaff(u, index) ?? supportStaff(u, index);
+      const staff = healStaff(u, index) ?? statusStaff(u, index) ?? supportStaff(u, index) ?? moveStaff(u, index);
       if (!staff) return null;
       // GetBattleUnitStaffExp: 1 for a miss.
       if (missed) return award(u, 1);
@@ -351,6 +380,38 @@ export function chapterRules(
       return award(u, staffExp((attributes & CA_PROMOTED) !== 0, staff.item.rom.costPerUse));
     },
     staffAccuracy,
+    // GetRescueStaffeePosition: of the free squares the user could walk to (with its own terrain costs,
+    // ignoring units, up to 120) that the ally can stand on, the nearest the user, ties to the last in
+    // the scan from the bottom right. (The game then tries flying costs; here the ally stays put.)
+    rescueLanding: (user, target, state) => {
+      const at = user.at[1] * map.width + user.at[0];
+      const art = artByName.get(user.class);
+      const costs = art?.moveCosts;
+      const reach = searchMoves(map, (t) => (costs ? (costs[t] ?? IMPASSABLE) : IMPASSABLE), 124, user.at, () => null).reached;
+      let best: number | null = null;
+      let bestDist = 9999;
+      for (let k = map.width * map.height - 1; k >= 0; k--) {
+        const cost = reach.get(k);
+        if (cost === undefined || cost > 120 || k === at || unitAt(state, k % map.width, Math.floor(k / map.width)) || !canStand(target, k)) continue;
+        const d = Math.abs((k % map.width) - user.at[0]) + Math.abs(Math.floor(k / map.width) - user.at[1]);
+        if (bestDist >= d) {
+          bestDist = d;
+          best = k;
+        }
+      }
+      return best === null ? target.at : [best % map.width, Math.floor(best / map.width)];
+    },
+    // FillWarpRangeMap: free squares 1 to half the user's Magic from the ally that the ally can stand on.
+    warpCells: (user, target, state) => {
+      const cells: number[] = [];
+      for (let k = 0; k < map.width * map.height; k++) {
+        const x = k % map.width;
+        const y = Math.floor(k / map.width);
+        const d = Math.abs(x - target.at[0]) + Math.abs(y - target.at[1]);
+        if (d >= 1 && d <= magBy2(user) && !unitAt(state, x, y) && canStand(target, k)) cells.push(k);
+      }
+      return cells;
+    },
     // ExecStatusStaff: one random number under the chance hits (Roll1RN).
     statusStaffHits: (u, target) => rn() < staffAccuracy(u, target),
     stealable: (u, index) => {
