@@ -1,7 +1,7 @@
 // Project files in the editor: reading what the editor needs from the ROM, opening a file (checked
 // against this ROM, older forms converted), and saving one.
 
-import { checkProject, mapEntry, MAX_ITEMS, MAX_LEVEL, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectUnit } from '../core/project';
+import { checkProject, mapEntry, MAX_ITEMS, MAX_LEVEL, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectPlace, type ProjectUnit } from '../core/project';
 import { characterIds, ownsCharacter } from '../rom/fe8-build';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
 import { ALL_CHARACTER_NAMES, characterIdOf, checkCharacterNames, FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
@@ -20,8 +20,10 @@ import { readGameOverArt, type GameOverArt } from '../rom/fe8-gameover';
 import { readForecastMultipliers, type ForecastMultipliers } from '../rom/fe8-forecast';
 import { readBattleBoxArt, type BattleBoxArt } from '../rom/fe8-battle-box';
 import { readHitEffects, type HitEffects } from '../rom/fe8-hit-effects';
+import { readMapChanges, readTileEvents } from '../rom/fe8-tile-events';
+import { fe8Places, type Fe8Places } from '../play/places';
 import type { Image, Palette } from '../rom/gba-graphics';
-import type { ItemMismatch } from '../rom/fe8-item-names';
+import { FE8_ITEM_NAMES, type ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
 import { readRom, type GbaRom } from '../rom/gba-rom';
 import { findTextTable, type TextTable } from '../rom/text';
@@ -43,7 +45,16 @@ export function readChosenRom(bytes: Uint8Array): ChosenRom {
 /** Everything the editor needs from the ROM, read once when the ROM is chosen. */
 export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]): EditorRom {
   const c = readCatalog(rom, text);
-  const chapterTitles = Array.from({ length: CHAPTER_COUNT }, (_, i) => readChapter(rom, text, i).title);
+  const chapters = Array.from({ length: CHAPTER_COUNT }, (_, i) => readChapter(rom, text, i));
+  const chapterTitles = chapters.map((ch) => ch.title);
+  // A chapter whose events can't be read starts with none, rather than stopping the ROM loading.
+  const placesOf = (ch: (typeof chapters)[number]): Fe8Places => {
+    try {
+      return { changes: readMapChanges(rom, ch), events: readTileEvents(rom, ch) };
+    } catch {
+      return { changes: [], events: [] };
+    }
+  };
   const table = findCharacterTable(rom);
   const characters = table === null ? [] : readCharacters(rom, text, table);
   return {
@@ -56,6 +67,7 @@ export function readEditorRom(rom: GbaRom, text: TextTable, maps: ChapterMap[]):
     mismatches: c.classMismatches,
     itemMismatches: c.itemMismatches,
     chapterTitles,
+    fe8Places: chapters.map(placesOf),
     characters,
     characterMismatches: checkCharacterNames(characters, ALL_CHARACTER_NAMES),
     font: readGameFont(rom),
@@ -83,6 +95,8 @@ export interface EditorRom {
   readonly mismatches: NameMismatch[];
   readonly items: GameItem[];
   readonly itemMismatches: ItemMismatch[];
+  /** Each FE8 chapter's map changes and its doors, chests, villages and houses, by chapter index (decision 38). */
+  readonly fe8Places: readonly Fe8Places[];
   /** Each FE8 chapter's title by chapter index ("" if it has none), to name the maps. */
   readonly chapterTitles: string[];
   /** FE8's character table by id - 1, or [] if it wasn't found. */
@@ -134,6 +148,15 @@ function readGameFont(rom: GbaRom): GameFont | null {
 }
 
 export const layoutKey = (m: ChapterMap) => `${m.width}x${m.height}:${m.cells.join(',')}`;
+
+const ITEM_NAMES_BY_ID = new Map(FE8_ITEM_NAMES.map((i) => [i.id, i.name]));
+
+/** FE8's own doors, chests, villages and houses on the map a reference points to, as a chapter starts with them (decision 38). */
+export function startingPlaces(data: EditorRom, ref: string): ProjectPlace[] {
+  const entry = mapEntry(ref);
+  const fe8 = entry === null ? undefined : data.fe8Places[entry];
+  return fe8 ? fe8Places(fe8, (id) => ITEM_NAMES_BY_ID.get(id)) : [];
+}
 
 /** Index in `maps` of the map a reference points to, or -1. Entries that reuse a listed layout resolve to it. */
 export function findMap(data: EditorRom, ref: string): number {

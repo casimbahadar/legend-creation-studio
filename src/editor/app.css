@@ -173,6 +173,30 @@ h2 {
   margin: 0 0 0.75rem;
 }
 
+.field textarea {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  /* 16px stops iPhone Safari zooming in on focus */
+  font-size: 16px;
+  resize: vertical;
+}
+
+.field-wide { max-width: 28rem; }
+
+/* A door, chest, village or house's colour on Edit mode's map, beside its count. */
+.place-swatch {
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  margin-right: 0.3em;
+  border-radius: 2px;
+  vertical-align: -0.05em;
+}
+
 .field select {
   min-height: 44px;
   padding: 0.5rem 0.75rem;

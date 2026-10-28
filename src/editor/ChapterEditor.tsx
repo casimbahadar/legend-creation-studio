@@ -2,8 +2,10 @@
 // shared PlayScreen. Play's rules, drawing and the ROM catalog live in src/play.
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from 'react';
-import { isLordClass, mapRef, MAX_LEVEL, newProject, projectToJson, TEAMS, type Problem, type Project, type ProjectUnit, type Team } from '../core/project';
+import { isLordClass, mapEntry, mapRef, MAX_LEVEL, newProject, projectToJson, TEAMS, type PlaceKind, type Problem, type Project, type ProjectPlace, type ProjectUnit, type Team } from '../core/project';
 import { defaultItems, toCanvas } from '../play/catalog';
+import { chapterPlaces, placeKindAt } from '../play/places';
+import { decodeTextBytes } from '../rom/text';
 import { drawCursor } from '../play/draw';
 import { pickCharacter } from '../rom/fe8-character-names';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
@@ -14,7 +16,8 @@ import { TEAM_LABELS } from './labels';
 import { PatchExport } from './PatchExport';
 import { PlayScreen } from './PlayScreen';
 import { ShareGame } from './ShareGame';
-import { findMap, loadProject, nextUnitId, saveFile, startingLevel, unitCharacters, type EditorRom } from './project-io';
+import { findMap, loadProject, nextUnitId, saveFile, startingLevel, startingPlaces, unitCharacters, type EditorRom } from './project-io';
+import { newPlace, PlacePanel, PLACE_LABELS } from './PlacePanel';
 import { UnitPanel } from './UnitPanel';
 
 /** The square to seize on Edit mode's map: a gold outline, so it shows on any terrain. */
@@ -24,6 +27,40 @@ function drawSeizeMark(g: CanvasRenderingContext2D, x: number, y: number) {
   g.strokeStyle = '#f8d840';
   g.lineWidth = 2;
   g.strokeRect(x * 16 + 1, y * 16 + 1, 14, 14);
+}
+
+/** Each kind of place's colour on Edit mode's map. */
+const PLACE_COLOURS: Record<PlaceKind, string> = { door: '#c08040', chest: '#f8d840', village: '#58c868', house: '#68a8f8' };
+
+/** A door, chest, village or house on Edit mode's map: an outline in its kind's colour and a corner tab. */
+function drawPlaceMark(g: CanvasRenderingContext2D, p: ProjectPlace, open: boolean) {
+  const [x, y] = p.at;
+  g.strokeStyle = PLACE_COLOURS[p.kind];
+  g.lineWidth = open ? 3 : 2;
+  g.strokeRect(x * 16 + 1, y * 16 + 1, 14, 14);
+  g.fillStyle = PLACE_COLOURS[p.kind];
+  g.fillRect(x * 16, y * 16, 6, 6);
+}
+
+/** A square that can hold a door, chest, village or house but has none: a faint dashed outline. */
+function drawPlaceSpot(g: CanvasRenderingContext2D, x: number, y: number) {
+  g.setLineDash([3, 2]);
+  g.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+  g.lineWidth = 1;
+  g.strokeRect(x * 16 + 1.5, y * 16 + 1.5, 13, 13);
+  g.setLineDash([]);
+}
+
+/** One of the ROM's messages as plain text: line breaks as spaces, control codes left out. */
+function plainText(data: EditorRom, id: number): string {
+  try {
+    const bytes = decodeTextBytes(data.rom, data.text, id);
+    return String.fromCharCode(...Array.from(bytes, (b) => (b === 1 ? 0x20 : b)).filter((b) => b >= 0x20 && b < 0x7f))
+      .replace(/\s+/g, ' ')
+      .trim();
+  } catch {
+    return '';
+  }
 }
 
 export function ChapterEditor({ data }: { data: EditorRom }) {
@@ -59,6 +96,10 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const [editing, setEditing] = useState<string | null>(null);
   /** Whether the next map tap chooses the square to seize. */
   const [pickingSeize, setPickingSeize] = useState(false);
+  /** What a map tap places: units, or doors, chests, villages and houses (decision 38). */
+  const [placing, setPlacing] = useState<'units' | 'places'>('units');
+  /** The square of the door, chest, village or house whose panel is open. */
+  const [editingPlace, setEditingPlace] = useState<string | null>(null);
 
   const chapter = project.chapters[0]!;
   const mapIndex = findMap(data, chapter.map);
@@ -67,6 +108,17 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const mapImage = useMemo(() => (map ? toCanvas(renderMap(map)) : null), [map]);
   const characters = useMemo(() => unitCharacters(data, chapter.units), [data, chapter.units]);
   const cursorCorner = useMemo(() => (data.cursor ? toCanvas(data.cursor) : null), [data.cursor]);
+  // FE8's own on this chapter's map: its tile changes, its events, and the places a chapter starts with.
+  const fe8 = data.fe8Places[mapEntry(chapter.map) ?? -1];
+  const fe8Start = useMemo(() => startingPlaces(data, chapter.map), [data, chapter.map]);
+  const places = chapterPlaces(chapter, fe8Start);
+  const spots = useMemo(() => {
+    if (!map || !fe8) return [];
+    const out: [number, number][] = [];
+    for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) if (placeKindAt(map, fe8.changes, x, y)) out.push([x, y]);
+    return out;
+  }, [map, fe8]);
+  const key = (at: readonly [number, number]) => `${at[0]},${at[1]}`;
 
   // Edit mode's map: the placed units, idling, and a cursor on the one being edited.
   useEffect(() => {
@@ -80,6 +132,11 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const draw = (now: number) => {
       g.drawImage(mapImage, 0, 0);
       if (chapter.goal === 'seize' && chapter.seizeAt) drawSeizeMark(g, chapter.seizeAt[0], chapter.seizeAt[1]);
+      if (placing === 'places') {
+        const taken = new Set(places.map((p) => key(p.at)));
+        for (const at of spots) if (!taken.has(key(at))) drawPlaceSpot(g, at[0], at[1]);
+      }
+      for (const p of places) drawPlaceMark(g, p, key(p.at) === editingPlace);
       const frame = idleFrame(now);
       // Top rows first, so taller sprites lower down overlap the ones behind them.
       for (const u of [...chapter.units].sort((a, b) => a.at[1] - b.at[1])) {
@@ -94,7 +151,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [playing, mapImage, chapter.units, chapter.goal, chapter.seizeAt, artByName, editing, cursorCorner]);
+  }, [playing, mapImage, chapter.units, chapter.goal, chapter.seizeAt, artByName, editing, cursorCorner, places, spots, placing, editingPlace]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -105,8 +162,10 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     if (!next) return;
     if (chapter.units.length && !window.confirm('Changing the map removes the units you placed. Change it anyway?')) return;
     setEditing(null);
+    setEditingPlace(null);
     setPickingSeize(false);
-    updateChapter({ map: mapRef(next.chapter), units: [], seizeAt: undefined });
+    // The new map starts with its own doors, chests, villages and houses.
+    updateChapter({ map: mapRef(next.chapter), units: [], seizeAt: undefined, places: undefined });
   }
 
   function onMapTap(event: MouseEvent<HTMLCanvasElement>) {
@@ -119,6 +178,18 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     if (pickingSeize) {
       setPickingSeize(false);
       updateChapter({ seizeAt: [x, y] });
+      return;
+    }
+    if (placing === 'places') {
+      const here = places.find((p) => p.at[0] === x && p.at[1] === y);
+      if (here) setEditingPlace(key(here.at) === editingPlace ? null : key(here.at));
+      else if (editingPlace) setEditingPlace(null);
+      else {
+        const kind = fe8 ? placeKindAt(map, fe8.changes, x, y) : null;
+        if (!kind) return;
+        updatePlaces([...places, newPlace(kind, [x, y])]);
+        setEditingPlace(key([x, y]));
+      }
       return;
     }
     if (!art) return;
@@ -149,6 +220,11 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     }
   }
 
+  /** Saves the whole list, so it no longer follows the map's own. */
+  function updatePlaces(next: ProjectPlace[]) {
+    updateChapter({ places: next });
+  }
+
   /** Raises or lowers a unit's level from its latest value, so a held button keeps counting. */
   function stepLevel(id: string, delta: number) {
     setProject((p) => {
@@ -169,6 +245,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
 
   function setMode(play: boolean) {
     setEditing(null);
+    setEditingPlace(null);
     setPickingSeize(false);
     setPlaying(play);
   }
@@ -283,7 +360,68 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
           ) : (
             <>
               <GoalPanel chapter={chapter} picking={pickingSeize} onPicking={setPickingSeize} onChange={updateChapter} />
-              {data.art.length > 0 && (
+              <div className="segmented" role="group" aria-label="What to place">
+                <button
+                  type="button"
+                  aria-pressed={placing === 'units'}
+                  onClick={() => {
+                    setPlacing('units');
+                    setEditingPlace(null);
+                  }}
+                >
+                  Units
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={placing === 'places'}
+                  onClick={() => {
+                    setPlacing('places');
+                    setEditing(null);
+                  }}
+                >
+                  Doors, chests, villages
+                </button>
+              </div>
+              {placing === 'places' && (
+                <div className="place-controls">
+                  <p className="note">
+                    {spots.length
+                      ? 'Tap a dotted square to put a door, chest, village or house there, or tap one to change it. Only squares the map can open or close are dotted.'
+                      : 'This map has no doors, chests, villages or houses to use.'}{' '}
+                    Test play doesn&apos;t open them yet.
+                  </p>
+                  <p className="note">
+                    {places.length
+                      ? (Object.keys(PLACE_LABELS) as PlaceKind[])
+                          .map((k) => [k, places.filter((p) => p.kind === k).length] as const)
+                          .filter(([, n]) => n)
+                          .map(([k, n], i) => (
+                            <span key={k}>
+                              {i > 0 && ', '}
+                              <span className="place-swatch" style={{ background: PLACE_COLOURS[k] }} />
+                              {`${n} ${PLACE_LABELS[k].toLowerCase()}${n === 1 ? '' : k === 'chest' ? 'es' : 's'}`}
+                            </span>
+                          ))
+                      : 'None yet'}
+                    {chapter.places === undefined && places.length ? ', as FE8 has them on this map.' : '.'}
+                  </p>
+                  {chapter.places !== undefined && fe8Start.length > 0 && (
+                    <div className="stepper">
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => {
+                          setEditingPlace(null);
+                          updateChapter({ places: undefined });
+                        }}
+                      >
+                        Use FE8&apos;s own again
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {placing === 'units' && data.art.length > 0 && (
                 <div className="unit-controls">
                   <label className="field">
                     Class
@@ -308,6 +446,25 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
               <div className="map-wrap">
                 <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
               </div>
+              {editingPlace &&
+                (() => {
+                  const place = places.find((p) => key(p.at) === editingPlace);
+                  return place ? (
+                    <PlacePanel
+                      key={editingPlace}
+                      place={place}
+                      fe8={fe8?.events.find((e) => e.x === place.at[0] && e.y === place.at[1] && e.kind !== 'door')}
+                      items={data.items}
+                      textCodes={data.textCodes}
+                      fe8Text={(id) => plainText(data, id)}
+                      onChange={(next) => {
+                        if (!next) setEditingPlace(null);
+                        updatePlaces(next ? places.map((p) => (p === place ? next : p)) : places.filter((p) => p !== place));
+                      }}
+                      onClose={() => setEditingPlace(null)}
+                    />
+                  ) : null;
+                })()}
               {editing &&
                 (() => {
                   const unit = chapter.units.find((u) => u.id === editing);
