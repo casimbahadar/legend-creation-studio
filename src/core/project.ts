@@ -57,6 +57,29 @@ export interface ProjectUnit {
   character?: string;
 }
 
+/** What can stand on a square of the map for units to open or visit (decision 38). */
+export const PLACE_KINDS = ['door', 'chest', 'village', 'house'] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
+/** The most gold a chest or village can give: FE8's chests hold 16 bits of it. */
+export const MAX_GOLD = 65535;
+
+export interface ProjectPlace {
+  kind: PlaceKind;
+  /** Map cell [x, y], counted from the top-left. */
+  at: [number, number];
+  /**
+   * As FE8's own chapter on this map has it at this square: a village's or house's own scene, or one
+   * of Lagdou's and Valni's random chests. The fields below are then left out.
+   */
+  fe8?: true;
+  /** For a chest, village or house: an item name from the name list, e.g. "vulnerary". */
+  item?: string;
+  /** For a chest, village or house: gold instead of an item. */
+  gold?: number;
+  /** For a village or house: what is said there. */
+  text?: string;
+}
+
 export interface ProjectChapter {
   id: string;
   name: string;
@@ -75,6 +98,11 @@ export interface ProjectChapter {
   /** For Survive: how many turns to hold out. */
   surviveTurns?: number;
   units: ProjectUnit[];
+  /**
+   * Doors, chests, villages and houses (decision 38). Missing: the map's own, as FE8's chapter on it
+   * has them; once changed, the whole list.
+   */
+  places?: ProjectPlace[];
 }
 
 export interface Project {
@@ -147,6 +175,42 @@ export function projectToJson(project: Project): string {
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 
+const PLACE_LABELS: Record<PlaceKind, string> = { door: 'A door', chest: 'A chest', village: 'A village', house: 'A house' };
+
+/** Checks a chapter's doors, chests, villages and houses. */
+function checkPlaces(places: unknown, at: string, catalog: Catalog, problem: (path: string, message: string) => void) {
+  if (!Array.isArray(places)) return problem(at, 'The doors, chests and villages are unreadable.');
+  const cells = new Set<string>();
+  places.forEach((p: unknown, i) => {
+    const pp = `${at}[${i}]`;
+    if (!isObject(p)) return problem(pp, 'This door, chest or village is not readable.');
+    if (!PLACE_KINDS.includes(p.kind as PlaceKind)) return problem(`${pp}.kind`, `This is a kind of place this tool doesn't know: "${String(p.kind)}".`);
+    const kind = p.kind as PlaceKind;
+    const what = PLACE_LABELS[kind];
+    if (!Array.isArray(p.at) || p.at.length !== 2 || !p.at.every((v) => isInt(v) && v >= 0)) problem(`${pp}.at`, `${what} needs a place on the map.`);
+    else {
+      const key = p.at.join(',');
+      if (cells.has(key)) problem(`${pp}.at`, `${what} is on the same square as another door, chest or village.`);
+      cells.add(key);
+    }
+    if (p.fe8 !== undefined && p.fe8 !== true) problem(`${pp}.fe8`, `${what} has an unreadable FE8 setting.`);
+    const own = p.item !== undefined || p.gold !== undefined || p.text !== undefined;
+    if (kind === 'door') {
+      if (own || p.fe8) problem(pp, 'A door opens and holds nothing.');
+      return;
+    }
+    if (p.fe8 && own) return problem(pp, `${what} plays FE8's own scene, so it can't also have its own item, gold or text.`);
+    if (p.item !== undefined) {
+      if (typeof p.item !== 'string' || !NAME.test(p.item)) problem(`${pp}.item`, `${what} has an unreadable item.`);
+      else if (catalog.items && !catalog.items.has(p.item)) problem(`${pp}.item`, `${what} has an item this tool doesn't know: "${p.item}".`);
+    }
+    if (p.gold !== undefined && (!isInt(p.gold) || p.gold < 1 || p.gold > MAX_GOLD)) problem(`${pp}.gold`, `${what} needs gold from 1 to ${MAX_GOLD}.`);
+    if (p.item !== undefined && p.gold !== undefined) problem(pp, `${what} can give an item or gold, not both.`);
+    if (p.text !== undefined && (typeof p.text !== 'string' || kind === 'chest')) problem(`${pp}.text`, kind === 'chest' ? 'A chest has no text.' : `${what} has unreadable text.`);
+    if (kind === 'chest' && !p.fe8 && p.item === undefined && p.gold === undefined) problem(pp, 'A chest needs an item or gold in it.');
+  });
+}
+
 /**
  * Checks a parsed project file. Returns the project only when there are no problems.
  * Messages are written for beginners, since they are shown as they are.
@@ -194,6 +258,7 @@ export function checkProject(data: unknown, catalog: Catalog = {}): { project: P
       if (c.surviveTurns !== undefined && (!isInt(c.surviveTurns) || c.surviveTurns < 1 || c.surviveTurns > MAX_SURVIVE_TURNS)) {
         problem(`${at}.surviveTurns`, `Survive needs a number of turns from 1 to ${MAX_SURVIVE_TURNS}.`);
       }
+      if (c.places !== undefined) checkPlaces(c.places, `${at}.places`, catalog, problem);
       if (!Array.isArray(c.units)) return problem(`${at}.units`, 'The chapter needs a list of units, even an empty one.');
 
       const unitIds = new Set<string>();

@@ -155,4 +155,32 @@ describe('helpers', () => {
     expect(toName('My First Chapter!')).toBe('my-first-chapter');
     expect(toName('  ')).toBe('untitled');
   });
+
+  it('checks doors, chests, villages and houses', () => {
+    const p = sample();
+    p.chapters[0]!.places = [
+      { kind: 'door', at: [1, 1] },
+      { kind: 'chest', at: [2, 1], item: 'rapier' },
+      { kind: 'chest', at: [3, 1], gold: 500 },
+      { kind: 'village', at: [4, 1], fe8: true },
+      { kind: 'house', at: [5, 1], text: 'Beware the river.', item: 'rapier' },
+    ];
+    expect(checkProject(roundTrip(p), { items: new Set(['rapier']) }).problems).toEqual([]);
+    p.chapters[0]!.places = [
+      { kind: 'door', at: [1, 1], item: 'rapier' },
+      { kind: 'chest', at: [2, 1] },
+      { kind: 'chest', at: [2, 1], gold: 70000 },
+      { kind: 'village', at: [4, 1], fe8: true, text: 'Hello' },
+      { kind: 'house', at: [5, 1], item: 'iron-axe', gold: 5 },
+    ];
+    expect(checkProject(roundTrip(p), { items: new Set(['rapier']) }).problems.map((x) => [x.path, x.message])).toEqual([
+      ['chapters[0].places[0]', 'A door opens and holds nothing.'],
+      ['chapters[0].places[1]', 'A chest needs an item or gold in it.'],
+      ['chapters[0].places[2].at', 'A chest is on the same square as another door, chest or village.'],
+      ['chapters[0].places[2].gold', 'A chest needs gold from 1 to 65535.'],
+      ['chapters[0].places[3]', "A village plays FE8's own scene, so it can't also have its own item, gold or text."],
+      ['chapters[0].places[4].item', 'A house has an item this tool doesn\'t know: "iron-axe".'],
+      ['chapters[0].places[4]', 'A house can give an item or gold, not both.'],
+    ]);
+  });
 });
