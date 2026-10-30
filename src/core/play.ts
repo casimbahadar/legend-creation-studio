@@ -183,6 +183,16 @@ export function openWithKey(state: PlayState, unitId: string, index: number | nu
   return open(spent, [...doorsBeside(state, unit.at), ...(chest ? [chest] : [])], unitId, chest, usesOf);
 }
 
+/**
+ * A door or chest at one square opens for a unit (ActionPick, the Unlock staff: StartAvailableDoorTileEvent
+ * and StartAvailableChestTileEvent there): a chest's item or gold goes to the unit.
+ */
+export function openAt(state: PlayState, unitId: string, at: readonly [number, number], usesOf: (item: string) => number | null = () => null): { state: PlayState; found: Found | null } {
+  const door = closedPlace(state, 'door', at[0], at[1]);
+  const chest = closedPlace(state, 'chest', at[0], at[1]);
+  return open(state, [...(door ? [door] : []), ...(chest ? [chest] : [])], unitId, chest, usesOf);
+}
+
 /** A unit visits the village or house it stands on: what's said there, and its item or gold. */
 export function visitPlace(state: PlayState, unitId: string, usesOf: (item: string) => number | null = () => null): { state: PlayState; found: Found | null } {
   const unit = state.units.find((u) => u.id === unitId);

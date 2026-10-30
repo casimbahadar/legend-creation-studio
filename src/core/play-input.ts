@@ -12,11 +12,11 @@ export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, cannotAct, clearStatus, closedPlace, discardItem, doorsBeside, openWithKey, visitPlace, setBarrier, setStatus, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Found, type Outcome, type PlayState, type PlayUnit, type StatusKind } from './play';
+import { applyBattle, applyExp, boostUnit, cannotAct, clearStatus, closedPlace, discardItem, doorsBeside, openAt, openWithKey, visitPlace, setBarrier, setStatus, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Found, type Outcome, type PlayState, type PlayUnit, type StatusKind } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
-export type MenuOption = 'seize' | 'attack' | 'staff' | 'steal' | 'visit' | 'chest' | 'door' | 'item' | 'trade' | 'wait';
+export type MenuOption = 'seize' | 'attack' | 'staff' | 'steal' | 'pick' | 'visit' | 'chest' | 'door' | 'item' | 'trade' | 'wait';
 
 /** What can be done with one item, as in FE8's item menu. */
 export type ItemOption = 'equip' | 'use' | 'discard';
@@ -33,6 +33,11 @@ export interface ItemUse {
 }
 
 export type Action =
+  /**
+   * Choosing a door or chest to open: with a Rogue's Pick (`item` null), a door beside it or the chest it
+   * stands on; with the Unlock staff (its `item`), a closed door 1 or 2 squares away.
+   */
+  | { readonly kind: 'open'; readonly unit: string; readonly from: readonly [number, number]; readonly targets: readonly (readonly [number, number])[]; readonly index: number; readonly item: number | null }
   /** The action menu for a unit that has just moved from `from`; once it has traded (`locked`) the move can't be taken back. */
   | { readonly kind: 'menu'; readonly unit: string; readonly from: readonly [number, number]; readonly index: number; readonly locked?: boolean }
   /** Choosing which enemy to attack, or with `staff`, which ally to heal with that item. */
@@ -101,6 +106,8 @@ export interface Battle extends Fight {
   readonly support?: 'restore' | 'barrier';
   /** Set for Warp or Rescue: the square the defender is moved to. It has no blows. */
   readonly relocate?: readonly [number, number];
+  /** Set for Unlock: the door it opens. It has no blows, and the defender is the user itself. */
+  readonly unlock?: readonly [number, number];
   /** Set for a steal: the defender's item the attacker takes (its index). A steal has no blows. */
   readonly steal?: number;
   /** The experience the fight gave, shown after it; null if nobody gained any. */
@@ -195,6 +202,8 @@ export interface PlayRules extends AiRules {
   keyFor?(unit: PlayUnit, kind: 'door' | 'chest'): number | null;
   /** An item's full uses, for one a unit gets; null for one that never runs out. */
   usesOf?(item: string): number | null;
+  /** Whether the unit's class has Pick (PickCommandUsability: the Rogue); not if left out. */
+  picks?(unit: PlayUnit): boolean;
   /** The experience stealing gives the unit, if any. */
   stealExperience?(unit: PlayUnit): ExpAward | null;
 }
@@ -286,6 +295,7 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
   if (rules.targetsOf(unit, view.state).length) options.push('attack');
   if (rules.staffChoices?.(unit, view.state).length) options.push('staff');
   if (stealTargets(view.state, unit, rules).length) options.push('steal');
+  if (pickTargets(view.state, unit, rules).length) options.push('pick');
   // VisitCommandUsability, ChestCommandUsability, DoorCommandUsability.
   if (closedPlace(view.state, ['village', 'house'], unit.at[0], unit.at[1])) options.push('visit');
   if ((rules.keyFor?.(unit, 'chest') ?? null) !== null && closedPlace(view.state, 'chest', unit.at[0], unit.at[1])) options.push('chest');
@@ -316,6 +326,19 @@ export function stealTargets(state: PlayState, unit: PlayUnit, rules: PlayRules)
     .filter((o) => o.team === 'enemy' && Math.abs(o.at[0] - unit.at[0]) + Math.abs(o.at[1] - unit.at[1]) === 1 && unit.stats.spd >= o.stats.spd)
     .filter((o) => o.items.some((_, i) => rules.stealable?.(o, i)))
     .map((o) => o.id);
+}
+
+/** What a Rogue can Pick (MakeTargetListForPick): closed doors beside it, then the closed chest it stands on. */
+export function pickTargets(state: PlayState, unit: PlayUnit, rules: PlayRules): (readonly [number, number])[] {
+  if (!rules.picks?.(unit)) return [];
+  const chest = closedPlace(state, 'chest', unit.at[0], unit.at[1]);
+  return [...doorsBeside(state, unit.at).map((p) => p.at), ...(chest ? [chest.at] : [])];
+}
+
+/** Choosing a door or chest to open, the cursor on the first. */
+function openTargets(view: PlayView, unit: string, from: readonly [number, number], targets: readonly (readonly [number, number])[], item: number | null): PlayView {
+  const first = targets[0];
+  return first ? { ...view, action: { kind: 'open', unit, from, targets, index: 0, item }, cursor: first } : view;
 }
 
 /** Units the unit can trade with (TryAddUnitToTradeTargetList): next to it, on its side, not berserk, one of the two carrying something. */
@@ -432,6 +455,11 @@ export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRu
     const y = Math.min(Math.max(0, view.cursor[1] + dy), rules.height - 1);
     return { ...view, cursor: [x, y] };
   }
+  if (a?.kind === 'open') {
+    const n = a.targets.length;
+    const index = (a.index + (dx + dy > 0 ? 1 : -1) + n) % n;
+    return { ...view, action: { ...a, index }, cursor: a.targets[index]! };
+  }
   if (a?.kind === 'target') {
     const n = a.targets.length;
     const index = (a.index + (dx + dy > 0 ? 1 : -1) + n) % n;
@@ -452,6 +480,13 @@ export function tapAt(view: PlayView, x: number, y: number, rules: PlayRules): P
       const t = unitById(view.state, id);
       return t && t.at[0] === x && t.at[1] === y;
     });
+    if (index < 0) return view;
+    if (index === a.index) return pressA(view, rules);
+    return { ...view, action: { ...a, index }, cursor: [x, y] };
+  }
+  if (a?.kind === 'open') {
+    // Tap a door or chest to choose it; tap it again to open it.
+    const index = a.targets.findIndex((t) => t[0] === x && t[1] === y);
     if (index < 0) return view;
     if (index === a.index) return pressA(view, rules);
     return { ...view, action: { ...a, index }, cursor: [x, y] };
@@ -479,6 +514,7 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
     return { ...view, state, action: null, outcome: outcomeOf(state) };
   }
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
+  if (option === 'pick') return openTargets(view, unit.id, a.from, pickTargets(view.state, unit, rules), null);
   if (option === 'visit' || option === 'chest' || option === 'door') {
     if (option === 'visit' && optionDisabled(view, option)) return { ...view, notice: MSG_CANT_VISIT_SILENCED };
     const usesOf = (item: string) => rules.usesOf?.(item) ?? null;
@@ -506,6 +542,7 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
     const staves = rules.staffChoices?.(unit, view.state) ?? [];
     if (staves.length > 1) return { ...view, action: { kind: 'weapon', unit: unit.id, from: a.from, index: 0, staff: true } };
     if (staves[0]?.fortify) return fortifyBattle(view, unit, staves[0], rules);
+    if (staves[0]?.doors) return openTargets(view, unit.id, a.from, staves[0].doors, staves[0].item);
     return staves[0] ? healTargets(view, unit.id, a.from, staves[0]) : view;
   }
   // With more than one weapon that reaches a foe, choose the weapon first, as in FE8.
@@ -543,6 +580,7 @@ export function chooseWeapon(view: PlayView, index: number, rules: PlayRules): P
     const unit = unitById(view.state, a.unit);
     const staff = unit ? rules.staffChoices?.(unit, view.state)[index] : undefined;
     if (unit && staff?.fortify) return fortifyBattle(view, unit, staff, rules);
+    if (staff?.doors) return openTargets(view, a.unit, a.from, staff.doors, staff.item);
     return staff ? healTargets(view, a.unit, a.from, staff) : view;
   }
   const choice = weaponChoices(view, rules)[index];
@@ -618,6 +656,15 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
     if (!user || !target || !a.cells.includes(cell)) return view;
     return { ...view, action: null, battle: relocateBattle(user, target, a.item, view.cursor, rules) };
   }
+  if (a?.kind === 'open') {
+    const unit = unitById(view.state, a.unit);
+    const at = a.targets[a.index];
+    if (!unit || !at) return view;
+    // Unlock is a staff use, shown with its experience; Pick opens at once (ActionPick).
+    if (a.item !== null) return { ...view, action: null, battle: { attacker: unit.id, defender: unit.id, strikes: [], attackerItem: a.item, defenderItem: null, unlock: at, exp: rules.staffExperience?.(unit, a.item) ?? null } };
+    const done = openAt(view.state, unit.id, at, (item) => rules.usesOf?.(item) ?? null);
+    return { ...view, state: finishAction(done.state, unit.id), action: null, cursor: unit.at, ...(done.found ? { found: done.found } : {}) };
+  }
   if (a?.kind === 'steal') return chooseStealItem(view, a.index, rules);
   if (a?.kind === 'trade') return chooseTradeSlot(view, a.index);
   if (a?.kind === 'weapon') return chooseWeapon(view, a.index, rules);
@@ -676,6 +723,7 @@ export function pressB(view: PlayView, rules: PlayRules): PlayView {
     return { ...menu, action: menu.action?.kind === 'menu' ? { ...menu.action, locked: a.locked } : menu.action, cursor: unit ? unit.at : view.cursor };
   }
   if (a?.kind === 'items') return backToMenu(view, a.unit, a.from, rules, 'item');
+  if (a?.kind === 'open') return backToMenu(view, a.unit, a.from, rules, a.item === null ? 'pick' : 'staff');
   if (a?.kind === 'warp') {
     // Back to choosing whom to warp.
     const unit = unitById(view.state, a.unit);
@@ -856,6 +904,10 @@ export function finishBattle(view: PlayView): PlayView {
   }
   if (b.support && b.attackerItem !== null) {
     used = b.support === 'restore' ? clearStatus(used, b.defender) : setBarrier(used, b.defender);
+    used = spendUses(used, b.attacker, b.attackerItem, 1);
+  }
+  if (b.unlock && b.attackerItem !== null) {
+    used = openAt(used, b.attacker, b.unlock).state;
     used = spendUses(used, b.attacker, b.attackerItem, 1);
   }
   if (b.inflict && b.attackerItem !== null) {

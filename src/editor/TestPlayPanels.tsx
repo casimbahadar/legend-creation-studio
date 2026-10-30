@@ -35,7 +35,7 @@ import { battleBoxColumns, battleBoxOpening, battleBoxRow, drawBattleBoxes, show
 import { TEAM_LABELS } from './labels';
 
 /** What the player is in the middle of, if anything. */
-export type PlayPhase = 'walk' | 'menu' | 'weapon' | 'staves' | 'items' | 'item' | 'target' | 'heal' | 'tradeWith' | 'trade' | 'stealFrom' | 'steal' | 'staffTarget' | 'warp' | 'berserk' | 'battle' | 'enemy' | 'ally' | 'over' | null;
+export type PlayPhase = 'walk' | 'menu' | 'weapon' | 'staves' | 'items' | 'item' | 'target' | 'heal' | 'tradeWith' | 'trade' | 'stealFrom' | 'steal' | 'staffTarget' | 'warp' | 'open' | 'berserk' | 'battle' | 'enemy' | 'ally' | 'over' | null;
 
 /** One line under the controls saying what to do next. */
 export function PlayHint({
@@ -66,6 +66,7 @@ export function PlayHint({
   else if (phase === 'steal') hint = "Choose the item to steal and press A; weapons and staves can't be stolen. B goes back.";
   else if (phase === 'staves') hint = 'Choose the staff to heal with, then whom to heal. B goes back.';
   else if (phase === 'staffTarget') hint = 'Choose a target for the staff with the arrows or by tapping it, then press A. B goes back.';
+  else if (phase === 'open') hint = 'Choose the door or chest to open with the arrows or by tapping it, then press A. B goes back.';
   else if (phase === 'warp') hint = 'Choose where to warp the unit (a blue square) and press A, or tap it twice. B goes back.';
   else if (phase === 'heal') hint = 'Choose whom to heal with the arrows or by tapping them, then press A. B goes back.';
   else if (phase === 'weapon') hint = 'Choose the weapon to attack with, then a target. B goes back.';

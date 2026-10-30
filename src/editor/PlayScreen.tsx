@@ -73,7 +73,7 @@ const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
 /** How long the notice that a weapon broke shows (A closes it sooner). */
 const BROKE_MS = 1500;
-const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', steal: 'Steal', visit: 'Visit', chest: 'Chest', door: 'Door', item: 'Item', trade: 'Trade', wait: 'Wait' };
+const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', steal: 'Steal', pick: 'Pick', visit: 'Visit', chest: 'Chest', door: 'Door', item: 'Item', trade: 'Trade', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
 
@@ -382,6 +382,7 @@ export function PlayScreen({
       }
       // Warp's destinations, as blue squares (FillWarpRangeMap, DisplayMoveRangeGraphics).
       if (view.action?.kind === 'warp') for (const k of view.action.cells) drawRangeSquare(g, k % map.width, Math.floor(k / map.width), MOVE_COLOURS);
+      if (view.action?.kind === 'open') for (const [x, y] of view.action.targets) drawRangeSquare(g, x, y, MOVE_COLOURS);
       if (arrow) drawArrow(g, arrow, map.width);
       const frame = idleFrame(now);
       let walkDone = false;
@@ -738,7 +739,7 @@ export function PlayScreen({
               </>
             );
           })()}
-        {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && !battle.support && !battle.relocate && (
+        {battle && hud && battle.heal === undefined && battle.steal === undefined && !battle.inflict && !battle.support && !battle.relocate && !battle.unlock && (
           <BattleHud
             battle={battle}
             frame={hud}

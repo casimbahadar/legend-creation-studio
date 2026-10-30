@@ -53,6 +53,11 @@ const STATUS_STAVES: Readonly<Record<number, StatusKind>> = { 0x51: 'silence', 0
 /** Restore and Barrier by item id: each works on an ally beside the user. */
 const SUPPORT_STAVES: Readonly<Record<number, 'restore' | 'barrier'>> = { 0x50: 'restore', 0x59: 'barrier' };
 
+/** The Unlock staff's item id (ITEM_STAFF_UNLOCK): it opens a closed door 1 or 2 squares away. */
+const UNLOCK = 0x58;
+/** The Rogue's class id (CLASS_ROGUE), the one class with Pick. */
+const CLASS_ROGUE = 0x33;
+
 /** Warp and Rescue by item id: each moves an ally (ExecWarpStaff, ExecRescueStaff). */
 const MOVE_STAVES: Readonly<Record<number, 'warp' | 'rescue'>> = { 0x54: 'warp', 0x55: 'rescue' };
 
@@ -320,6 +325,16 @@ export function chapterRules(
     staffChoices: (u, state) => {
       const choices: StaffChoice[] = [];
       u.items.forEach((_, index) => {
+        const item = items.find((i) => i.entry.name === u.items[index]);
+        const art = artByName.get(u.class);
+        if (item?.rom.id === UNLOCK) {
+          // MakeTargetListForUnlock (ForEachPosIn12Range): closed doors 1 or 2 squares away.
+          if (!art || !usable(art, item) || u.status) return;
+          const away = (at: readonly [number, number]) => Math.abs(at[0] - u.at[0]) + Math.abs(at[1] - u.at[1]);
+          const doors = (state.places ?? []).filter((p) => p.kind === 'door' && !p.done && away(p.at) >= 1 && away(p.at) <= 2).map((p) => p.at);
+          if (doors.length) choices.push({ item: index, targets: [], heal: 0, doors });
+          return;
+        }
         const move = moveStaff(u, index);
         if (move) {
           // MakeTargetListForRescueStaff: allies within half its Magic; ...ForWarp: allies beside it.
@@ -430,6 +445,7 @@ export function chapterRules(
       return (thief ? slot('lockpick') : null) ?? slot(kind === 'chest' ? 'chest-key' : 'door-key');
     },
     usesOf: (name) => fullUses(name, items),
+    picks: (u) => artByName.get(u.class)?.entry.id === CLASS_ROGUE,
     itemUse: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);
       const art = artByName.get(u.class);

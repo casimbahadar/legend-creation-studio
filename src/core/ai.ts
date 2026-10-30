@@ -102,6 +102,8 @@ export interface StaffChoice {
   readonly support?: 'restore' | 'barrier';
   /** Rescue (brings the ally beside the user) or Warp (sends it to a square the player picks). */
   readonly move?: 'rescue' | 'warp';
+  /** Unlock: the closed doors it reaches, to open one (its `targets` are empty). */
+  readonly doors?: readonly (readonly [number, number])[];
 }
 
 /**

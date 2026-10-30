@@ -864,5 +864,31 @@ describe('visiting and opening', () => {
     expect(optionDisabled(silenced, 'visit')).toBe(true);
     expect(chooseOption(silenced, 'visit', keyRules).notice).toBe(MSG_CANT_VISIT_SILENCED);
   });
+
+  it("lets a Rogue Pick a door beside it or the chest it stands on, choosing one, with no key", () => {
+    const pickRules: PlayRules = { ...rules, picks: () => true };
+    let v = menu(begin());
+    expect(menuOptions(v, pickRules).slice(0, 1)).toEqual(['pick']);
+    v = chooseOption(v, 'pick', pickRules);
+    expect([v.action?.kind, v.cursor]).toEqual(['open', [1, 0]]);
+    v = moveCursor(v, 1, 0, pickRules);
+    expect(v.cursor).toEqual([1, 1]);
+    v = pressA(v, pickRules);
+    expect([v.state.gold, v.found?.gold, eirika(v).items, eirika(v).moved]).toEqual([300, 300, ['chest-key'], true]);
+    // Only the chest opened; the door is still shut.
+    expect(v.state.places!.find((p) => p.kind === 'door')!.done).toBeUndefined();
+  });
+
+  it('opens a door 1 or 2 squares away with the Unlock staff, played as a staff use', () => {
+    const unlockRules: PlayRules = { ...rules, staffChoices: () => [{ item: 0, targets: [], heal: 0, doors: [[1, 0]] }], staffExperience: () => null };
+    let v = chooseOption(menu(begin()), 'staff', unlockRules);
+    expect(v.action).toMatchObject({ kind: 'open', targets: [[1, 0]], item: 0 });
+    expect(pressB(v, unlockRules).action?.kind).toBe('menu');
+    v = pressA(v, unlockRules);
+    expect(v.battle).toMatchObject({ attacker: 'eirika', defender: 'eirika', unlock: [1, 0], strikes: [] });
+    v = finishBattle(v);
+    expect(v.state.places!.find((p) => p.kind === 'door')!.done).toBe(true);
+    expect(eirika(v).moved).toBe(true);
+  });
 });
 
