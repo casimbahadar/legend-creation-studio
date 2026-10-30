@@ -375,7 +375,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                     {spots.length
                       ? 'Tap a dotted square to put a door, chest, village or house there, or tap one to change it. Only squares the map can open or close are dotted.'
                       : 'This map has no doors, chests, villages or houses to use.'}{' '}
-                    Test play doesn&apos;t open them yet.
+                    Test play opens them as FE8 does: a key or a thief&apos;s Lockpick for doors and chests, Visit for villages and houses.
                   </p>
                   <p className="note">
                     {places.length
