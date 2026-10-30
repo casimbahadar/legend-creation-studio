@@ -28,3 +28,16 @@ export function decompressLz77(bytes: Uint8Array, offset: number): Uint8Array {
   }
   return out;
 }
+
+/**
+ * FE8's Decompress (src/bmlib.c): data whose first byte says how it's stored, raw (0x00: the bytes after
+ * a 4-byte header whose upper 24 bits are the size, header included; UnpackRaw) or LZ77 (0x10).
+ */
+export function decompress(bytes: Uint8Array, offset: number): Uint8Array {
+  if (offset + 4 > bytes.length) throw new RangeError('Data runs past the end of the ROM');
+  if (bytes[offset] === 0x10) return decompressLz77(bytes, offset);
+  if (bytes[offset] !== 0x00) throw new Error(`No raw or LZ77 data at 0x${offset.toString(16)}`);
+  const size = (bytes[offset + 1]! | (bytes[offset + 2]! << 8) | (bytes[offset + 3]! << 16)) - 4;
+  if (size < 0 || offset + 4 + size > bytes.length) throw new RangeError('Raw data runs past the end of the ROM');
+  return bytes.slice(offset + 4, offset + 4 + size);
+}

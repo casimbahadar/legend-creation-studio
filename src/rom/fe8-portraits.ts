@@ -1,13 +1,13 @@
 // FE8 US portraits: the 32 x 32 "chibi" face the game shows in its map windows, and the full face
 // (decision 35). From the fireemblem8u decompilation (src/portrait_data.c, src/face.c,
 // include/types.h FaceData): a table of 0x1C-byte records at 0x8ACBE0, one per portrait id from 1
-// (GetPortraitData(fid) is entry fid - 1), each pointing at its face sheet (LZ77, 32 x 4 tiles), its
+// (GetPortraitData(fid) is entry fid - 1), each pointing at its face sheet (32 x 4 tiles, raw or LZ77 as Decompress reads), its
 // chibi image (LZ77, 16 4bpp tiles laid out 4 x 4 in order) and its 16-colour palette. A character's
 // portrait id is at +0x06 of its record.
 
 import { createImage, drawTile4bpp, readPalettes, type Image } from './gba-graphics';
 import type { GbaRom } from './gba-rom';
-import { decompressLz77 } from './lz77';
+import { decompress, decompressLz77 } from './lz77';
 
 export const FE8U_PORTRAIT_TABLE = 0x8acbe0;
 export const PORTRAIT_STRIDE = 0x1c;
@@ -72,7 +72,8 @@ export function readPortrait(rom: GbaRom, id: number): Image | null {
   if (!rom.isPointer(face) || !rom.isPointer(palette)) return null;
   let tiles: Uint8Array;
   try {
-    tiles = decompressLz77(rom.bytes, rom.offsetOf(face));
+    // Faces are stored raw on the clean ROM; Face_OnInit's Decompress takes either.
+    tiles = decompress(rom.bytes, rom.offsetOf(face));
   } catch {
     return null;
   }

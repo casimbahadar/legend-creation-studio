@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decompressLz77 } from './lz77';
+import { decompress, decompressLz77 } from './lz77';
 
 describe('decompressLz77', () => {
   it('expands literals and a back-reference', () => {
@@ -25,3 +25,15 @@ describe('decompressLz77', () => {
     expect(() => decompressLz77(Uint8Array.from([0x10, 0x04, 0, 0, 0x00, 0x41]), 0)).toThrow('past the end');
   });
 });
+
+describe('decompress', () => {
+  it('takes raw data, its size counting its 4-byte header, as UnpackRaw does', () => {
+    expect(Array.from(decompress(Uint8Array.from([9, 0x00, 6, 0, 0, 7, 8, 99]), 1))).toEqual([7, 8]);
+  });
+
+  it('takes LZ77 data too, and refuses another kind', () => {
+    expect(Array.from(decompress(Uint8Array.from([0x10, 2, 0, 0, 0, 5, 6]), 0))).toEqual([5, 6]);
+    expect(() => decompress(Uint8Array.from([0x20, 2, 0, 0, 0]), 0)).toThrow();
+  });
+});
+
