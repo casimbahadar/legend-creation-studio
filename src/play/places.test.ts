@@ -17,12 +17,12 @@ describe('doors, chests, villages and houses on a map', () => {
       {
         changes,
         events: [
-          { kind: 'door', x: 0, y: 0, flag: 0 },
-          { kind: 'chest', x: 1, y: 0, flag: 0, item: 0x1f, gold: null },
-          { kind: 'chest', x: 5, y: 0, flag: 0, item: 0x77, gold: 300 },
-          { kind: 'randomChest', x: 6, y: 0, flag: 0, items: [] },
-          { kind: 'village', x: 2, y: 0, flag: 0, scene: null },
-          { kind: 'house', x: 3, y: 0, flag: 0, scene: null },
+          { kind: 'door', x: 0, y: 0, flag: 0, word: 1 },
+          { kind: 'chest', x: 1, y: 0, flag: 0, word: 0, item: 0x1f, gold: null },
+          { kind: 'chest', x: 5, y: 0, flag: 0, word: 0, item: 0x77, gold: 300 },
+          { kind: 'randomChest', x: 6, y: 0, flag: 0, word: 0, items: [] },
+          { kind: 'village', x: 2, y: 0, flag: 0, word: 0, scene: null },
+          { kind: 'house', x: 3, y: 0, flag: 0, word: 0, scene: null },
         ],
       },
       (id) => names.get(id),

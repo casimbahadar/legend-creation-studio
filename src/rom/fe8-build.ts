@@ -20,11 +20,21 @@
 // the replaced chapter's boss entries are dropped so no other boss's fall ends the chapter. Survive is vanilla's Survive turn event: on player phase of the
 // turn after the last, set the win flag and run the ending scene; its objective "Survive N turns" is
 // written over the replaced chapter's own objective text.
+//
+// Doors, chests, villages and houses (decision 38) are location-list entries as FE8's macros write
+// them (include/EA_Standard_Library/Main_Code_Helpers.h): Door (DOOR, the door opening by its map's tile
+// change), Chest (CHES, an item, or ITEM_GOLD and an amount), Village (VILL with a visit, and the LOCA
+// one square up that its gate answers to) and House (LOCA with a visit). FE8's own are copied from the
+// map's chapter as they are, scenes and all; a village or house of the user's own gets a scene that gives
+// its item to the visitor (GIVEITEMTO the active unit) or its gold to the party (GIVEITEMTOMAIN), and an
+// event flag of its own so it is visited once, as in test play. The map's tile changes come with its map
+// ids. What the user's own villages and houses say isn't written yet.
 
 import { characterStatsAtLevel, withBonus } from '../core/combat';
 import { goalProblem, goalRule, goalWindowText } from '../core/goals';
-import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectUnit, type StatKey, type Team } from '../core/project';
-import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, UNIT_DEFINITION_SIZE } from './fe8-chapters';
+import { mapEntry, mapRef, MAX_ITEMS, STAT_KEYS, type Behaviour, type ProjectChapter, type ProjectPlace, type ProjectUnit, type StatKey, type Team } from '../core/project';
+import { ASSET_TABLE, CHAPTER_COUNT, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readChapter, UNIT_DEFINITION_SIZE } from './fe8-chapters';
+import { readTileEvents, type TileEvent } from './fe8-tile-events';
 import { FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, GENERIC_ALLY, GENERIC_ENEMY, pickCharacter } from './fe8-character-names';
 import { BASE_LEVEL, BASE_STATS, characterRecord, readCharacterStats } from './fe8-characters';
 import { readClassStats } from './fe8-classes';
@@ -102,11 +112,27 @@ const LIST_END = 0;
 const LIST_FLAG = 1;
 const LIST_TURN = 2;
 const LIST_LOCA = 5;
+const LIST_VILL = 6;
+const LIST_CHES = 7;
+const LIST_DOOR = 8;
 /** Player phase, for turn events. */
 const FACTION_BLUE = 0;
 /** A list entry's script that sets its flag and runs nothing. */
 const EVENT_NOSCRIPT = 1;
 const TILE_COMMAND_SEIZE = 0x11;
+const TILE_COMMAND_VISIT = 0x10;
+const TILE_COMMAND_DOOR = 0x12;
+const TILE_COMMAND_CHEST = 0x14;
+/** The second entry of FE8's Village macro, one square up from the village. */
+const TILE_COMMAND_20 = 0x20;
+const ITEM_GOLD = 0x77;
+/** Chapter-temporary event flags (EVFLAG_TMP): 7 to 100. Villages and houses of the user's own take them from the top. */
+const FIRST_TEMP_FLAG = 7;
+const LAST_TEMP_FLAG = 100;
+const SVAL = (slot: number) => evt(0x05, 4, 0, slot);
+/** GIVEITEMTO and GIVEITEMTOMAIN: slot 3's item to a unit, or its gold to the party; CHAR_EVT_ACTIVE_UNIT (-1) and CHAR_EVT_PLAYER_LEADER (0). */
+const GIVE_ITEM_TO_ACTIVE = evt(0x37, 2, 0, 0xffff);
+const GIVE_GOLD = evt(0x37, 2, 1, 0);
 
 /** FE8 AI bytes for each behaviour (decision 23), from the decompilation's AI tables (src/cp_data.c). */
 export const AI_BYTES: Record<Behaviour, readonly number[]> = {
@@ -304,7 +330,54 @@ export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, n
     }
     if (u.team === 'ally' && u.mustSurvive) notes.push(`${who}: Must survive for allies isn't in the patch yet.`);
   }
+  const said = (chapter.places ?? []).filter((p) => !p.fe8 && p.text?.trim());
+  if (said.length) notes.push(`What your own ${said.length === 1 ? 'village or house says' : 'villages and houses say'} isn't in the patch yet; ${said.length === 1 ? 'it gives' : 'they give'} what you chose without words.`);
   return notes;
+}
+
+/** A list entry's head word: the command and the flag it sets. */
+const listHead = (cmd: number, flag: number) => cmd | (flag << 16);
+/** A list entry's position word: x, y and the tile command, as bytes. */
+const tileWord = (x: number, y: number, command: number) => x | (y << 8) | (command << 16);
+
+/**
+ * The location-list entries for the chapter's doors, chests, villages and houses: its own list, or,
+ * without one, FE8's own on the map's chapter (`fe8`, read from it). FE8's own are copied; the user's
+ * get new scenes written with `w`.
+ */
+export function placeEntries(chapter: ProjectChapter, fe8: readonly TileEvent[], w: { words(ws: readonly number[]): number }): number[] {
+  const own = (e: TileEvent): number[] => {
+    if (e.kind === 'door') return [listHead(LIST_DOOR, e.flag), e.word, tileWord(e.x, e.y, TILE_COMMAND_DOOR)];
+    if (e.kind === 'chest') return [listHead(LIST_CHES, e.flag), e.word, tileWord(e.x, e.y, TILE_COMMAND_CHEST)];
+    if (e.kind === 'randomChest') return [listHead(LIST_LOCA, e.flag), e.word, tileWord(e.x, e.y, TILE_COMMAND_CHEST)];
+    if (e.kind === 'house') return [listHead(LIST_LOCA, e.flag), e.word, tileWord(e.x, e.y, TILE_COMMAND_VISIT)];
+    return village(e.flag, e.word, e.x, e.y);
+  };
+  const village = (flag: number, scene: number, x: number, y: number) => [listHead(LIST_VILL, flag), scene, tileWord(x, y, TILE_COMMAND_VISIT), listHead(LIST_LOCA, flag), EVENT_NOSCRIPT, tileWord(x, y - 1, TILE_COMMAND_20)];
+  if (!chapter.places) return fe8.flatMap(own);
+  const at = (p: ProjectPlace) => fe8.find((e) => e.x === p.at[0] && e.y === p.at[1] && e.kind !== 'door');
+  // Flags for the user's villages and houses, from the top of the temporary ones, past FE8's own in use.
+  const taken = new Set(chapter.places.flatMap((p) => (p.fe8 ? [at(p)?.flag ?? 0] : [])));
+  let next = LAST_TEMP_FLAG;
+  const flag = () => {
+    while (taken.has(next)) next--;
+    if (next < FIRST_TEMP_FLAG) throw new Error('This chapter has more villages and houses than the game has event flags for.');
+    return next--;
+  };
+  return chapter.places.flatMap((p) => {
+    const [x, y] = p.at;
+    if (p.fe8) {
+      const e = at(p);
+      if (!e) throw new Error(`FE8's own ${p.kind} at ${x}, ${y} isn't on this map's chapter.`);
+      return own(e);
+    }
+    const item = p.item === undefined ? null : idOf(FE8_ITEM_NAMES, p.item, 'item');
+    if (p.kind === 'door') return [listHead(LIST_DOOR, 0), EVENT_NOSCRIPT, tileWord(x, y, TILE_COMMAND_DOOR)];
+    if (p.kind === 'chest') return [listHead(LIST_CHES, 0), p.gold !== undefined ? ITEM_GOLD | (p.gold << 16) : (item ?? 0), tileWord(x, y, TILE_COMMAND_CHEST)];
+    const gives = item !== null ? [SVAL(3), item, GIVE_ITEM_TO_ACTIVE] : p.gold !== undefined ? [SVAL(3), p.gold, GIVE_GOLD] : [];
+    const scene = w.words([...gives, EVBIT_T(7), ENDA]);
+    return p.kind === 'village' ? village(flag(), scene, x, y) : [listHead(LIST_LOCA, flag()), scene, tileWord(x, y, TILE_COMMAND_VISIT)];
+  });
 }
 
 /** Throws unless every text entry but the renamed ones decodes the same with the moved, extended tree. */
@@ -364,7 +437,9 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const surviveTurns = chapter.goal === 'survive' ? goalTurns(chapter) : null;
   const turnList = surviveTurns === null ? emptyList : w.words([LIST_TURN | (EVFLAG_WIN << 16), endingScene, (surviveTurns + 1) | (FACTION_BLUE << 16), LIST_END]);
   const seizeAt = chapter.goal === 'seize' ? chapter.seizeAt : undefined;
-  const locationList = seizeAt ? w.words([LIST_LOCA | (EVFLAG_WIN << 16), EVENT_NOSCRIPT, seizeAt[0] | (seizeAt[1] << 8) | (TILE_COMMAND_SEIZE << 16), LIST_END]) : emptyList;
+  const seizeEntry = seizeAt ? [LIST_LOCA | (EVFLAG_WIN << 16), EVENT_NOSCRIPT, seizeAt[0] | (seizeAt[1] << 8) | (TILE_COMMAND_SEIZE << 16)] : [];
+  const places = placeEntries(chapter, readTileEvents(clean, readChapter(clean, text, source)), w);
+  const locationList = seizeEntry.length || places.length ? w.words([...seizeEntry, ...places, LIST_END]) : emptyList;
   const winOn = chapter.goal === 'rout' ? EVFLAG_DEFEAT_ALL : chapter.goal === 'boss' ? EVFLAG_DEFEAT_BOSS : null;
   const win = winOn === null ? [] : [LIST_FLAG | (EVFLAG_WIN << 16), endingScene, winOn];
   const miscList = w.words([...win, LIST_FLAG, gameOver, EVFLAG_GAMEOVER, LIST_END]);

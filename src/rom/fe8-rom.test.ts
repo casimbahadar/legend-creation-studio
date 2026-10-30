@@ -192,6 +192,26 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(units.map((u) => [u.character, u.classId, u.allegiance, u.level, u.x, u.y, u.items])).toEqual([[1, 2, 'player', 1, 8, 5, [9]]]);
   });
 
+  it("builds a chapter on Chapter 4's map into the Prologue with Chapter 4's own villages, and its map changes", () => {
+    const text = findTextTable(rom)!;
+    const built = readRom(
+      buildFe8Rom(rom, text, {
+        id: 'c',
+        name: 'C',
+        map: 'fe8-us/chapter-entry-4',
+        goal: 'rout',
+        units: [
+          { id: 'eirika', class: 'lord-eirika', team: 'player', level: 1, at: [3, 3], items: ['rapier'], mustSurvive: true },
+          { id: 'f', class: 'fighter', team: 'enemy', level: 3, at: [10, 5], items: ['iron-axe'] },
+        ],
+      }).bytes,
+    );
+    const strip = (es: ReturnType<typeof readTileEvents>) => es.map((e) => [e.kind, e.x, e.y, e.flag, e.word >>> 0]);
+    const slot = readChapter(built, text, 0);
+    expect(strip(readTileEvents(built, slot))).toEqual(strip(readTileEvents(rom, readChapter(rom, text, 4))));
+    expect(readMapChanges(built, slot)).toEqual(readMapChanges(rom, readChapter(rom, text, 4)));
+  });
+
   it("encodes names with the ROM's own Huffman tree so they decode back", () => {
     const text = findTextTable(rom)!;
     const codes = readHuffmanCodes(rom, text);

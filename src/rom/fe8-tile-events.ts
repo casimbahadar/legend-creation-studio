@@ -76,11 +76,13 @@ export interface VisitScene {
   readonly custom: boolean;
 }
 
-export type TileEvent =
-  | { readonly kind: 'door'; readonly x: number; readonly y: number; readonly flag: number }
-  | { readonly kind: 'chest'; readonly x: number; readonly y: number; readonly flag: number; readonly item: number; readonly gold: number | null }
-  | { readonly kind: 'randomChest'; readonly x: number; readonly y: number; readonly flag: number; readonly items: readonly { readonly item: number; readonly chance: number }[] }
-  | { readonly kind: 'village' | 'house'; readonly x: number; readonly y: number; readonly flag: number; readonly scene: VisitScene | null };
+/** Every kind keeps its list entry's second word as stored (`word`): a scene's or list's pointer, a chest's item and gold, 1 for a door. */
+export type TileEvent = { readonly x: number; readonly y: number; readonly flag: number; readonly word: number } & (
+  | { readonly kind: 'door' }
+  | { readonly kind: 'chest'; readonly item: number; readonly gold: number | null }
+  | { readonly kind: 'randomChest'; readonly items: readonly { readonly item: number; readonly chance: number }[] }
+  | { readonly kind: 'village' | 'house'; readonly scene: VisitScene | null }
+);
 
 /** Event list commands' lengths in words (gEventListCmdInfoTable), by command. */
 const LIST_LENGTHS = [1, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4];
@@ -106,13 +108,13 @@ export function readTileEvents(rom: GbaRom, chapter: ChapterInfo): TileEvent[] {
       const word = rom.u32(at + 4);
       const [x, y, tile] = [rom.u8(at + 8), rom.u8(at + 9), rom.u8(at + 10)];
       const scene = () => (rom.isPointer(word) ? readVisitScene(rom, rom.offsetOf(word)) : null);
-      if (cmd === LIST.door) out.push({ kind: 'door', x, y, flag });
+      if (cmd === LIST.door) out.push({ kind: 'door', x, y, flag, word });
       else if (cmd === LIST.ches) {
         const item = word & 0xffff;
-        out.push({ kind: 'chest', x, y, flag, item, gold: item === ITEM_GOLD ? word >>> 16 : null });
-      } else if (cmd === LIST.vill && tile === TILE.visit) out.push({ kind: 'village', x, y, flag, scene: scene() });
-      else if (cmd === LIST.loca && tile === TILE.visit) out.push({ kind: 'house', x, y, flag, scene: scene() });
-      else if (cmd === LIST.loca && tile === TILE.chest && rom.isPointer(word)) out.push({ kind: 'randomChest', x, y, flag, items: readChestList(rom, rom.offsetOf(word)) });
+        out.push({ kind: 'chest', x, y, flag, word, item, gold: item === ITEM_GOLD ? word >>> 16 : null });
+      } else if (cmd === LIST.vill && tile === TILE.visit) out.push({ kind: 'village', x, y, flag, word, scene: scene() });
+      else if (cmd === LIST.loca && tile === TILE.visit) out.push({ kind: 'house', x, y, flag, word, scene: scene() });
+      else if (cmd === LIST.loca && tile === TILE.chest && rom.isPointer(word)) out.push({ kind: 'randomChest', x, y, flag, word, items: readChestList(rom, rom.offsetOf(word)) });
     }
     at += length * 4;
   }

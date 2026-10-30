@@ -178,6 +178,44 @@ describe('FE8 builder', () => {
     expect(words(rom, rom.u32(group + EVENT_GROUP.location), 1)).toEqual([0]);
   });
 
+  it("writes the user's doors, chests, villages and houses as FE8's macros do, each village and house with its own flag", () => {
+    const c: ProjectChapter = {
+      ...chapter(),
+      places: [
+        { kind: 'door', at: [1, 2] },
+        { kind: 'chest', at: [2, 2], item: 'rapier' },
+        { kind: 'chest', at: [3, 2], gold: 500 },
+        { kind: 'village', at: [4, 3], item: 'rapier', text: 'Hello.' },
+        { kind: 'house', at: [5, 3], gold: 300 },
+      ],
+    };
+    const b = buildFe8Rom(readRom(clean), TEXT, c);
+    const out = readRom(b.bytes);
+    const list = words(out, out.u32(groupOf(out) + EVENT_GROUP.location), 22);
+    expect(list.slice(0, 9)).toEqual([0x00000008, 1, 0x00120201, 0x00000007, 0x09, 0x00140202, 0x00000007, 0x77 | (500 << 16), 0x00140203]);
+    // Village: VILL with flag 100 and a scene, then LOCA(100, 1, x, y - 1, 0x20); house: LOCA with flag 99.
+    expect([list[9], list[11], list[12], list[13], list[14], list[15], list[17], list[18]]).toEqual([0x00640006, 0x00100304, 0x00640005, 1, 0x00200204, 0x00630005, 0x00100305, 0]);
+    // The village's scene gives the Rapier (9) to the visitor; the house's gives 300 gold to the party.
+    expect(words(out, list[10]!, 5)).toEqual([0x00030540, 0x09, 0xffff3720, 0x00070228, 0x0120]);
+    expect(words(out, list[16]!, 5)).toEqual([0x00030540, 300, 0x00003721, 0x00070228, 0x0120]);
+    expect(b.notes).toContain("What your own village or house says isn't in the patch yet; it gives what you chose without words.");
+  });
+
+  it("copies FE8's own doors, chests and villages from the map's chapter when the chapter keeps them", () => {
+    const withPlaces = clean.slice();
+    const view = new DataView(withPlaces.buffer);
+    const LIST = 0x280000;
+    view.setUint32(0x200000 + EVENT_GROUP.location, ROM_BASE + LIST, true);
+    // Village(8, scene, 6, 7) as FE8's macro writes it, then Door_(2, 3), then END.
+    [0x00080006, ROM_BASE + 0x290000, 0x00100706, 0x00080005, 1, 0x00200606, 0x00000008, 1, 0x00120302, 0].forEach((v, i) => view.setUint32(LIST + i * 4, v >>> 0, true));
+    view.setUint32(0x290000, 0x0120, true); // the scene: ENDA
+    const out = readRom(buildFe8Rom(readRom(withPlaces), TEXT, chapter()).bytes);
+    expect(words(out, out.u32(groupOf(out) + EVENT_GROUP.location), 10)).toEqual([0x00080006, ROM_BASE + 0x290000, 0x00100706, 0x00080005, 1, 0x00200606, 0x00000008, 1, 0x00120302, 0]);
+    // Kept as FE8's own in a list of the user's, the village is copied the same way.
+    const kept = readRom(buildFe8Rom(readRom(withPlaces), TEXT, { ...chapter(), places: [{ kind: 'village', at: [6, 7], fe8: true }] }).bytes);
+    expect(words(kept, kept.u32(groupOf(kept) + EVENT_GROUP.location), 7)).toEqual([0x00080006, ROM_BASE + 0x290000, 0x00100706, 0x00080005, 1, 0x00200606, 0]);
+  });
+
   it("wins on Defeat boss when the boss's death-quote entry, first in a moved list, sets the boss flag", () => {
     const c: ProjectChapter = { ...chapter(), goal: 'boss', boss: 'fighter-1' };
     c.units[2]!.character = 'breguet';
