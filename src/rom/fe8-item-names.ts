@@ -103,6 +103,10 @@ export const FE8_ITEM_NAMES: readonly ItemName[] = [
   { name: 'talisman', id: 0x61, gameName: 'Talisman' },
   { name: 'swiftsole', id: 0x62, gameName: 'Swiftsole' },
   { name: 'body-ring', id: 0x63, gameName: 'Body Ring' },
+  // Keys (ITEM_CHESTKEY to ITEM_LOCKPICK), named as in texts.txt (MSG_3E2 to MSG_3E4).
+  { name: 'chest-key', id: 0x69, gameName: 'Chest Key' },
+  { name: 'door-key', id: 0x6a, gameName: 'Door Key' },
+  { name: 'lockpick', id: 0x6b, gameName: 'Lockpick' },
   { name: 'vulnerary', id: 0x6c, gameName: 'Vulnerary' },
   { name: 'elixir', id: 0x6d, gameName: 'Elixir' },
 ];
