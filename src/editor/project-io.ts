@@ -156,7 +156,11 @@ const ITEM_NAMES_BY_ID = new Map(FE8_ITEM_NAMES.map((i) => [i.id, i.name]));
 export function startingPlaces(data: EditorRom, ref: string): ProjectPlace[] {
   const entry = mapEntry(ref);
   const fe8 = entry === null ? undefined : data.fe8Places[entry];
-  return fe8 ? fe8Places(fe8, (id) => ITEM_NAMES_BY_ID.get(id)) : [];
+  if (!fe8 || entry === null) return [];
+  // FE8's own data has entries off the map (a door at 23, 12 on Unbroken Heart's 22 x 19 map); they're left out.
+  const map = readChapterMap(data.rom, entry);
+  const onMap = (p: ProjectPlace) => !map || (p.at[0] < map.width && p.at[1] < map.height);
+  return fe8Places(fe8, (id) => ITEM_NAMES_BY_ID.get(id)).filter(onMap);
 }
 
 /** One of the ROM's messages as plain text: line breaks as spaces, control codes left out; "" if unreadable. */

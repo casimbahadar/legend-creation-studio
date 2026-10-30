@@ -23,7 +23,7 @@ import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt
 import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
 import { FE8U_GET_DEFEAT_TALK_ENTRY, findDefeatTalkList, readDefeatTalks } from './fe8-death-quotes';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
-import { readAllChapterMaps, renderMap } from './fe8-maps';
+import { readAllChapterMaps, readChapterMap, renderMap } from './fe8-maps';
 import { mapChangeAt, readMapChanges, readTileEvents } from './fe8-tile-events';
 import { decodeText, decodeTextBytes, FE8U_ROOT_POINTER_LITERAL, FE8U_TREE_LITERAL, findTextTable } from './text';
 import { encodeTextBytes, readHuffmanCodes } from './text-encode';
@@ -160,7 +160,10 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     expect(lists.some((l) => JSON.stringify(l) === JSON.stringify(ch11a))).toBe(true);
     for (const c of chapters) {
       const changes = readMapChanges(rom, c);
-      for (const e of readTileEvents(rom, c)) if (e.kind !== 'house') expect([c.index, e.kind, e.x, e.y, mapChangeAt(changes, e.x, e.y) !== null]).toEqual([c.index, e.kind, e.x, e.y, true]);
+      const map = readChapterMap(rom, c.index);
+      // Unbroken Heart (entry 5) lists a door at (23, 12), off its 22 x 19 map: FE8's own leftover.
+      const onMap = (e: { x: number; y: number }) => !map || (e.x < map.width && e.y < map.height);
+      for (const e of readTileEvents(rom, c)) if (e.kind !== 'house' && onMap(e)) expect([c.index, e.kind, e.x, e.y, mapChangeAt(changes, e.x, e.y) !== null]).toEqual([c.index, e.kind, e.x, e.y, true]);
     }
   });
 
