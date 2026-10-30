@@ -28,7 +28,11 @@
 // map's chapter as they are, scenes and all; a village or house of the user's own gets a scene that gives
 // its item to the visitor (GIVEITEMTO the active unit) or its gold to the party (GIVEITEMTOMAIN), and an
 // event flag of its own so it is visited once, as in test play. The map's tile changes come with its map
-// ids. What the user's own villages and houses say isn't written yet.
+// ids. A village or house of the user's that says something plays FE8's own village scene (Chapter 4's,
+// EventScr_089F1BD8: Text_BG with the village background, then the item) with the message swapped for
+// a new one in FE8's format: the visitor's face on the left, a villager's on the right, two lines to a
+// box. New messages need a longer text table: it is copied to the added area with them at its end, and
+// the two places FE8 reads its address (GetStringFromIndex, GetStringFromIndexInBuffer) point there.
 
 import { characterStatsAtLevel, withBonus } from '../core/combat';
 import { goalProblem, goalRule, goalWindowText } from '../core/goals';
@@ -103,6 +107,7 @@ const EVBIT_T = (bits: number) => evt(0x02, 2, 8, bits);
 const FADI = (speed: number) => evt(0x17, 2, 1, speed);
 const LOAD1 = evt(0x2c, 4, 0, 1); // restriction 1, as vanilla uses; followed by the units pointer
 const ENUN = evt(0x30, 2, 0);
+const CALL = evt(0x0a, 4, 0);
 const CHANGE_CHAPTER = 0x2a;
 /**
  * Event list entries: END; FLAG (= AFEV: flag to set, script, flag to wait for); LOCA (flag to set,
@@ -133,6 +138,66 @@ const SVAL = (slot: number) => evt(0x05, 4, 0, slot);
 /** GIVEITEMTO and GIVEITEMTOMAIN: slot 3's item to a unit, or its gold to the party; CHAR_EVT_ACTIVE_UNIT (-1) and CHAR_EVT_PLAYER_LEADER (0). */
 const GIVE_ITEM_TO_ACTIVE = evt(0x37, 2, 0, 0xffff);
 const GIVE_GOLD = evt(0x37, 2, 1, 0);
+
+/**
+ * Chapter 4's second village scene (EventScr_089F1BD8, read from the clean ROM): MUSI; Text_BG(bg, msg)
+ * as SVAL 2, SVAL 3 and a call to Event_TextWithBG; MUNO; a call to EventScr_RemoveBGIfNeeded; then
+ * SVAL 3, GIVEITEMTO the active unit, EVBIT_T 7, ENDA. Each command's number, in order, and where the
+ * words this tool reuses are.
+ */
+export const FE8U_VILLAGE_SCENE = 0x9f1bd8;
+const VILLAGE_SCENE_COMMANDS = [0x15, 0x05, 0x05, 0x0a, 0x15, 0x0a, 0x05, 0x37, 0x02, 0x01];
+/**
+ * A village message's opening, as Chapter 4's (MSG_9B5) starts: [OpenMidLeft][LoadFace] the active
+ * unit (0xFFFF), [OpenMidRight][LoadFace] a villager (face 0x015B), then [OpenMidRight] to speak.
+ */
+export const VILLAGER_OPENING = [0x09, 0x10, 0xff, 0xff, 0x0c, 0x10, 0x5b, 0x01, 0x0c];
+/** Letters to a line of a village message; FE8's own run to about 35 in the same box. */
+const VILLAGE_LINE = 30;
+/** Text control codes: a new line, and waiting for A. */
+const TEXT_NL = 0x01;
+const TEXT_A = 0x03;
+
+/** What a village scene of the user's reuses from Chapter 4's: its first word (MUSI), background, the two helpers' pointers and MUNO. */
+export interface VillageScene {
+  readonly music: number;
+  readonly background: number;
+  readonly textWithBackground: number;
+  readonly musicBack: number;
+  readonly removeBackground: number;
+}
+
+/** Chapter 4's village scene's reusable words, or null if it isn't the scene this tool expects. */
+export function readVillageScene(rom: GbaRom): VillageScene | null {
+  const words: number[] = [];
+  const heads: number[] = [];
+  for (let p = FE8U_VILLAGE_SCENE; heads.length < VILLAGE_SCENE_COMMANDS.length; ) {
+    if (p + 4 > rom.size) return null;
+    const h = rom.u16(p);
+    const len = (h >> 4) & 15;
+    if (len < 2 || p + len * 2 > rom.size) return null;
+    heads.push(h >> 8);
+    for (let k = 0; k < len / 2; k++) words.push(rom.u32(p + k * 4) >>> 0);
+    p += len * 2;
+  }
+  // SVAL 2 and SVAL 3 at words 1 and 3; the calls' pointers at 6 and 9.
+  if (heads.some((c, i) => c !== VILLAGE_SCENE_COMMANDS[i]) || words[1]! >>> 16 !== 2 || words[3]! >>> 16 !== 3) return null;
+  if (!rom.isPointer(words[6]!) || !rom.isPointer(words[9]!)) return null;
+  return { music: words[0]!, background: words[2]!, textWithBackground: words[6]!, musicBack: words[7]!, removeBackground: words[9]! };
+}
+
+/** A village or house message in FE8's format: the opening, then the text in lines of up to 30 letters, two to a box, A between boxes. */
+export function villageMessage(text: string): number[] {
+  const lines: string[] = [];
+  for (const word of text.trim().split(/\s+/)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && last.length + 1 + word.length <= VILLAGE_LINE) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  const boxes: number[][] = [];
+  for (let i = 0; i < lines.length; i += 2) boxes.push([...[...lines[i]!].map((c) => c.charCodeAt(0)), ...(lines[i + 1] !== undefined ? [TEXT_NL, ...[...lines[i + 1]!].map((c) => c.charCodeAt(0))] : []), TEXT_A]);
+  return [...VILLAGER_OPENING, ...boxes.flatMap((b, i) => (i ? [TEXT_NL, ...b] : b))];
+}
 
 /** FE8 AI bytes for each behaviour (decision 23), from the decompilation's AI tables (src/cp_data.c). */
 export const AI_BYTES: Record<Behaviour, readonly number[]> = {
@@ -330,8 +395,6 @@ export function patchNotes(chapter: ProjectChapter, names: ReadonlyMap<string, n
     }
     if (u.team === 'ally' && u.mustSurvive) notes.push(`${who}: Must survive for allies isn't in the patch yet.`);
   }
-  const said = (chapter.places ?? []).filter((p) => !p.fe8 && p.text?.trim());
-  if (said.length) notes.push(`What your own ${said.length === 1 ? 'village or house says' : 'villages and houses say'} isn't in the patch yet; ${said.length === 1 ? 'it gives' : 'they give'} what you chose without words.`);
   return notes;
 }
 
@@ -345,7 +408,13 @@ const tileWord = (x: number, y: number, command: number) => x | (y << 8) | (comm
  * without one, FE8's own on the map's chapter (`fe8`, read from it). FE8's own are copied; the user's
  * get new scenes written with `w`.
  */
-export function placeEntries(chapter: ProjectChapter, fe8: readonly TileEvent[], w: { words(ws: readonly number[]): number }): number[] {
+export function placeEntries(
+  chapter: ProjectChapter,
+  fe8: readonly TileEvent[],
+  w: { words(ws: readonly number[]): number },
+  /** The text id of what each place of the user's says, if it says something; and the village scene to play it in. */
+  said: { messageOf(place: ProjectPlace): number | null; scene: VillageScene } | null = null,
+): number[] {
   const own = (e: TileEvent): number[] => {
     if (e.kind === 'door') return [listHead(LIST_DOOR, e.flag), e.word, tileWord(e.x, e.y, TILE_COMMAND_DOOR)];
     if (e.kind === 'chest') return [listHead(LIST_CHES, e.flag), e.word, tileWord(e.x, e.y, TILE_COMMAND_CHEST)];
@@ -375,7 +444,10 @@ export function placeEntries(chapter: ProjectChapter, fe8: readonly TileEvent[],
     if (p.kind === 'door') return [listHead(LIST_DOOR, 0), EVENT_NOSCRIPT, tileWord(x, y, TILE_COMMAND_DOOR)];
     if (p.kind === 'chest') return [listHead(LIST_CHES, 0), p.gold !== undefined ? ITEM_GOLD | (p.gold << 16) : (item ?? 0), tileWord(x, y, TILE_COMMAND_CHEST)];
     const gives = item !== null ? [SVAL(3), item, GIVE_ITEM_TO_ACTIVE] : p.gold !== undefined ? [SVAL(3), p.gold, GIVE_GOLD] : [];
-    const scene = w.words([...gives, EVBIT_T(7), ENDA]);
+    const message = said?.messageOf(p) ?? null;
+    const v = said?.scene;
+    const talk = message !== null && v ? [v.music, SVAL(2), v.background, SVAL(3), message, CALL, v.textWithBackground, v.musicBack, CALL, v.removeBackground] : [];
+    const scene = w.words([...talk, ...gives, EVBIT_T(7), ENDA]);
     return p.kind === 'village' ? village(flag(), scene, x, y) : [listHead(LIST_LOCA, flag()), scene, tileWord(x, y, TILE_COMMAND_VISIT)];
   });
 }
@@ -438,7 +510,13 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   const turnList = surviveTurns === null ? emptyList : w.words([LIST_TURN | (EVFLAG_WIN << 16), endingScene, (surviveTurns + 1) | (FACTION_BLUE << 16), LIST_END]);
   const seizeAt = chapter.goal === 'seize' ? chapter.seizeAt : undefined;
   const seizeEntry = seizeAt ? [LIST_LOCA | (EVFLAG_WIN << 16), EVENT_NOSCRIPT, seizeAt[0] | (seizeAt[1] << 8) | (TILE_COMMAND_SEIZE << 16)] : [];
-  const places = placeEntries(chapter, readTileEvents(clean, readChapter(clean, text, source)), w);
+  // What the user's villages and houses say: new text ids after the table's last.
+  const speaking = (chapter.places ?? []).filter((p) => !p.fe8 && p.kind !== 'door' && p.kind !== 'chest' && p.text?.trim());
+  const villageScene = speaking.length ? readVillageScene(clean) : null;
+  if (speaking.length && !villageScene) throw new Error("This ROM's village scene isn't where this tool expects it, so it can't add what villages say.");
+  const messages = speaking.map((p, i) => ({ place: p, id: text.count + i, bytes: villageMessage(p.text!) }));
+  const said = villageScene ? { scene: villageScene, messageOf: (p: ProjectPlace) => messages.find((m) => m.place === p)?.id ?? null } : null;
+  const places = placeEntries(chapter, readTileEvents(clean, readChapter(clean, text, source)), w, said);
   const locationList = seizeEntry.length || places.length ? w.words([...seizeEntry, ...places, LIST_END]) : emptyList;
   const winOn = chapter.goal === 'rout' ? EVFLAG_DEFEAT_ALL : chapter.goal === 'boss' ? EVFLAG_DEFEAT_BOSS : null;
   const win = winOn === null ? [] : [LIST_FLAG | (EVFLAG_WIN << 16), endingScene, winOn];
@@ -458,7 +536,7 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
     return name ? [{ textId: clean.u16(characterRecord(clean, characters.get(u.id)!)), bytes: [...name].map((c) => c.charCodeAt(0)) }] : [];
   });
   if (surviveTurns !== null) wanted.push({ textId: clean.u16(record + OBJECTIVE_TEXT), bytes: [...surviveObjective(surviveTurns)].map((c) => c.charCodeAt(0)) });
-  const vanillaCodes = wanted.length ? readHuffmanCodes(clean, text) : null;
+  const vanillaCodes = wanted.length || messages.length ? readHuffmanCodes(clean, text) : null;
   const spellable = (b: number[]) => {
     try {
       encodeTextBytes(vanillaCodes!, b);
@@ -467,7 +545,7 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
       return false;
     }
   };
-  const tree = wanted.some((n) => !spellable(n.bytes)) ? extendTree(clean, text) : null;
+  const tree = [...wanted, ...messages].some((n) => !spellable(n.bytes)) ? extendTree(clean, text) : null;
   let moved: { base: number; root: number; texts: { id: number; pointer: number }[] } | null = null;
   if (tree) {
     if (clean.u32(FE8U_TREE_LITERAL) !== ROM_BASE + text.nodes || clean.u32(clean.offsetOf(clean.u32(FE8U_ROOT_POINTER_LITERAL))) !== ROM_BASE + text.root) {
@@ -479,6 +557,15 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
   }
   const codes = tree?.codes ?? vanillaCodes;
   const names = wanted.map((n) => ({ textId: n.textId, pointer: w.bytes(Array.from(encodeTextBytes(codes!, n.bytes))) }));
+  const messagePointers = messages.map((m) => w.bytes(Array.from(encodeTextBytes(codes!, m.bytes))));
+  // With new messages the text table moves, longer: room for it here, and the two places FE8 reads its address.
+  const tableLiterals: number[] = [];
+  if (messages.length) {
+    for (let a = 0; a + 4 <= clean.size; a += 4) if (clean.u32(a) === ROM_BASE + text.table) tableLiterals.push(a);
+    if (tableLiterals.length !== 2) throw new Error("This ROM's text table isn't where this tool expects it, so it can't add what villages say.");
+  }
+  // Ended by a 0, so the table doesn't seem to run on into what follows it.
+  const newTable = messages.length ? w.words(new Array(text.count + messages.length + 1).fill(0)) : null;
 
   // The new event group starts as a copy of vanilla's, which keeps its skirmish lists.
   const group = Array.from({ length: EVENT_GROUP.size / 4 }, (_, k) => clean.u32(vanillaGroup + 4 * k));
@@ -515,6 +602,13 @@ export function buildFe8Rom(clean: GbaRom, text: TextTable, chapter: ProjectChap
     view.setUint32(text.table + n.textId * 4, n.pointer, true);
   }
   if (moved) checkText(clean, text, bytes, moved, new Set(names.map((n) => n.textId)));
+  // The longer table: the game's entries as now written (names and re-encoded texts included), then the messages.
+  if (newTable !== null) {
+    const at = newTable - ROM_BASE;
+    for (let id = 0; id < text.count; id++) view.setUint32(at + id * 4, view.getUint32(text.table + id * 4, true), true);
+    messagePointers.forEach((p, i) => view.setUint32(at + (text.count + i) * 4, p, true));
+    for (const literal of tableLiterals) view.setUint32(literal, newTable, true);
+  }
   // Their stats, as their characters' personal bases at their level (signed bytes). Read from the
   // clean ROM, since only the character's record changes.
   for (const u of ownUnits) {

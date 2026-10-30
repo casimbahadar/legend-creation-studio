@@ -20,7 +20,7 @@ import { FE8U_LEVEL_UP_TEXT_AP, FE8U_STAT_GAIN_AP, readLevelUpBox, readLevelUpSp
 import { readApAnimation } from './fe8-ap';
 import type { Team } from './fe8-windows';
 import { contentBounds, drawFrame, drawGoalWindow, drawUnitWindow, readWindowArt } from './fe8-windows';
-import { buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { buildFe8Rom, readVillageScene, villageMessage, VILLAGER_OPENING, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_GATE_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
 import { FE8U_GET_DEFEAT_TALK_ENTRY, findDefeatTalkList, readDefeatTalks } from './fe8-death-quotes';
 import { readMapSprite, readTeamPalettes, renderMapSprite } from './fe8-map-sprites';
 import { readAllChapterMaps, readChapterMap, renderMap } from './fe8-maps';
@@ -213,6 +213,36 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     const slot = readChapter(built, text, 0);
     expect(strip(readTileEvents(built, slot))).toEqual(strip(readTileEvents(rom, readChapter(rom, text, 4))));
     expect(readMapChanges(built, slot)).toEqual(readMapChanges(rom, readChapter(rom, text, 4)));
+  });
+
+  it("adds what a village of the user's says as a new message, played in Chapter 4's village scene, keeping every other text", () => {
+    const text = findTextTable(rom)!;
+    expect(readVillageScene(rom)).not.toBeNull();
+    // Chapter 4's message starts with the faces the user's villages use.
+    expect(Array.from(decodeTextBytes(rom, text, 0x9b5).subarray(0, VILLAGER_OPENING.length))).toEqual(VILLAGER_OPENING);
+    const say = 'Welcome, traveller! Take this with you, and mind the river to the south.';
+    const built = readRom(
+      buildFe8Rom(rom, text, {
+        id: 'c',
+        name: 'C',
+        map: 'fe8-us/chapter-entry-4',
+        goal: 'rout',
+        units: [
+          { id: 'eirika', class: 'lord-eirika', team: 'player', level: 1, at: [3, 3], items: ['rapier'], mustSurvive: true },
+          { id: 'f', class: 'fighter', team: 'enemy', level: 3, at: [10, 5], items: ['iron-axe'] },
+        ],
+        places: [{ kind: 'village', at: [8, 2], text: say, item: 'vulnerary' }],
+      }).bytes,
+    );
+    const after = findTextTable(built)!;
+    expect(after.count).toBe(text.count + 1);
+    const strip = (b: Uint8Array) => Array.from(b).filter((x, i, a) => !(x === 0x1f && a.slice(i).every((y) => y === 0x1f)));
+    expect(strip(decodeTextBytes(built, after, text.count))).toEqual(villageMessage(say));
+    for (const id of [1, 0x9b5, text.count - 1]) expect(Array.from(decodeTextBytes(built, after, id))).toEqual(Array.from(decodeTextBytes(rom, text, id)));
+    // The village plays Chapter 4's scene with the new message, then gives the Vulnerary.
+    const events = readTileEvents(built, readChapter(built, after, 0));
+    const village = events.find((e) => e.kind === 'village')!;
+    expect(village).toMatchObject({ x: 8, y: 2, flag: 100, scene: { texts: [text.count], item: 0x6c, custom: false } });
   });
 
   it("encodes names with the ROM's own Huffman tree so they decode back", () => {

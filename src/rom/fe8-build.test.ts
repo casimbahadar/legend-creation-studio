@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mapRef, type ProjectChapter } from '../core/project';
-import { AI_BYTES, buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, surviveObjective, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
+import { AI_BYTES, FE8U_VILLAGE_SCENE, readVillageScene, villageMessage, VILLAGER_OPENING, buildFe8Rom, DEFEAT_BOSS_GOAL_CHAPTER, SURVIVE_GOAL_CHAPTER, surviveObjective, EXPANSION, findChapterChange, ROUT_GOAL_CHAPTER, SEIZE_THRONE_GOAL_CHAPTER } from './fe8-build';
 import { FE8U_GET_DEFEAT_TALK_ENTRY, readDefeatTalks } from './fe8-death-quotes';
 import { ASSET_TABLE, CHAPTER_STRIDE, CHAPTER_TABLE, EVENT_GROUP, readUnitList } from './fe8-chapters';
 import { GENERIC_ENEMY } from './fe8-character-names';
@@ -185,7 +185,7 @@ describe('FE8 builder', () => {
         { kind: 'door', at: [1, 2] },
         { kind: 'chest', at: [2, 2], item: 'rapier' },
         { kind: 'chest', at: [3, 2], gold: 500 },
-        { kind: 'village', at: [4, 3], item: 'rapier', text: 'Hello.' },
+        { kind: 'village', at: [4, 3], item: 'rapier' },
         { kind: 'house', at: [5, 3], gold: 300 },
       ],
     };
@@ -198,7 +198,23 @@ describe('FE8 builder', () => {
     // The village's scene gives the Rapier (9) to the visitor; the house's gives 300 gold to the party.
     expect(words(out, list[10]!, 5)).toEqual([0x00030540, 0x09, 0xffff3720, 0x00070228, 0x0120]);
     expect(words(out, list[16]!, 5)).toEqual([0x00030540, 300, 0x00003721, 0x00070228, 0x0120]);
-    expect(b.notes).toContain("What your own village or house says isn't in the patch yet; it gives what you chose without words.");
+  });
+
+  it("writes a village's words as FE8's village messages are: faces, then two lines to a box", () => {
+    const say = (t: string) => villageMessage(t).slice(VILLAGER_OPENING.length).map((b) => (b === 1 ? '|' : b === 3 ? '#' : String.fromCharCode(b))).join('');
+    expect(villageMessage('Hello.').slice(0, VILLAGER_OPENING.length)).toEqual([0x09, 0x10, 0xff, 0xff, 0x0c, 0x10, 0x5b, 0x01, 0x0c]);
+    expect(say('Hello.')).toBe('Hello.#');
+    expect(say('Welcome, traveller! Take this with you, and mind the river to the south.')).toBe('Welcome, traveller! Take this|with you, and mind the river#|to the south.#');
+  });
+
+  it("reads Chapter 4's village scene to play a village's words in, refusing one of another shape", () => {
+    const bytes = clean.slice();
+    const view = new DataView(bytes.buffer);
+    const scene = [0x1520, 0x00020540, 2, 0x00030540, 0x9b5, 0x0a40, ROM_BASE + 0x9ee310, 0x1521, 0x0a40, ROM_BASE + 0x591f40, 0x00030540, 0x1f, 0xffff3720, 0x00070228, 0x0120];
+    scene.forEach((v, i) => view.setUint32(FE8U_VILLAGE_SCENE + i * 4, v >>> 0, true));
+    expect(readVillageScene(readRom(bytes))).toEqual({ music: 0x1520, background: 2, textWithBackground: ROM_BASE + 0x9ee310, musicBack: 0x1521, removeBackground: ROM_BASE + 0x591f40 });
+    view.setUint32(FE8U_VILLAGE_SCENE + 12 * 4, 0x0120, true);
+    expect(readVillageScene(readRom(bytes))).toBeNull();
   });
 
   it("copies FE8's own doors, chests and villages from the map's chapter when the chapter keeps them", () => {
