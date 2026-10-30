@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Stats } from './combat';
 import { searchMoves } from './movement';
-import { startPlay, type PlayState, type PlayUnit } from './play';
+import { setStatus, startPlay, type PlayPlace, type PlayState, type PlayUnit } from './play';
 import {
   brokenWeapons,
   canMove,
@@ -15,6 +15,7 @@ import {
   menuOptions,
   moveCursor,
   MSG_CANT_STEAL,
+  MSG_CANT_VISIT_SILENCED,
   MSG_INVENTORY_FULL,
   optionDisabled,
   pressA,
@@ -830,3 +831,38 @@ describe('Rescue and Warp', () => {
     expect(tapAt(tapped, 4, 1, r).battle).toMatchObject({ relocate: [4, 1] });
   });
 });
+
+describe('visiting and opening', () => {
+  // Eirika at (1, 1) carrying a Chest Key on a chest, a door above her; a village at (2, 1).
+  const places: PlayPlace[] = [
+    { kind: 'chest', at: [1, 1], gold: 300 },
+    { kind: 'door', at: [1, 0] },
+    { kind: 'village', at: [2, 1], text: 'Hello.' },
+  ];
+  const keyRules: PlayRules = { ...rules, keyFor: (u, kind) => (kind === 'chest' && u.items.includes('chest-key') ? u.items.indexOf('chest-key') : null) };
+  const chapter = chapterWith([4, 2]);
+  chapter.units[1] = { ...chapter.units[1]!, items: ['chest-key'] };
+  const begin = () => startView(startPlay(chapter, () => STATS, () => 0, () => 1, places));
+  /** Selects Eirika and opens her menu where she stands. */
+  const menu = (v: PlayView) => pressA(pressA(v, keyRules), keyRules);
+
+  it('offers Chest on a closed chest with a key, and Door only with a key for doors', () => {
+    const v = menu(begin());
+    expect(menuOptions(v, keyRules)).toEqual(['chest', 'item', 'wait']);
+    const opened = chooseOption(v, 'chest', keyRules);
+    expect([opened.state.gold, opened.found, eirika(opened).items, eirika(opened).moved]).toEqual([300, { kind: 'chest', unit: 'eirika', gold: 300 }, [], true]);
+    // The key's one use opened the door beside her too, as FE8's key does.
+    expect(opened.state.places!.every((p) => p.kind === 'village' || p.done)).toBe(true);
+    expect(pressA(opened, keyRules).found).toBeUndefined();
+  });
+
+  it('offers Visit on a village not yet visited, and says why a Silenced unit can\'t', () => {
+    const v = moveRight(begin());
+    expect(menuOptions(v, keyRules)).toContain('visit');
+    expect(chooseOption(v, 'visit', keyRules).found).toEqual({ kind: 'village', unit: 'eirika', text: 'Hello.' });
+    const silenced = { ...v, state: setStatus(v.state, 'eirika', 'silence') };
+    expect(optionDisabled(silenced, 'visit')).toBe(true);
+    expect(chooseOption(silenced, 'visit', keyRules).notice).toBe(MSG_CANT_VISIT_SILENCED);
+  });
+});
+

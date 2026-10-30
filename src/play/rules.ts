@@ -12,7 +12,7 @@ import type { RomCharacter } from '../rom/fe8-characters';
 import { CA_BOSS, CA_LORD, CA_MAXLEVEL10, CA_PROMOTED, CA_STEAL, CA_THIEF } from '../rom/fe8-classes';
 import { isStaff, isStealable } from '../rom/fe8-items';
 import type { ChapterMap } from '../rom/fe8-maps';
-import { distance, IA_MAGIC, inReach, toWeapon, usable, weaponsOf, type ClassArt, type GameItem } from './catalog';
+import { distance, fullUses, IA_MAGIC, inReach, toWeapon, usable, weaponsOf, type ClassArt, type GameItem } from './catalog';
 
 export interface FightPreview {
   readonly forecast: Forecast;
@@ -420,6 +420,16 @@ export function chapterRules(
     },
     // BattleApplyMiscActionExpGains: 10 for a steal.
     stealExperience: (u) => award(u, 10),
+    keyFor: (u, kind) => {
+      // GetUnitKeyItemSlotForTerrain: a thief's Lockpick first, then the key for the terrain.
+      const slot = (name: string) => {
+        const i = u.items.indexOf(name);
+        return i >= 0 ? i : null;
+      };
+      const thief = (((artByName.get(u.class)?.attributes ?? 0) | (characterOf(u)?.attributes ?? 0)) & CA_THIEF) !== 0;
+      return (thief ? slot('lockpick') : null) ?? slot(kind === 'chest' ? 'chest-key' : 'door-key');
+    },
+    usesOf: (name) => fullUses(name, items),
     itemUse: (u, index) => {
       const item = items.find((i) => i.entry.name === u.items[index]);
       const art = artByName.get(u.class);

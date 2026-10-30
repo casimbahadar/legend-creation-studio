@@ -12,11 +12,11 @@ export type { StaffChoice } from './ai';
 import type { Stats, Strike } from './combat';
 import type { ExpResult } from './experience';
 import { followCursor, shortestRoute, type MoveSearch } from './movement';
-import { applyBattle, applyExp, boostUnit, cannotAct, clearStatus, discardItem, setBarrier, setStatus, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Outcome, type PlayState, type PlayUnit, type StatusKind } from './play';
+import { applyBattle, applyExp, boostUnit, cannotAct, clearStatus, closedPlace, discardItem, doorsBeside, openWithKey, visitPlace, setBarrier, setStatus, tickStatuses, seize, stealItem, tradeItems, endTurn, equipItem, finishAction, healUnit, moveUnit, outcomeOf, readyAll, spendUses, UNIT_ITEM_COUNT, unitAt, useHealItem, type Found, type Outcome, type PlayState, type PlayUnit, type StatusKind } from './play';
 
 export type Phase = 'player' | 'enemy' | 'ally';
 
-export type MenuOption = 'seize' | 'attack' | 'staff' | 'steal' | 'item' | 'trade' | 'wait';
+export type MenuOption = 'seize' | 'attack' | 'staff' | 'steal' | 'visit' | 'chest' | 'door' | 'item' | 'trade' | 'wait';
 
 /** What can be done with one item, as in FE8's item menu. */
 export type ItemOption = 'equip' | 'use' | 'discard';
@@ -150,11 +150,18 @@ export interface PlayView {
   readonly outcome: Outcome | null;
   /** A help message (an FE8 text id) shown for choosing something that can't be used; A or B closes it. */
   readonly notice?: number;
+  /** What a unit found in a chest, village or house; A, B or a tap closes it. */
+  readonly found?: Found;
 }
 
 /** FE8's messages for a disabled choice (MenuFrozenHelpBox): Steal with a full inventory, and an item that can't be stolen. */
 export const MSG_INVENTORY_FULL = 0x862;
 export const MSG_CANT_STEAL = 0x855;
+/** VisitCommandEffect's message for a Silenced unit. */
+export const MSG_CANT_VISIT_SILENCED = 0x84c;
+
+/** Whether a help message or what a unit found is showing, which A, B or a tap closes first. */
+const windowOpen = (view: PlayView) => view.notice !== undefined || !!view.found;
 
 export interface PlayRules extends AiRules {
   readonly width: number;
@@ -181,6 +188,13 @@ export interface PlayRules extends AiRules {
   itemUse?(unit: PlayUnit, index: number): ItemUse;
   /** Whether the unit's item `index` can be stolen (IsItemStealable); none can if left out. */
   stealable?(unit: PlayUnit, index: number): boolean;
+  /**
+   * The item a unit opens a door or chest with (GetUnitKeyItemSlotForTerrain): a thief's Lockpick, or
+   * else a Chest Key for a chest and a Door Key for a door; null if it has none (none if left out).
+   */
+  keyFor?(unit: PlayUnit, kind: 'door' | 'chest'): number | null;
+  /** An item's full uses, for one a unit gets; null for one that never runs out. */
+  usesOf?(item: string): number | null;
   /** The experience stealing gives the unit, if any. */
   stealExperience?(unit: PlayUnit): ExpAward | null;
 }
@@ -272,6 +286,10 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
   if (rules.targetsOf(unit, view.state).length) options.push('attack');
   if (rules.staffChoices?.(unit, view.state).length) options.push('staff');
   if (stealTargets(view.state, unit, rules).length) options.push('steal');
+  // VisitCommandUsability, ChestCommandUsability, DoorCommandUsability.
+  if (closedPlace(view.state, ['village', 'house'], unit.at[0], unit.at[1])) options.push('visit');
+  if ((rules.keyFor?.(unit, 'chest') ?? null) !== null && closedPlace(view.state, 'chest', unit.at[0], unit.at[1])) options.push('chest');
+  if ((rules.keyFor?.(unit, 'door') ?? null) !== null && doorsBeside(view.state, unit.at).length) options.push('door');
   if (unit.items.length) options.push('item');
   if (tradePartners(view.state, unit).length) options.push('trade');
   options.push('wait');
@@ -280,10 +298,11 @@ export function menuOptions(view: PlayView, rules: PlayRules): MenuOption[] {
 
 /**
  * Whether a menu option shows but can't be chosen (MENU_DISABLED): Steal with a full inventory
- * (StealCommandUsability).
+ * (StealCommandUsability), Visit while Silenced (VisitCommandUsability).
  */
 export function optionDisabled(view: PlayView, option: MenuOption): boolean {
   const unit = view.action ? unitById(view.state, view.action.unit) : undefined;
+  if (option === 'visit') return unit?.status?.kind === 'silence';
   return option === 'steal' && !!unit && unit.items.length >= UNIT_ITEM_COUNT;
 }
 
@@ -379,7 +398,7 @@ export function cursorTo(view: PlayView, x: number, y: number, rules: PlayRules)
 
 /** A D-pad press: moves the cursor, or the highlight in the action menu, or the chosen target. */
 export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRules): PlayView {
-  if (busy(view) || view.notice !== undefined) return view;
+  if (busy(view) || windowOpen(view)) return view;
   const a = view.action;
   if (a?.kind === 'menu' || a?.kind === 'items' || a?.kind === 'item' || a?.kind === 'weapon' || a?.kind === 'steal') {
     const n =
@@ -425,7 +444,7 @@ export function moveCursor(view: PlayView, dx: number, dy: number, rules: PlayRu
 /** A tap on a square: moves the cursor there and presses A. Ignored outside the reach of a unit being moved. */
 export function tapAt(view: PlayView, x: number, y: number, rules: PlayRules): PlayView {
   if (busy(view)) return view;
-  if (view.notice !== undefined) return closeNotice(view);
+  if (windowOpen(view)) return closeNotice(view);
   const a = view.action;
   if (a?.kind === 'target') {
     // Tap a target to choose it; tap it again to attack.
@@ -460,6 +479,15 @@ export function chooseOption(view: PlayView, option: MenuOption, rules: PlayRule
     return { ...view, state, action: null, outcome: outcomeOf(state) };
   }
   if (option === 'item') return unit.items.length ? { ...view, action: { kind: 'items', unit: unit.id, from: a.from, index: 0 } } : view;
+  if (option === 'visit' || option === 'chest' || option === 'door') {
+    if (option === 'visit' && optionDisabled(view, option)) return { ...view, notice: MSG_CANT_VISIT_SILENCED };
+    const usesOf = (item: string) => rules.usesOf?.(item) ?? null;
+    const key = option === 'visit' ? null : (rules.keyFor?.(unit, option) ?? null);
+    if (option !== 'visit' && key === null) return view;
+    const done = option === 'visit' ? visitPlace(view.state, unit.id, usesOf) : openWithKey(view.state, unit.id, key, usesOf);
+    const state = finishAction(done.state, unit.id);
+    return { ...view, state, action: null, ...(done.found ? { found: done.found } : {}) };
+  }
   if (option === 'steal') {
     // With a full inventory, FE8 only says so (StealCommandEffect).
     if (optionDisabled(view, option)) return { ...view, notice: MSG_INVENTORY_FULL };
@@ -567,14 +595,15 @@ export function chooseItemOption(view: PlayView, option: ItemOption, rules: Play
 }
 
 /** The help message closes. */
+/** Closes the help message, or what a unit found. */
 export function closeNotice(view: PlayView): PlayView {
-  const { notice: _closed, ...rest } = view;
+  const { notice: _closed, found: _found, ...rest } = view;
   return rest;
 }
 
 export function pressA(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view)) return view;
-  if (view.notice !== undefined) return closeNotice(view);
+  if (windowOpen(view)) return closeNotice(view);
   const a = view.action;
   if (a?.kind === 'menu') {
     const option = menuOptions(view, rules)[a.index];
@@ -637,7 +666,7 @@ export function pressA(view: PlayView, rules: PlayRules): PlayView {
  */
 export function pressB(view: PlayView, rules: PlayRules): PlayView {
   if (busy(view)) return view;
-  if (view.notice !== undefined) return closeNotice(view);
+  if (windowOpen(view)) return closeNotice(view);
   const a = view.action;
   if (a?.kind === 'item') return { ...view, action: { kind: 'items', unit: a.unit, from: a.from, index: a.item } };
   if (a?.kind === 'trade') {

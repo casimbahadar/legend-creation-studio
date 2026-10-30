@@ -4,7 +4,7 @@
 import type { Stats } from './combat';
 import type { ExpResult } from './experience';
 import { goalRule, type GoalRule } from './goals';
-import { DEFAULT_BEHAVIOUR, type Behaviour, type ProjectChapter, type ProjectUnit, type Team } from './project';
+import { DEFAULT_BEHAVIOUR, type Behaviour, type PlaceKind, type ProjectChapter, type ProjectUnit, type Team } from './project';
 
 export interface PlayUnit {
   readonly id: string;
@@ -49,6 +49,32 @@ export interface Status {
 /** How long a status lasts (SetUnitStatus). */
 export const STATUS_TURNS = 5;
 
+/** A door, chest, village or house in play (decision 38), with what it gives as plain values. */
+export interface PlayPlace {
+  readonly kind: PlaceKind;
+  readonly at: readonly [number, number];
+  readonly item?: string;
+  readonly gold?: number;
+  /** What is said there. */
+  readonly text?: string;
+  /** FE8's own scene here does more than test play shows (checking who visits, a unit joining). */
+  readonly more?: boolean;
+  /** Opened, or visited: each opens or is visited once. */
+  readonly done?: boolean;
+}
+
+/** What a unit found opening a chest or visiting a village or house. */
+export interface Found {
+  readonly kind: PlaceKind;
+  readonly unit: string;
+  readonly text?: string;
+  readonly item?: string;
+  readonly gold?: number;
+  /** The item was left behind: the unit's items were full. */
+  readonly full?: boolean;
+  readonly more?: boolean;
+}
+
 export interface PlayState {
   readonly turn: number;
   readonly units: readonly PlayUnit[];
@@ -58,6 +84,10 @@ export interface PlayState {
   readonly goal?: GoalRule;
   /** The lord has seized. */
   readonly seized?: boolean;
+  /** Doors, chests, villages and houses; none if left out. */
+  readonly places?: readonly PlayPlace[];
+  /** The party's gold from chests, villages and houses; none if left out. */
+  readonly gold?: number;
 }
 
 export type Outcome = { readonly result: 'victory' } | { readonly result: 'defeat'; readonly fallen: PlayUnit | null };
@@ -80,8 +110,10 @@ export function startPlay(
   statsOf: (unit: ProjectUnit) => Stats,
   expOf: (unit: ProjectUnit) => number | null = () => null,
   usesOf: (item: string) => number | null = () => null,
+  places: readonly PlayPlace[] = [],
 ): PlayState {
   return {
+    ...(places.length ? { places } : {}),
     turn: 1,
     units: chapter.units.map((u) => {
       const stats = statsOf(u);
@@ -104,6 +136,58 @@ export function startPlay(
     fallen: [],
     goal: goalRule(chapter),
   };
+}
+
+/** The door, chest, village or house of `kind` at a square, if it isn't opened or visited yet. */
+export function closedPlace(state: PlayState, kind: PlaceKind | readonly PlaceKind[], x: number, y: number): PlayPlace | undefined {
+  const kinds: readonly PlaceKind[] = typeof kind === 'string' ? [kind] : kind;
+  return state.places?.find((p) => kinds.includes(p.kind) && !p.done && p.at[0] === x && p.at[1] === y);
+}
+
+/** Closed doors beside a square (ForEachAdjacentPosition, TryAddClosedDoorToTargetList), left, right, up, down. */
+export function doorsBeside(state: PlayState, at: readonly [number, number]): PlayPlace[] {
+  return ([[-1, 0], [1, 0], [0, -1], [0, 1]] as const).flatMap(([dx, dy]) => closedPlace(state, 'door', at[0] + dx, at[1] + dy) ?? []);
+}
+
+/** Marks places done and gives a unit what one of them holds: its item if the unit has room, or its gold to the party. */
+function open(state: PlayState, done: readonly PlayPlace[], unitId: string, gives: PlayPlace | undefined, usesOf: (item: string) => number | null): { state: PlayState; found: Found | null } {
+  let next: PlayState = { ...state, places: state.places?.map((p) => (done.includes(p) ? { ...p, done: true } : p)) };
+  if (!gives || gives.kind === 'door') return { state: next, found: null };
+  const unit = next.units.find((u) => u.id === unitId);
+  const full = gives.item !== undefined && (!unit || unit.items.length >= UNIT_ITEM_COUNT);
+  if (gives.item !== undefined && !full) {
+    next = { ...next, units: next.units.map((u) => (u.id === unitId ? { ...u, items: [...u.items, gives.item!], uses: [...u.uses, usesOf(gives.item!)] } : u)) };
+  }
+  if (gives.gold !== undefined) next = { ...next, gold: (next.gold ?? 0) + gives.gold };
+  const found: Found = {
+    kind: gives.kind,
+    unit: unitId,
+    ...(gives.text !== undefined ? { text: gives.text } : {}),
+    ...(gives.item !== undefined ? { item: gives.item } : {}),
+    ...(gives.gold !== undefined ? { gold: gives.gold } : {}),
+    ...(full ? { full: true } : {}),
+    ...(gives.more ? { more: true } : {}),
+  };
+  return { state: next, found };
+}
+
+/**
+ * A unit uses a key (ExecKeyItem): one use of item `index` (if given) opens every closed door beside
+ * it and the closed chest it stands on, whose item or gold it gets.
+ */
+export function openWithKey(state: PlayState, unitId: string, index: number | null, usesOf: (item: string) => number | null = () => null): { state: PlayState; found: Found | null } {
+  const unit = state.units.find((u) => u.id === unitId);
+  if (!unit) return { state, found: null };
+  const chest = closedPlace(state, 'chest', unit.at[0], unit.at[1]);
+  const spent = index === null ? state : spendUses(state, unitId, index, 1);
+  return open(spent, [...doorsBeside(state, unit.at), ...(chest ? [chest] : [])], unitId, chest, usesOf);
+}
+
+/** A unit visits the village or house it stands on: what's said there, and its item or gold. */
+export function visitPlace(state: PlayState, unitId: string, usesOf: (item: string) => number | null = () => null): { state: PlayState; found: Found | null } {
+  const unit = state.units.find((u) => u.id === unitId);
+  const place = unit && closedPlace(state, ['village', 'house'], unit.at[0], unit.at[1]);
+  return place ? open(state, [place], unitId, place, usesOf) : { state, found: null };
 }
 
 export function unitAt(state: PlayState, x: number, y: number): PlayUnit | undefined {

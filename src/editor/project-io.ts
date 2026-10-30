@@ -1,7 +1,7 @@
 // Project files in the editor: reading what the editor needs from the ROM, opening a file (checked
 // against this ROM, older forms converted), and saving one.
 
-import { checkProject, mapEntry, MAX_ITEMS, MAX_LEVEL, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectPlace, type ProjectUnit } from '../core/project';
+import { checkProject, mapEntry, MAX_ITEMS, MAX_LEVEL, projectToJson, STAT_KEYS, toName, type Problem, type Project, type ProjectChapter, type ProjectPlace, type ProjectUnit } from '../core/project';
 import { characterIds, ownsCharacter } from '../rom/fe8-build';
 import { CHAPTER_COUNT, readChapter } from '../rom/fe8-chapters';
 import { ALL_CHARACTER_NAMES, characterIdOf, checkCharacterNames, FE8_BOSS_NAMES, FE8_CHARACTER_NAMES, type CharacterMismatch } from '../rom/fe8-character-names';
@@ -21,12 +21,13 @@ import { readForecastMultipliers, type ForecastMultipliers } from '../rom/fe8-fo
 import { readBattleBoxArt, type BattleBoxArt } from '../rom/fe8-battle-box';
 import { readHitEffects, type HitEffects } from '../rom/fe8-hit-effects';
 import { readMapChanges, readTileEvents } from '../rom/fe8-tile-events';
-import { fe8Places, type Fe8Places } from '../play/places';
+import { chapterPlaces, fe8Places, type Fe8Places } from '../play/places';
+import type { PlayPlace } from '../core/play';
 import type { Image, Palette } from '../rom/gba-graphics';
 import { FE8_ITEM_NAMES, type ItemMismatch } from '../rom/fe8-item-names';
 import type { NameMismatch } from '../rom/fe8-names';
 import { readRom, type GbaRom } from '../rom/gba-rom';
-import { findTextTable, type TextTable } from '../rom/text';
+import { decodeTextBytes, findTextTable, type TextTable } from '../rom/text';
 import { readHuffmanCodes, type HuffmanCodes } from '../rom/text-encode';
 import { classStats, readCatalog, type ClassArt, type GameItem } from '../play/catalog';
 
@@ -156,6 +157,49 @@ export function startingPlaces(data: EditorRom, ref: string): ProjectPlace[] {
   const entry = mapEntry(ref);
   const fe8 = entry === null ? undefined : data.fe8Places[entry];
   return fe8 ? fe8Places(fe8, (id) => ITEM_NAMES_BY_ID.get(id)) : [];
+}
+
+/** One of the ROM's messages as plain text: line breaks as spaces, control codes left out; "" if unreadable. */
+export function plainText(data: EditorRom, id: number): string {
+  try {
+    const bytes = decodeTextBytes(data.rom, data.text, id);
+    return String.fromCharCode(...Array.from(bytes, (b) => (b === 1 ? 0x20 : b)).filter((b) => b >= 0x20 && b < 0x7f))
+      .replace(/\s+/g, ' ')
+      .trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * A chapter's doors, chests, villages and houses for test play, as plain values: FE8's own villages and
+ * houses with their scene's text, item or gold, and `more` if the scene does more than that; FE8's own
+ * random chest with one of its items, chosen with `rn` (0 to 99) by its chances, as the game does.
+ */
+export function playPlaces(data: EditorRom, chapter: ProjectChapter, rn: () => number): PlayPlace[] {
+  const entry = mapEntry(chapter.map);
+  const events = (entry === null ? undefined : data.fe8Places[entry])?.events ?? [];
+  return chapterPlaces(chapter, startingPlaces(data, chapter.map)).map((p): PlayPlace => {
+    const at: [number, number] = [p.at[0], p.at[1]];
+    if (!p.fe8) return { kind: p.kind, at, ...(p.item !== undefined ? { item: p.item } : {}), ...(p.gold !== undefined ? { gold: p.gold } : {}), ...(p.text?.trim() ? { text: p.text.trim() } : {}) };
+    const e = events.find((x) => x.x === at[0] && x.y === at[1] && x.kind !== 'door');
+    const name = (id: number | null) => (id === null ? undefined : ITEM_NAMES_BY_ID.get(id));
+    if (e?.kind === 'randomChest') {
+      // The chest case of the tile command handler: walk the list until the chances passed exceed the roll.
+      const roll = rn();
+      let sum = 0;
+      // A roll past every chance finds nothing.
+      const pick = e.items.find((i) => roll < (sum += i.chance));
+      const item = name(pick?.item ?? null);
+      return { kind: 'chest', at, ...(item ? { item } : {}) };
+    }
+    if (e?.kind === 'chest') return { kind: 'chest', at, ...(e.gold ? { gold: e.gold } : name(e.item) ? { item: name(e.item)! } : {}) };
+    const scene = e?.kind === 'village' || e?.kind === 'house' ? e.scene : null;
+    if (!scene) return { kind: p.kind, at, more: true };
+    const text = scene.texts.map((id) => plainText(data, id)).filter(Boolean).join(' ');
+    const item = name(scene.item);
+    return { kind: p.kind, at, ...(text ? { text } : {}), ...(item ? { item } : scene.gold ? { gold: scene.gold } : {}), ...(scene.custom ? { more: true } : {}) };
+  });
 }
 
 /** Index in `maps` of the map a reference points to, or -1. Entries that reuse a listed layout resolve to it. */

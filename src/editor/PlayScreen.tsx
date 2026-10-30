@@ -21,6 +21,7 @@ import {
   chooseItemOption,
   chooseOption,
   MSG_CANT_STEAL,
+  MSG_CANT_VISIT_SILENCED,
   MSG_INVENTORY_FULL,
   chooseStealItem,
   chooseTradeSlot,
@@ -61,7 +62,10 @@ import { frameStyle, imageUrl, WindowArtContext } from './FeWindow';
 import { PhaseIntro } from './PhaseIntro';
 import { Chibi, faceUrl } from './Portrait';
 import { shortClassLabel } from './labels';
-import { unitCharacters, type EditorRom } from './project-io';
+import { playPlaces, unitCharacters, type EditorRom } from './project-io';
+import { openedMap } from '../play/places';
+import { renderMap } from '../rom/fe8-maps';
+import { mapEntry } from '../core/project';
 import { BattleHud, BattlePopup, ExpWindow, HitEffect, ForecastWindow, GoalWindow, HealWindow, LevelUpScreen, levelUpLabels, LevelUpWindow, PlayHint, UnitStrip, UnitWindow, type Corner, type PlayPhase } from './TestPlayPanels';
 
 /** How long a phase banner shows (as long as FE8's phase intro), and the pause between computer units' actions. */
@@ -69,12 +73,29 @@ const BANNER_MS = Math.ceil((PHASE_INTRO_FRAMES * 1000) / 60);
 const PHASE_NAMES = { player: 'Player Phase', enemy: 'Enemy Phase', ally: 'Ally Phase' } as const;
 /** How long the notice that a weapon broke shows (A closes it sooner). */
 const BROKE_MS = 1500;
-const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', steal: 'Steal', item: 'Item', trade: 'Trade', wait: 'Wait' };
+const MENU_LABELS: Record<MenuOption, string> = { seize: 'Seize', attack: 'Attack', staff: 'Staff', steal: 'Steal', visit: 'Visit', chest: 'Chest', door: 'Door', item: 'Item', trade: 'Trade', wait: 'Wait' };
 const ITEM_OPTION_LABELS: Record<ItemOption, string> = { equip: 'Equip', use: 'Use', discard: 'Discard' };
 const AI_PAUSE_MS = 700;
 
 /** English for FE8's messages, if the ROM's text can't be read. */
-const NOTICE_FALLBACK: Record<number, string> = { [MSG_INVENTORY_FULL]: 'Your inventory is full.', [MSG_CANT_STEAL]: "Weapons, magic, and staves can't be stolen." };
+const NOTICE_FALLBACK: Record<number, string> = {
+  [MSG_INVENTORY_FULL]: 'Your inventory is full.',
+  [MSG_CANT_STEAL]: "Weapons, magic, and staves can't be stolen.",
+  [MSG_CANT_VISIT_SILENCED]: "You can't visit villages or houses while Silenced.",
+};
+/** Letters to a line of what's said in a village or house. */
+const SAID_LINE = 28;
+
+/** Text broken into lines of at most `width` letters, at spaces. */
+function wrapWords(text: string, width: number): string[] {
+  const lines: string[] = [];
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && last.length + 1 + word.length <= width) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return lines;
+}
 
 /** An FE8 message's lines: control code 0x01 breaks a line; the others (waits, the end) are left out. */
 function messageLines(bytes: Uint8Array): string[] {
@@ -158,6 +179,7 @@ export function PlayScreen({
         // Only player units gain experience, as in FE8.
         (u) => (u.team === 'player' ? startingExp(u.level, maxLevel(artByName.get(u.class), characters.get(u.id))) : null),
         (item) => fullUses(item, data.items),
+        playPlaces(data, chapter, () => rng.current()),
       ),
     );
   };
@@ -175,10 +197,15 @@ export function PlayScreen({
     return () => observer.disconnect();
   }, [map.width]);
 
-  // The rules change only with the map or the ROM data.
+  // The map as play has changed it: FE8's tile changes for each door, chest and village opened (decision 38).
+  const fe8 = data.fe8Places[mapEntry(chapter.map) ?? -1];
+  const openedKey = (play.places ?? []).filter((p) => p.done).map((p) => p.at.join(',')).join(';');
+  const liveMap = useMemo(() => (fe8 ? openedMap(map, fe8.changes, play.places) : map), [map, fe8, openedKey]); // play.places matters only through openedKey
+  const liveImage = useMemo(() => (liveMap === map ? mapImage : toCanvas(renderMap(liveMap))), [liveMap, map, mapImage]);
+  // The rules change only with the map (and what's opened on it) or the ROM data.
   const chapterPlay = useMemo(
-    () => chapterRules(map, artByName, data.items, () => rng.current(), (u) => characters.get(u.id)),
-    [map, artByName, data.items, characters],
+    () => chapterRules(liveMap, artByName, data.items, () => rng.current(), (u) => characters.get(u.id)),
+    [liveMap, artByName, data.items, characters],
   );
   const rules = chapterPlay.rules;
   const canMove = unitCanMove(selectedUnit);
@@ -347,7 +374,7 @@ export function PlayScreen({
       const step = (from: number, to: number) => from + Math.sign(to - from) * Math.min(Math.abs(to - from), 6);
       shown.current = [step(shown.current[0], camera.current[0] * 16), step(shown.current[1], camera.current[1] * 16)];
       g.setTransform(1, 0, 0, 1, -shown.current[0], -shown.current[1]);
-      g.drawImage(mapImage, 0, 0);
+      g.drawImage(liveImage, 0, 0);
       if (range) {
         const w = map.width;
         for (const k of range.stops.keys()) drawRangeSquare(g, k % w, Math.floor(k / w), MOVE_COLOURS);
@@ -418,7 +445,7 @@ export function PlayScreen({
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [mapImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH, cursorCorner, statusIcons]);
+  }, [liveImage, artByName, play, range, view, arrow, walk, battle, rules, map.width, viewW, viewH, cursorCorner, statusIcons]);
 
   // The computer's phases: a pause on each phase banner, then one unit at a time.
   const aiTurn = (view.phase !== 'player' || !!view.banner || !!view.berserk) && !view.walking && !view.battle;
@@ -785,6 +812,56 @@ export function PlayScreen({
                     <FeText text={l} />
                   </span>
                 ))}
+              </div>
+            );
+          })()}
+        {view.found &&
+          (() => {
+            // What a chest, village or house held (CallChestOpeningEvent, the village's scene); A, B or a tap closes it.
+            const f = view.found;
+            const game = f.item ? data.items.find((x) => x.entry.name === f.item) : undefined;
+            const name = game?.entry.gameName ?? f.item ?? '';
+            return (
+              <div className="fe-window broke-window found-window" role="status">
+                {f.text &&
+                  wrapWords(f.text, SAID_LINE).map((l, i) => (
+                    <span key={i} className="fe-line">
+                      <FeText text={l} />
+                    </span>
+                  ))}
+                {f.item && !f.full && (
+                  <span className="fe-line">
+                    <FeText text="Got " />
+                    <FeText text={name} colour="blue" />
+                    <FeText text=" " />
+                    <ItemIcon rom={data.rom} item={game} />
+                    <FeText text="." />
+                  </span>
+                )}
+                {f.item && f.full && (
+                  <span className="fe-line">
+                    <FeText text="Items full: left " />
+                    <FeText text={name} colour="blue" />
+                    <FeText text="." />
+                  </span>
+                )}
+                {f.gold !== undefined && (
+                  <span className="fe-line">
+                    <FeText text="Got " />
+                    <FeText text={f.gold} colour="blue" />
+                    <FeText text=" gold." />
+                  </span>
+                )}
+                {!f.text && !f.item && f.gold === undefined && (
+                  <span className="fe-line">
+                    <FeText text={f.kind === 'chest' ? 'The chest is empty.' : 'Nothing here.'} />
+                  </span>
+                )}
+                {f.more && (
+                  <span className="fe-line">
+                    <FeText text="(FE8's own scene does more here.)" colour="gold" />
+                  </span>
+                )}
               </div>
             );
           })()}

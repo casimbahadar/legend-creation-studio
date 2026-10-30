@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent
 import { isLordClass, mapEntry, mapRef, MAX_LEVEL, newProject, projectToJson, TEAMS, type PlaceKind, type Problem, type Project, type ProjectPlace, type ProjectUnit, type Team } from '../core/project';
 import { defaultItems, toCanvas } from '../play/catalog';
 import { chapterPlaces, placeKindAt } from '../play/places';
-import { decodeTextBytes } from '../rom/text';
 import { drawCursor } from '../play/draw';
 import { pickCharacter } from '../rom/fe8-character-names';
 import { idleFrame, spriteOrigin } from '../rom/fe8-map-sprites';
@@ -16,7 +15,7 @@ import { TEAM_LABELS } from './labels';
 import { PatchExport } from './PatchExport';
 import { PlayScreen } from './PlayScreen';
 import { ShareGame } from './ShareGame';
-import { findMap, loadProject, nextUnitId, saveFile, startingLevel, startingPlaces, unitCharacters, type EditorRom } from './project-io';
+import { findMap, loadProject, nextUnitId, plainText, saveFile, startingLevel, startingPlaces, unitCharacters, type EditorRom } from './project-io';
 import { newPlace, PlacePanel, PLACE_LABELS } from './PlacePanel';
 import { UnitPanel } from './UnitPanel';
 
@@ -49,18 +48,6 @@ function drawPlaceSpot(g: CanvasRenderingContext2D, x: number, y: number) {
   g.lineWidth = 1;
   g.strokeRect(x * 16 + 1.5, y * 16 + 1.5, 13, 13);
   g.setLineDash([]);
-}
-
-/** One of the ROM's messages as plain text: line breaks as spaces, control codes left out. */
-function plainText(data: EditorRom, id: number): string {
-  try {
-    const bytes = decodeTextBytes(data.rom, data.text, id);
-    return String.fromCharCode(...Array.from(bytes, (b) => (b === 1 ? 0x20 : b)).filter((b) => b >= 0x20 && b < 0x7f))
-      .replace(/\s+/g, ' ')
-      .trim();
-  } catch {
-    return '';
-  }
 }
 
 export function ChapterEditor({ data }: { data: EditorRom }) {

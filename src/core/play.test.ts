@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBattle, areFoes, cannotAct, clearStatus, endTurn, finishAction, moveUnit, outcomeOf, setBarrier, setStatus, spendUses, startPlay, tickStatuses, unitAt } from './play';
+import { applyBattle, areFoes, cannotAct, clearStatus, doorsBeside, endTurn, finishAction, moveUnit, openWithKey, outcomeOf, setBarrier, setStatus, spendUses, startPlay, tickStatuses, unitAt, visitPlace, type PlayPlace } from './play';
 import type { Stats } from './combat';
 import type { ProjectChapter } from './project';
 
@@ -99,3 +99,41 @@ describe('statuses', () => {
     expect(cannotAct(unitAt(setStatus(s, 'eirika', 'silence'), 1, 1)!)).toBe(false);
   });
 });
+
+describe('doors, chests, villages and houses', () => {
+  // Eirika at (1, 1) with a key of 3 uses: doors left of and above her, one further off, a chest of a
+  // Vulnerary under her, a village of 500 gold and a house that says something and gives an Elixir.
+  const places: PlayPlace[] = [
+    { kind: 'door', at: [0, 1] },
+    { kind: 'door', at: [1, 0] },
+    { kind: 'door', at: [3, 1] },
+    { kind: 'chest', at: [1, 1], item: 'vulnerary' },
+    { kind: 'village', at: [2, 2], gold: 500, text: 'Take this.' },
+    { kind: 'house', at: [3, 3], item: 'elixir', text: 'Hello.' },
+  ];
+  const keyed: ProjectChapter = { ...chapter, units: [{ ...chapter.units[0]!, items: ['rapier', 'door-key'] }, chapter.units[1]!] };
+  const usesOf = (item: string) => (item === 'door-key' ? 3 : item === 'vulnerary' ? 3 : null);
+  const s = startPlay(keyed, statsOf, () => null, usesOf, places);
+
+  it('opens every closed door beside the unit and its chest with one use of a key (ExecKeyItem)', () => {
+    expect(doorsBeside(s, [1, 1]).map((p) => p.at)).toEqual([[0, 1], [1, 0]]);
+    const { state, found } = openWithKey(s, 'eirika', 1, usesOf);
+    expect(state.places!.filter((p) => p.done).map((p) => p.at)).toEqual([[0, 1], [1, 0], [1, 1]]);
+    expect(unitAt(state, 1, 1)).toMatchObject({ items: ['rapier', 'door-key', 'vulnerary'], uses: [null, 2, 3] });
+    expect(found).toEqual({ kind: 'chest', unit: 'eirika', item: 'vulnerary' });
+    expect(doorsBeside(state, [1, 1])).toEqual([]);
+  });
+
+  it('gives a village\'s gold to the party, once, and leaves an item behind when the unit has no room', () => {
+    const there = moveUnit(s, 'eirika', [2, 2]);
+    const { state, found } = visitPlace(there, 'eirika');
+    expect([state.gold, found]).toEqual([500, { kind: 'village', unit: 'eirika', text: 'Take this.', gold: 500 }]);
+    expect(visitPlace(state, 'eirika').found).toBeNull();
+    const full = { ...moveUnit(s, 'eirika', [3, 3]) };
+    const packed = { ...full, units: full.units.map((u) => (u.id === 'eirika' ? { ...u, items: ['a', 'b', 'c', 'd', 'e'], uses: [null, null, null, null, null] } : u)) };
+    const visit = visitPlace(packed, 'eirika');
+    expect(visit.found).toEqual({ kind: 'house', unit: 'eirika', text: 'Hello.', item: 'elixir', full: true });
+    expect(unitAt(visit.state, 3, 3)!.items).toHaveLength(5);
+  });
+});
+

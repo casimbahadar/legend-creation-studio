@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chapterPlaces, fe8Places, placeKindAt } from './places';
+import { chapterPlaces, fe8Places, openedMap, placeKindAt } from './places';
 
 describe('doors, chests, villages and houses on a map', () => {
   // A 4 x 1 map: door, full chest, village, house; a tile change covers the first three squares but the last.
@@ -38,4 +38,16 @@ describe('doors, chests, villages and houses on a map', () => {
     expect(chapterPlaces({}, places)).toBe(places);
     expect(chapterPlaces({ places: [] }, places)).toEqual([]);
   });
+
+  it('applies the tile changes of opened doors, chests and villages to the map, and its terrain', () => {
+    const config = new Uint8Array(0x2400);
+    config[0x2000 + 1] = 0x17; // metatile 1: floor
+    const cells = Uint16Array.from([5, 5, 5, 5]);
+    const base = { chapter: 0, width: 4, height: 1, cells, terrain: Uint8Array.from([0x1e, 0x21, 0x03, 0x05]), tileset: { tiles: new Uint8Array(), config, palettes: [] } };
+    const one = [{ id: 0, x: 0, y: 0, width: 2, height: 1, tiles: [1, null] }];
+    expect(openedMap(base, one, [{ kind: 'door', at: [0, 0] }])).toBe(base);
+    const opened = openedMap(base, one, [{ kind: 'door', at: [0, 0], done: true }]);
+    expect([Array.from(opened.cells), Array.from(opened.terrain)]).toEqual([[1, 5, 5, 5], [0x17, 0x21, 0x03, 0x05]]);
+  });
 });
+
