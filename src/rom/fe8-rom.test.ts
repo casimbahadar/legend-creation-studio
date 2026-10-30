@@ -102,7 +102,8 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
   it('reads plausible class stats and terrain bonus tables', () => {
     for (const c of readClasses(rom, findTextTable(rom)!).filter((c) => c.id <= 0x4e)) {
       expect(c.base.hp).toBeGreaterThanOrEqual(10);
-      expect(c.base.hp).toBeLessThanOrEqual(40);
+      // The Gorgon Egg (class 0x34) starts with 50 HP; every other class with at most 40.
+      expect(c.base.hp).toBeLessThanOrEqual(c.id === 0x34 ? 50 : 40);
       expect(c.terrainAvoid).not.toBeNull();
       expect(c.terrainDef).not.toBeNull();
     }
@@ -172,7 +173,8 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     const group = readChapter(rom, text, 0).eventGroup!;
     expect(findChapterChange(rom, rom.offsetOf(rom.u32(group + EVENT_GROUP.endingScene)))).toBe(0x00012a22); // MNC2(1)
     const rout = CHAPTER_TABLE + ROUT_GOAL_CHAPTER * CHAPTER_STRIDE;
-    expect(decodeText(rom, text, rom.u16(rout + 0x88))).toMatch(/^Defeat all\s*enemy units/);
+    // Its two lines are split by FE8's line break (control code 0x01).
+    expect(decodeText(rom, text, rom.u16(rout + 0x88))).toMatch(/^Defeat all\[0x01\]enemy units/);
     expect(decodeText(rom, text, rom.u16(rout + 0x8a))).toMatch(/^Defeat enemy/);
     expect(rom.u8(rout + 0x8c)).toBe(1); // goal window type: Defeat all
   });
@@ -317,7 +319,9 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
     }
     // Every window draws something, and a frame is drawn all over.
     for (const img of [drawUnitWindow(art, 'player'), drawGoalWindow(art, 1), drawGoalWindow(art, 2)]) expect(contentBounds(img)).not.toBeNull();
-    expect(contentBounds(drawFrame(art, 7, 6))).toEqual({ x: 0, y: 0, width: 56, height: 48 });
+    // FE8's frame stops short of the tiles' edges at the left, right and bottom (its corner ornament
+    // and shadow), as drawn from the clean ROM.
+    expect(contentBounds(drawFrame(art, 7, 6))).toEqual({ x: 3, y: 0, width: 48, height: 45 });
   });
 
   it('reads the map cursor corner', () => {
@@ -338,8 +342,9 @@ describe.skipIf(!romPath)('clean FE8 US ROM (LCS_FE8_ROM)', () => {
   });
 
   it('reads what classes and characters count for in experience', () => {
-    // src/data_classes.c: Eirika's Lord caps most stats at 20, has relative power 3 and promotes to class 4.
-    const lord = readClassStats(rom, 1);
+    // src/data_classes.c: Eirika's Lord (class 2; class 1 is Ephraim's) caps most stats at 20, has
+    // relative power 3 and promotes to class 4, her Great Lord.
+    const lord = readClassStats(rom, 2);
     expect([lord.caps.hp, lord.caps.str, lord.power, lord.promotion]).toEqual([60, 20, 3, 4]);
     expect(lord.attributes & CA_PROMOTED).toBe(0);
     expect(readClassStats(rom, 7).attributes & CA_PROMOTED).toBe(CA_PROMOTED); // Paladin
