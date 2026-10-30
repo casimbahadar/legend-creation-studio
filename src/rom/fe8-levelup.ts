@@ -1,6 +1,6 @@
 // FE8 US's level-up screen on the map (decision 35), from the fireemblem8u decompilation
 // (src/mapanim_lvup.c, src/mapanim_lvupfx.c, data/data-banimmisc.s): a box (Img_LevelUpBoxFrame, LZ77
-// tiles, and Tsa_LevelUpBoxFrame, an LZ77 tilemap of 32 x 28 entries row by row from the top, in
+// tiles, and Tsa_LevelUpBoxFrame, an LZ77 tilemap of entries 32 to a row from the top, laid out as 32 x 28, in
 // Pal_LevelUpBoxFrame) that scrolls up from the bottom of the screen with the class name, the level and
 // the stats written on it, the portrait at its right, and a label for each gain.
 
@@ -29,11 +29,13 @@ export function readLevelUpBox(rom: GbaRom): Image | null {
   } catch {
     return null;
   }
-  if (!tiles.length || map.length < MAP_WIDTH * MAP_HEIGHT * 2) return null;
+  // PutTmLinear copies 32 x 28 entries, but the tilemap holds fewer (15 rows on the clean ROM): the rest
+  // is what the buffer held, here entry 0, the box's first tile.
+  if (!tiles.length || map.length < MAP_WIDTH * 2) return null;
   const entries = new Uint16Array(LEVEL_UP_BOX_WIDTH / 8 * MAP_HEIGHT);
   const w = LEVEL_UP_BOX_WIDTH / 8;
   for (let y = 0; y < MAP_HEIGHT; y++) {
-    for (let x = 0; x < w; x++) entries[y * w + x] = map[(y * MAP_WIDTH + x) * 2]! | (map[(y * MAP_WIDTH + x) * 2 + 1]! << 8);
+    for (let x = 0; x < w; x++) entries[y * w + x] = (map[(y * MAP_WIDTH + x) * 2] ?? 0) | ((map[(y * MAP_WIDTH + x) * 2 + 1] ?? 0) << 8);
   }
   const [palette] = readPalettes(rom, FE8U_LEVEL_UP_BOX_PALETTE, 1);
   // PutTmLinear adds the tiles' place in VRAM (tile 0x200) and the palette; the entries count from 0.
