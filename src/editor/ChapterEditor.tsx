@@ -386,7 +386,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                             <span key={k}>
                               {i > 0 && ', '}
                               <span className="place-swatch" style={{ background: PLACE_COLOURS[k] }} />
-                              {`${n} ${PLACE_LABELS[k].toLowerCase()}${n === 1 ? '' : k === 'chest' ? 'es' : 's'}`}
+                              {`${n} ${PLACE_LABELS[k].toLowerCase()}${n === 1 ? '' : 's'}`}
                             </span>
                           ))
                       : 'None yet'}
