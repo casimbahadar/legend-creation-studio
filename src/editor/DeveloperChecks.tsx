@@ -17,12 +17,13 @@ import { decodeText, findTextTable, type TextTable } from '../rom/text';
 import { STAT_LABELS } from './labels';
 import type { EditorRom } from './project-io';
 
-export function DeveloperChecks({ rom, text, data }: { rom: GbaRom; text: TextTable | null; data: EditorRom | null }) {
+/** `warn`: say at the top when names don't match the ROM (the editor says it itself once it shows). */
+export function DeveloperChecks({ rom, text, data, warn = true }: { rom: GbaRom; text: TextTable | null; data: EditorRom | null; warn?: boolean }) {
   const [textId, setTextId] = useState('');
   const mismatched = data ? data.mismatches.length + data.itemMismatches.length + data.characterMismatches.length : 0;
   return (
     <section className="panel">
-      {mismatched > 0 && (
+      {warn && mismatched > 0 && (
         <p className="bad">Some class, item or character names don't match your ROM, so parts of the editor may not work. See Developer checks below.</p>
       )}
       <details className="developer">

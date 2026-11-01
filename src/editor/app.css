@@ -1083,3 +1083,136 @@ a.button {
   image-rendering: pixelated;
   pointer-events: none;
 }
+
+/* The editor, map first (decision 39). Once the ROM is read, a slim bar replaces the intro. */
+.app-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.app-bar strong { margin-right: auto; }
+
+.link-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The chapter's name with Save and Open, on one line. */
+.editor-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.project-name {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  /* 16px stops iPhone Safari zooming in on focus */
+  font-size: 16px;
+}
+
+.editor-bar .button {
+  min-height: 44px;
+  padding: 0.5rem 0.9rem;
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+}
+
+.save-note { margin-top: 0.35rem; font-size: 0.8rem; }
+
+/* Map, Chapter and Share, across the width. */
+.tabs {
+  display: flex;
+  margin: 0.75rem 0;
+  border-bottom: 2px solid color-mix(in srgb, var(--text) 15%, transparent);
+}
+
+.tabs button {
+  flex: 1;
+  min-height: 44px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabs button[aria-selected='true'] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tabs button:disabled { opacity: 0.4; cursor: default; }
+
+/* Controls over the map: wrapped onto as few lines as fit. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.toolbar .segmented { margin-top: 0; }
+
+.inline-field { flex: 1; min-width: 10rem; }
+
+.pick-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, #f8d840 35%, transparent);
+  font-weight: 600;
+}
+
+.pick-banner .button { min-height: 40px; padding: 0.25rem 0.9rem; border: 0; font: inherit; }
+
+/* A unit's or door's panel, over the bottom of the screen so the map stays in view. */
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  max-height: 50vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 1rem max(0.75rem, env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.25);
+}
+
+.sheet .unit-panel {
+  max-width: 40rem;
+  margin: 0 auto;
+  background: transparent;
+}
+
+/* Room under the page so all of the map can be scrolled above the sheet. */
+.editor.sheet-open { padding-bottom: 50vh; }

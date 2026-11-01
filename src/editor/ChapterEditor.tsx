@@ -1,7 +1,10 @@
-// The chapter editor: name, map and units in Edit mode, and test play on the same map through the
-// shared PlayScreen. Play's rules, drawing and the ROM catalog live in src/play.
+// The chapter editor (decision 39): a top bar with the chapter's name and Save/Open, then tabs: Map
+// (units, doors, chests and villages in Edit mode, and test play on the same map through the shared
+// PlayScreen), Chapter (which map, the goal) and Share (the patch, the web game). A unit's or door's
+// panel opens as a sheet over the bottom of the screen. Play's rules, drawing and the ROM catalog live
+// in src/play.
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
 import { isLordClass, mapEntry, mapRef, MAX_LEVEL, newProject, projectToJson, TEAMS, type PlaceKind, type Problem, type Project, type ProjectPlace, type ProjectUnit, type Team } from '../core/project';
 import { defaultItems, toCanvas } from '../play/catalog';
 import { chapterPlaces, placeKindAt } from '../play/places';
@@ -50,7 +53,12 @@ function drawPlaceSpot(g: CanvasRenderingContext2D, x: number, y: number) {
   g.setLineDash([]);
 }
 
-export function ChapterEditor({ data }: { data: EditorRom }) {
+type Tab = 'map' | 'play' | 'chapter' | 'share';
+const TABS: readonly Tab[] = ['map', 'play', 'chapter', 'share'];
+const TAB_LABELS: Record<Tab, string> = { map: 'Map', play: 'Test play', chapter: 'Chapter', share: 'Share' };
+
+/** The chapter editor; `extra` goes at the end of the Share tab (the developer checks). */
+export function ChapterEditor({ data, extra }: { data: EditorRom; extra?: ReactNode }) {
   const store = useMemo(() => deviceStore(), []);
   // Restore the autosaved chapter if it still checks out against this ROM; otherwise start fresh.
   const [start] = useState(() => {
@@ -83,6 +91,10 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
   const [editing, setEditing] = useState<string | null>(null);
   /** Whether the next map tap chooses the square to seize. */
   const [pickingSeize, setPickingSeize] = useState(false);
+  /** The row of the last square tapped on the map, to keep it in view above a panel. */
+  const tappedRow = useRef(0);
+  /** Which tab shows (decision 39). */
+  const [tab, setTab] = useState<Tab>('map');
   /** What a map tap places: units, or doors, chests, villages and houses (decision 38). */
   const [placing, setPlacing] = useState<'units' | 'places'>('units');
   /** The square of the door, chest, village or house whose panel is open. */
@@ -162,6 +174,7 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
     const y = Math.floor(((event.clientY - rect.top) / rect.height) * (c.height / 16));
     const art = data.art[artIndex];
     if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return;
+    tappedRow.current = y;
     if (pickingSeize) {
       setPickingSeize(false);
       updateChapter({ seizeAt: [x, y] });
@@ -268,17 +281,25 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
 
   const counts = TEAMS.map((t) => [t, chapter.units.filter((u) => u.team === t).length] as const).filter(([, n]) => n > 0);
 
+  const sheetOpen = tab === 'map' && (editing !== null || editingPlace !== null);
+  // When a panel opens, the page scrolls so the tapped square sits near the top, clear of the sheet.
+  useEffect(() => {
+    const c = canvas.current;
+    if (!sheetOpen || !c || !map) return;
+    const rect = c.getBoundingClientRect();
+    const square = rect.top + window.scrollY + ((tappedRow.current + 0.5) / map.height) * rect.height;
+    window.scrollTo({ top: Math.max(0, square - window.innerHeight * 0.2), behavior: 'smooth' });
+  }, [sheetOpen, editing, editingPlace, map]);
+  /** Test play is a tab of its own; leaving it ends the session, as Back to editing does. */
+  const goToTab = (t: Tab) => {
+    setMode(t === 'play');
+    setTab(t);
+  };
+
   return (
-    <section className="panel">
-      <h2>Your chapter</h2>
-      <p className="note">Whatever the goal, the chapter is lost if a unit marked Must survive falls, or all your units fall.</p>
-
-      <label className="field">
-        Project name
-        <input type="text" value={project.name} onChange={(e) => setProject({ ...project, name: e.target.value })} />
-      </label>
-
-      <div className="stepper">
+    <section className={sheetOpen ? 'editor sheet-open' : 'editor'}>
+      <div className="editor-bar">
+        <input className="project-name" type="text" aria-label="Project name" value={project.name} onChange={(e) => setProject({ ...project, name: e.target.value })} />
         <button type="button" className="button" disabled={!project.name.trim()} onClick={onSave}>
           Save
         </button>
@@ -287,11 +308,9 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
           <input type="file" className="visually-hidden" onChange={onOpen} />
         </label>
       </div>
-      <p className="note">
-        {untouched ? 'Nothing to save yet.' : unsaved ? 'Changes not saved to a file yet.' : 'Everything is saved to a file.'}{' '}
-        {autosaveOk
-          ? 'Your chapter is also kept on this device between visits.'
-          : "This browser won't keep your chapter between visits (private browsing?), so tap Save before leaving."}
+      <p className="note save-note">
+        {untouched ? 'Nothing to save yet.' : unsaved ? 'Not saved to a file yet; kept on this device.' : 'Saved to a file.'}
+        {!autosaveOk && " This browser won't keep your chapter between visits (private browsing?), so tap Save before leaving."}
       </p>
       {status && (
         <div className={status.ok ? 'good' : 'bad'} role="status">
@@ -308,32 +327,15 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
 
       {map ? (
         <>
-          <p>
-            <strong>{data.chapterTitles[map.chapter] || `Chapter entry ${map.chapter}`}</strong>
-            <br />
-            <span className="note">
-              Map {mapIndex + 1} of {data.maps.length} · {map.width} × {map.height} squares · chapter entry {map.chapter}
-            </span>
-          </p>
-          <div className="stepper">
-            <button type="button" className="button" disabled={mapIndex <= 0 || playing} onClick={() => goTo(mapIndex - 1)}>
-              Previous map
-            </button>
-            <button type="button" className="button" disabled={mapIndex >= data.maps.length - 1 || playing} onClick={() => goTo(mapIndex + 1)}>
-              Next map
-            </button>
+          <div className="tabs" role="tablist" aria-label="Chapter">
+            {TABS.map((t) => (
+              <button key={t} type="button" role="tab" aria-selected={tab === t} disabled={t === 'play' && !chapter.units.length} onClick={() => goToTab(t)}>
+                {TAB_LABELS[t]}
+              </button>
+            ))}
           </div>
 
-          <div className="segmented" role="group" aria-label="Mode">
-            <button type="button" aria-pressed={!playing} onClick={() => setMode(false)}>
-              Edit
-            </button>
-            <button type="button" aria-pressed={playing} disabled={!chapter.units.length} onClick={() => setMode(true)}>
-              Test play
-            </button>
-          </div>
-
-          {playing && mapImage ? (
+          {tab === 'play' && playing && mapImage && (
             <PlayScreen
               data={data}
               chapter={chapter}
@@ -341,42 +343,78 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
               mapImage={mapImage}
               artByName={artByName}
               exitLabel="Back to editing"
-              onExit={() => setMode(false)}
+              onExit={() => goToTab('map')}
               note="Test play doesn't change your chapter."
             />
-          ) : (
+          )}
+
+          {tab === 'map' && (
             <>
-              <GoalPanel chapter={chapter} picking={pickingSeize} onPicking={setPickingSeize} onChange={updateChapter} />
-              <div className="segmented" role="group" aria-label="What to place">
-                <button
-                  type="button"
-                  aria-pressed={placing === 'units'}
-                  onClick={() => {
-                    setPlacing('units');
-                    setEditingPlace(null);
-                  }}
-                >
-                  Units
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={placing === 'places'}
-                  onClick={() => {
-                    setPlacing('places');
-                    setEditing(null);
-                  }}
-                >
-                  Doors, chests, villages
-                </button>
+              <div className="toolbar">
+                <div className="segmented" role="group" aria-label="What to place">
+                  <button
+                    type="button"
+                    aria-pressed={placing === 'units'}
+                    onClick={() => {
+                      setPlacing('units');
+                      setEditingPlace(null);
+                    }}
+                  >
+                    Units
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={placing === 'places'}
+                    onClick={() => {
+                      setPlacing('places');
+                      setEditing(null);
+                    }}
+                  >
+                    Doors, chests, villages
+                  </button>
+                </div>
               </div>
-              {placing === 'places' && (
+              {pickingSeize && (
+                <div className="pick-banner" role="status">
+                  <span>Tap the square to seize.</span>
+                  <button type="button" className="button button-secondary" onClick={() => setPickingSeize(false)}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {placing === 'units' && data.art.length > 0 && (
+                <div className="unit-controls toolbar">
+                  <label className="field inline-field">
+                    <span className="visually-hidden">Class</span>
+                    <select value={artIndex} onChange={(e) => setArtIndex(Number(e.target.value))}>
+                      {data.art.map((a, i) => (
+                        <option key={a.entry.name} value={i}>
+                          {a.entry.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="segmented" role="group" aria-label="Team">
+                    {TEAMS.map((t) => (
+                      <button key={t} type="button" aria-pressed={team === t} onClick={() => setTeam(t)}>
+                        {TEAM_LABELS[t]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="map-wrap">
+                <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+              </div>
+              {placing === 'units' ? (
+                <p className="note">
+                  {counts.length
+                    ? `${chapter.units.length} ${chapter.units.length === 1 ? 'unit' : 'units'}: ${counts.map(([t, n]) => `${n} ${TEAM_LABELS[t].toLowerCase()}`).join(', ')}. `
+                    : 'No units yet. '}
+                  Tap an empty square to place a unit, or a unit to change it.
+                </p>
+              ) : (
                 <div className="place-controls">
-                  <p className="note">
-                    {spots.length
-                      ? 'Tap a dotted square to put a door, chest, village or house there, or tap one to change it. Only squares the map can open or close are dotted.'
-                      : 'This map has no doors, chests, villages or houses to use.'}{' '}
-                    Test play opens them as FE8 does: a key, a thief&apos;s Lockpick or a Rogue&apos;s Pick for doors and chests, the Unlock staff for doors, Visit for villages and houses.
-                  </p>
                   <p className="note">
                     {places.length
                       ? (Object.keys(PLACE_LABELS) as PlaceKind[])
@@ -390,7 +428,13 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                             </span>
                           ))
                       : 'None yet'}
-                    {chapter.places === undefined && places.length ? ', as FE8 has them on this map.' : '.'}
+                    {chapter.places === undefined && places.length ? ', as FE8 has them on this map.' : '.'}{' '}
+                    {spots.length
+                      ? 'Tap a dotted square to add one, or a marked one to change it. Only squares the map can open or close are dotted.'
+                      : 'This map has no doors, chests, villages or houses to use.'}
+                  </p>
+                  <p className="note">
+                    Test play opens them as FE8 does: a key, a thief&apos;s Lockpick or a Rogue&apos;s Pick for doors and chests, the Unlock staff for doors, Visit for villages and houses.
                   </p>
                   {chapter.places !== undefined && fe8Start.length > 0 && (
                     <div className="stepper">
@@ -408,31 +452,50 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                   )}
                 </div>
               )}
-              {placing === 'units' && data.art.length > 0 && (
-                <div className="unit-controls">
-                  <label className="field">
-                    Class
-                    <select value={artIndex} onChange={(e) => setArtIndex(Number(e.target.value))}>
-                      {data.art.map((a, i) => (
-                        <option key={a.entry.name} value={i}>
-                          {a.entry.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="segmented" role="group" aria-label="Team">
-                    {TEAMS.map((t) => (
-                      <button key={t} type="button" aria-pressed={team === t} onClick={() => setTeam(t)}>
-                        {TEAM_LABELS[t]}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="note">Tap an empty square to place a unit. Tap a unit to change its items or remove it.</p>
-                </div>
-              )}
-              <div className="map-wrap">
-                <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+            </>
+          )}
+
+          {tab === 'chapter' && (
+            <>
+              <p>
+                <strong>{data.chapterTitles[map.chapter] || `Chapter entry ${map.chapter}`}</strong>
+                <br />
+                <span className="note">
+                  Map {mapIndex + 1} of {data.maps.length} · {map.width} × {map.height} squares · chapter entry {map.chapter}
+                </span>
+              </p>
+              <div className="stepper">
+                <button type="button" className="button" disabled={mapIndex <= 0} onClick={() => goTo(mapIndex - 1)}>
+                  Previous map
+                </button>
+                <button type="button" className="button" disabled={mapIndex >= data.maps.length - 1} onClick={() => goTo(mapIndex + 1)}>
+                  Next map
+                </button>
               </div>
+              <GoalPanel
+                chapter={chapter}
+                picking={pickingSeize}
+                onPicking={(picking) => {
+                  setPickingSeize(picking);
+                  // The square is chosen on the map.
+                  if (picking) setTab('map');
+                }}
+                onChange={updateChapter}
+              />
+              <p className="note">Whatever the goal, the chapter is lost if a unit marked Must survive falls, or all your units fall.</p>
+            </>
+          )}
+
+          {tab === 'share' && (
+            <>
+              <PatchExport data={data} project={project} chapter={chapter} onChange={(replaces) => updateChapter({ replaces })} />
+              <ShareGame project={project} />
+              {extra}
+            </>
+          )}
+
+          {sheetOpen && (
+            <div className="sheet" role="dialog" aria-label={editing ? 'Unit' : 'Door, chest or village'}>
               {editingPlace &&
                 (() => {
                   const place = places.find((p) => key(p.at) === editingPlace);
@@ -472,20 +535,12 @@ export function ChapterEditor({ data }: { data: EditorRom }) {
                     />
                   ) : null;
                 })()}
-            </>
+            </div>
           )}
-          <p className="note">
-            {counts.length
-              ? `${chapter.units.length} ${chapter.units.length === 1 ? 'unit' : 'units'}: ${counts.map(([t, n]) => `${n} ${TEAM_LABELS[t].toLowerCase()}`).join(', ')}`
-              : 'No units yet.'}
-          </p>
-          {!playing && <PatchExport data={data} project={project} chapter={chapter} onChange={(replaces) => updateChapter({ replaces })} />}
-          {!playing && <ShareGame project={project} />}
         </>
       ) : (
         <p className="bad">Couldn't find any chapter maps in this ROM.</p>
       )}
-
     </section>
   );
 }
