@@ -4,7 +4,7 @@
 // panel opens as a sheet over the bottom of the screen. Play's rules, drawing and the ROM catalog live
 // in src/play.
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
 import { isLordClass, mapEntry, mapRef, MAX_LEVEL, newProject, projectToJson, TEAMS, type PlaceKind, type Problem, type Project, type ProjectPlace, type ProjectUnit, type Team } from '../core/project';
 import { defaultItems, toCanvas } from '../play/catalog';
 import { chapterPlaces, placeKindAt } from '../play/places';
@@ -85,7 +85,13 @@ export function ChapterEditor({ data, extra }: { data: EditorRom; extra?: ReactN
   useEffect(() => {
     setAutosaveOk(writeAutosave(store, { project, savedJson }));
   }, [store, project, savedJson]);
-  const canvas = useRef<HTMLCanvasElement>(null);
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  // The map's canvas, kept in state too: leaving the Map tab removes it, so a new one must be drawn on.
+  const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
+  const canvasRef = useCallback((el: HTMLCanvasElement | null) => {
+    canvas.current = el;
+    setCanvasEl(el);
+  }, []);
   const [playing, setPlaying] = useState(false);
   /** The placed unit whose panel is open in Edit mode. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -121,7 +127,7 @@ export function ChapterEditor({ data, extra }: { data: EditorRom; extra?: ReactN
 
   // Edit mode's map: the placed units, idling, and a cursor on the one being edited.
   useEffect(() => {
-    const c = canvas.current;
+    const c = canvasEl;
     const g = c?.getContext('2d');
     if (playing || !c || !g || !mapImage) return;
     c.width = mapImage.width;
@@ -150,7 +156,7 @@ export function ChapterEditor({ data, extra }: { data: EditorRom; extra?: ReactN
     };
     draw(performance.now());
     return () => cancelAnimationFrame(raf);
-  }, [playing, mapImage, chapter.units, chapter.goal, chapter.seizeAt, artByName, editing, cursorCorner, places, spots, placing, editingPlace]);
+  }, [canvasEl, playing, mapImage, chapter.units, chapter.goal, chapter.seizeAt, artByName, editing, cursorCorner, places, spots, placing, editingPlace]);
 
   function updateChapter(change: Partial<typeof chapter>) {
     setProject({ ...project, chapters: [{ ...chapter, ...change }] });
@@ -404,7 +410,7 @@ export function ChapterEditor({ data, extra }: { data: EditorRom; extra?: ReactN
                 </div>
               )}
               <div className="map-wrap">
-                <canvas ref={canvas} className="map" aria-label="Chapter map" onClick={onMapTap} />
+                <canvas ref={canvasRef} className="map" aria-label="Chapter map" onClick={onMapTap} />
               </div>
               {placing === 'units' ? (
                 <p className="note">
